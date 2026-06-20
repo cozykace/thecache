@@ -438,6 +438,21 @@ body.sidebar-open .sidebar { transform: none; }
 }
 .menu-item:hover { background: rgba(255, 255, 255, 0.4); }
 
+/* ── sync health (bottom-right) ─────────────────── */
+.sync-health {
+  position: fixed; bottom: 14px; right: 14px; z-index: 55;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 11px; border: 1px solid var(--edge); border-radius: 999px;
+  background: var(--paper); cursor: pointer;
+  font-family: inherit; font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: rgba(var(--ink-rgb), 0.6);
+  transition: background 0.15s ease;
+}
+.sync-health:hover { background: var(--panel); }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #3f8f4e; flex-shrink: 0; }
+.sync-health.syncing .sync-dot { animation: syncblink 1s steps(1) infinite; }
+@keyframes syncblink { 50% { opacity: 0.2; } }
+
 /* ── footer ─────────────────────────────────────── */
 .foot {
   position: fixed; bottom: 16px; left: 0; right: 0; text-align: center;

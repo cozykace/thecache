@@ -744,6 +744,44 @@ themeBtn.addEventListener("click", (e) => {
 });
 applyTheme(localStorage.getItem(THEME_KEY) || "light");
 
+// ── Sync health (bottom-right) ─────────────────────────────
+const syncHealth = document.getElementById("syncHealth");
+const syncDot = syncHealth.querySelector(".sync-dot");
+const syncText = syncHealth.querySelector(".sync-text");
+function ageStr(ms) {
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return m + "m ago";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h ago";
+  const d = Math.floor(h / 24);
+  return d === 1 ? "yesterday" : d + "d ago";
+}
+function updateSyncHealth() {
+  fetch("data/balances.json?t=" + Date.now())
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (!d || !d.updated) { syncDot.style.background = "#c9542e"; syncText.textContent = "no sync"; return; }
+      const hrs = (Date.now() - new Date(d.updated).getTime()) / 3600000;
+      syncDot.style.background = hrs < 12 ? "#3f8f4e" : hrs < 48 ? "#d6920f" : "#c9542e";
+      syncText.textContent = "synced " + ageStr(Date.now() - new Date(d.updated).getTime());
+    })
+    .catch(() => {});
+}
+syncHealth.addEventListener("click", () => {
+  syncHealth.classList.add("syncing");
+  syncText.textContent = "syncing…";
+  fetch("/api/sync", { method: "POST" })
+    .then((r) => r.json())
+    .then((d) => {
+      if (d && d.ok) location.reload();
+      else { syncText.textContent = "sync failed"; syncHealth.classList.remove("syncing"); }
+    })
+    .catch(() => { syncText.textContent = "backend off"; syncHealth.classList.remove("syncing"); });
+});
+updateSyncHealth();
+setInterval(updateSyncHealth, 60000);
+
 // ── Menu: reset ────────────────────────────────────────────
 document.getElementById("resetLayout").addEventListener("click", () => {
   localStorage.removeItem(LAYOUT_KEY);

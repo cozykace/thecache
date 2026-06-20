@@ -61,27 +61,35 @@ def fetch_accounts(access_url, start_date=None):
         return json.loads(r.read().decode("utf-8"))
 
 
-def main():
-    args = sys.argv[1:]
-    if args and args[0] == "setup":
-        token = args[1] if len(args) > 1 else input(
-            "\nPaste your SimpleFIN setup token, then press Enter:\n> ")
-        access_url = claim_setup_token(token)
-    else:
+def run_sync(access_url=None):
+    """Pull from the bank and write the local data files. Returns the snapshot.
+    Callable from server.py so the dashboard can trigger a live sync."""
+    if access_url is None:
         if not os.path.exists(SECRET):
-            print("No connection yet. First run:  python3 sync.py setup")
-            sys.exit(1)
+            raise RuntimeError("not connected — run: python3 sync.py setup")
         access_url = open(SECRET).read().strip()
-
     now = int(time.time())
     data = fetch_accounts(access_url, now - (WINDOW_DAYS + 5) * 86400)
     snapshot, txns = store.build_snapshot(data.get("accounts", []), WINDOW_DAYS, now)
     store.save_balances(snapshot)
     store.save_transactions(txns, WINDOW_DAYS)
     store.append_history(snapshot)
+    return snapshot, len(txns)
 
+
+def main():
+    args = sys.argv[1:]
+    access_url = None
+    if args and args[0] == "setup":
+        token = args[1] if len(args) > 1 else input(
+            "\nPaste your SimpleFIN setup token, then press Enter:\n> ")
+        access_url = claim_setup_token(token)
+    elif not os.path.exists(SECRET):
+        print("No connection yet. First run:  python3 sync.py setup")
+        sys.exit(1)
+    snapshot, n = run_sync(access_url)
     # note: we don't print balances/totals to the terminal
-    print(f"✓ Synced {len(snapshot['accounts'])} account(s), {len(txns)} transactions.")
+    print(f"✓ Synced {len(snapshot['accounts'])} account(s), {n} transactions.")
     print("  Reload the dashboard to see it.")
 
 
