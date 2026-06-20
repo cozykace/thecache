@@ -19,7 +19,8 @@ import store
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SECRET = os.path.join(HERE, ".simplefin")  # access URL (credential), gitignored
-WINDOW_DAYS = 30
+WINDOW_DAYS = 30   # the summary window (spending pace, breakdown)
+FETCH_DAYS = 90    # pull this much history each sync (banks vary); ledger keeps it all
 
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
       "AppleWebKit/537.36 (KHTML, like Gecko) money-sync/1.0")
@@ -69,13 +70,16 @@ def run_sync(access_url=None):
             raise RuntimeError("not connected — run: python3 sync.py setup")
         access_url = open(SECRET).read().strip()
     now = int(time.time())
-    data = fetch_accounts(access_url, now - (WINDOW_DAYS + 5) * 86400)
-    snapshot, txns = store.build_snapshot(data.get("accounts", []), WINDOW_DAYS, now)
+    data = fetch_accounts(access_url, now - (FETCH_DAYS + 2) * 86400)
+    snapshot, txns = store.build_snapshot(data.get("accounts", []), WINDOW_DAYS, now, FETCH_DAYS)
     store.save_balances(snapshot)
-    store.save_transactions(txns, WINDOW_DAYS)
+    # transactions.json = recent working window; ledger = everything, forever
+    window_cutoff = now - WINDOW_DAYS * 86400
+    store.save_transactions([t for t in txns if t["posted"] >= window_cutoff], WINDOW_DAYS)
+    total_ledger = store.merge_ledger(txns)
     store.append_history(snapshot)
     store.append_synclog(len(snapshot["accounts"]), len(txns))
-    return snapshot, len(txns)
+    return snapshot, len(txns), total_ledger
 
 
 def main():
@@ -88,9 +92,9 @@ def main():
     elif not os.path.exists(SECRET):
         print("No connection yet. First run:  python3 sync.py setup")
         sys.exit(1)
-    snapshot, n = run_sync(access_url)
+    snapshot, n, ledger = run_sync(access_url)
     # note: we don't print balances/totals to the terminal
-    print(f"✓ Synced {len(snapshot['accounts'])} account(s), {n} transactions.")
+    print(f"✓ Synced {len(snapshot['accounts'])} account(s), {n} transactions ({ledger} kept in ledger).")
     print("  Reload the dashboard to see it.")
 
 

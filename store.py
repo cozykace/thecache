@@ -23,6 +23,7 @@ TRANSACTIONS = os.path.join(DATA, "transactions.json")
 HISTORY = os.path.join(DATA, "history.json")
 CATEGORIES = os.path.join(DATA, "categories.json")
 SYNCLOG = os.path.join(DATA, "synclog.json")
+LEDGER = os.path.join(DATA, "ledger.json")  # permanent, ever-growing transaction store
 
 # Built-in keyword rules (first match wins). User overrides in categories.json
 # are checked first, so anything you teach it takes priority.
@@ -146,10 +147,12 @@ def other_merchants(txns, overrides, limit=14):
     return rows[:limit]
 
 
-def build_snapshot(accounts, window_days=30, now=None):
+def build_snapshot(accounts, window_days=30, now=None, fetch_days=None):
     now = now or int(time.time())
+    fetch_days = fetch_days or window_days
     overrides = load_overrides()
-    cutoff = now - window_days * 86400
+    fetch_cutoff = now - fetch_days * 86400      # keep txns this far back
+    summary_cutoff = now - window_days * 86400   # but only summarize this window
     mid = now - (window_days // 2) * 86400
     total = cash = outflow = recent = older = 0.0
     income_total = 0.0
@@ -169,11 +172,13 @@ def build_snapshot(accounts, window_days=30, now=None):
                 amt = float(t.get("amount", 0) or 0)
             except (TypeError, ValueError):
                 continue
-            if posted < cutoff:
+            if posted < fetch_cutoff:
                 continue
             desc = t.get("description") or t.get("payee") or ""
-            txns.append({"posted": posted, "amount": round(amt, 2),
+            txns.append({"id": t.get("id"), "posted": posted, "amount": round(amt, 2),
                          "description": desc, "account": a.get("name", "Account")})
+            if posted < summary_cutoff:
+                continue  # kept in the ledger, but outside the summary window
             if amt < 0:
                 spend = -amt
                 outflow += spend
@@ -250,6 +255,20 @@ def append_history(snapshot, cap=400):
     else:
         hist.append(entry)
     _write(HISTORY, hist[-cap:])
+
+
+def merge_ledger(txns):
+    """Accumulate transactions permanently, deduped by id — nothing is ever
+    lost once synced. This is the growing source of truth for history."""
+    led = _read(LEDGER, {})
+    if not isinstance(led, dict):
+        led = {}
+    for t in txns:
+        key = t.get("id") or (str(t.get("posted")) + "|" + str(t.get("amount")) +
+                              "|" + (t.get("description") or "")[:40])
+        led[str(key)] = t
+    _write(LEDGER, led)
+    return len(led)
 
 
 def append_synclog(accounts, transactions, cap=50):

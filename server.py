@@ -63,8 +63,8 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/sync":
             try:
                 import sync
-                snap, n = sync.run_sync()
-                return self._json(200, {"ok": True, "updated": snap["updated"], "transactions": n})
+                snap, n, ledger = sync.run_sync()
+                return self._json(200, {"ok": True, "updated": snap["updated"], "transactions": n, "ledger": ledger})
             except Exception as e:
                 return self._json(500, {"ok": False, "error": str(e)})
         return self._json(404, {"error": "not found"})
