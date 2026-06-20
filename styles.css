@@ -4,13 +4,21 @@
    ─────────────────────────────────────────────── */
 
 :root {
+  --ink-rgb: 28, 26, 18;
   --paper: #ece6d6;
   --panel: #e4ddca;
-  --ink: #1c1a12;
+  --ink: rgb(var(--ink-rgb));
   --accent: #c9542e;
-  --edge: rgba(28, 26, 18, 0.30);
-  --edge-soft: rgba(28, 26, 18, 0.14);
+  --edge: rgba(var(--ink-rgb), 0.30);
+  --edge-soft: rgba(var(--ink-rgb), 0.14);
 }
+:root[data-theme="dark"] {
+  --ink-rgb: 232, 227, 213;
+  --paper: #14130e;
+  --panel: #1d1b14;
+  --accent: #e0734a;
+}
+html { background: var(--paper); }
 
 * { box-sizing: border-box; }
 
@@ -18,7 +26,7 @@ html, body { height: 100%; margin: 0; }
 
 body {
   background-color: var(--paper);
-  background-image: radial-gradient(rgba(28, 26, 18, 0.06) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(var(--ink-rgb), 0.06) 1px, transparent 1px);
   background-size: 14px 14px;
   color: var(--ink);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -43,7 +51,7 @@ body {
   transition: box-shadow 0.18s ease;
   container-type: size;
 }
-.widget.dragging { box-shadow: 0 14px 40px -12px rgba(28, 26, 18, 0.35); }
+.widget.dragging { box-shadow: 0 14px 40px -12px rgba(var(--ink-rgb), 0.35); }
 
 /* bare mode — strip border, background, shadow down to just content */
 .widget.bare { background: transparent; border-color: transparent; }
@@ -69,11 +77,11 @@ body {
   border: none; background: none; cursor: pointer;
   padding: 2px 4px; border-radius: 5px; display: inline-flex; align-items: center;
 }
-.widget-toggle:hover { background: rgba(28, 26, 18, 0.06); }
+.widget-toggle:hover { background: rgba(var(--ink-rgb), 0.06); }
 .toggle-dot {
   width: 10px; height: 10px; border-radius: 50%;
-  border: 1px solid rgba(28, 26, 18, 0.35);
-  background: rgba(28, 26, 18, 0.35);
+  border: 1px solid rgba(var(--ink-rgb), 0.35);
+  background: rgba(var(--ink-rgb), 0.35);
 }
 .widget.bare .toggle-dot { background: transparent; }
 .widget-toggle:hover .toggle-dot { border-color: var(--accent); }
@@ -83,15 +91,15 @@ body {
 .bar-ico svg { width: 14px; height: 14px; stroke-width: 2; color: var(--accent); }
 .widget-title {
   text-transform: uppercase; letter-spacing: 0.16em; font-size: 10px;
-  color: rgba(28, 26, 18, 0.55);
+  color: rgba(var(--ink-rgb), 0.55);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .widget-close {
   border: none; background: none; cursor: pointer;
-  color: rgba(28, 26, 18, 0.35); font-size: 12px; line-height: 1;
+  color: rgba(var(--ink-rgb), 0.35); font-size: 12px; line-height: 1;
   padding: 2px 4px; border-radius: 5px; flex-shrink: 0;
 }
-.widget-close:hover { color: var(--accent); background: rgba(28, 26, 18, 0.06); }
+.widget-close:hover { color: var(--accent); background: rgba(var(--ink-rgb), 0.06); }
 
 .widget-body {
   flex: 1; min-height: 0;
@@ -101,15 +109,15 @@ body {
 .big { font-weight: 600; letter-spacing: -0.02em; line-height: 1; font-size: clamp(20px, 26cqmin, 80px); }
 .sub {
   text-transform: uppercase; letter-spacing: 0.16em; margin-top: 8px;
-  color: rgba(28, 26, 18, 0.45); font-size: clamp(8px, 4.5cqmin, 13px);
+  color: rgba(var(--ink-rgb), 0.45); font-size: clamp(8px, 4.5cqmin, 13px);
 }
 .widget-body.is-note { place-items: stretch; padding: 12px; }
 .note-edit {
   width: 100%; height: 100%; outline: none;
   text-align: left; font-size: 13px; line-height: 1.5;
-  color: rgba(28, 26, 18, 0.8); overflow: auto;
+  color: rgba(var(--ink-rgb), 0.8); overflow: auto;
 }
-.note-edit:empty::before { content: "write a note…"; color: rgba(28, 26, 18, 0.3); }
+.note-edit:empty::before { content: "write a note…"; color: rgba(var(--ink-rgb), 0.3); }
 
 /* balance widget — total with a slide-down per-account breakdown */
 .widget-body.is-balance {
@@ -121,7 +129,7 @@ body {
 .bal-skull {
   margin-top: 8px; padding: 4px; border: none; background: none;
   display: inline-flex; align-items: center; justify-content: center;
-  color: rgba(28, 26, 18, 0.5); cursor: pointer;
+  color: rgba(var(--ink-rgb), 0.5); cursor: pointer;
   transition: color 0.2s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .bal-skull svg { width: 22px; height: 22px; stroke-width: 1.5; }
@@ -149,7 +157,7 @@ body {
 .acct-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .acct-name {
   flex: 1; text-align: left; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; color: rgba(28, 26, 18, 0.7);
+  text-overflow: ellipsis; color: rgba(var(--ink-rgb), 0.7);
 }
 .acct-bal { font-variant-numeric: tabular-nums; color: var(--ink); }
 
@@ -159,17 +167,20 @@ body {
   padding: clamp(8px, 5cqmin, 18px); gap: 6px; overflow: hidden; text-align: center;
 }
 .fc-head { flex-shrink: 0; }
-.fc-label { text-transform: uppercase; letter-spacing: 0.16em; font-size: 10px; color: rgba(28, 26, 18, 0.45); }
+.fc-label { text-transform: uppercase; letter-spacing: 0.16em; font-size: 10px; color: rgba(var(--ink-rgb), 0.45); }
 .is-forecast .big { font-size: clamp(26px, 20cqmin, 56px); line-height: 1; margin-top: 2px; transition: color 0.3s ease; }
-.fc-sub { font-size: 10px; letter-spacing: 0.04em; color: rgba(28, 26, 18, 0.5); margin-top: 5px; }
+.fc-sub { font-size: 10px; letter-spacing: 0.04em; color: rgba(var(--ink-rgb), 0.5); margin-top: 5px; }
 .fc-chart { flex: 1; min-height: 38px; }
 .fc-chart svg { width: 100%; height: 100%; display: block; }
 .fc-meta { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .fc-runway { font-size: 11px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.fc-line { stroke: var(--ink); }
+.fc-dot { fill: var(--accent); }
+.fc-floor { stroke: rgba(var(--ink-rgb), 0.22); }
 .safe-reserve {
   border: none; background: none; cursor: pointer; flex-shrink: 0;
   font-family: inherit; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: rgba(28, 26, 18, 0.45);
+  color: rgba(var(--ink-rgb), 0.45);
   transition: color 0.2s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .safe-reserve:hover { color: var(--accent); }
@@ -187,7 +198,7 @@ body {
 .clock-toggle button {
   border: none; background: none; cursor: pointer; font-family: inherit;
   font-size: 9px; letter-spacing: 0.1em; padding: 3px 9px; border-radius: 999px;
-  color: rgba(28, 26, 18, 0.45);
+  color: rgba(var(--ink-rgb), 0.45);
   transition: background 0.2s ease, color 0.2s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .clock-toggle button.active { background: var(--ink); color: var(--paper); }
@@ -196,7 +207,7 @@ body {
 .widget-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
 .widget-resize::after {
   content: ""; position: absolute; right: 4px; bottom: 4px; width: 7px; height: 7px;
-  border-right: 1.5px solid rgba(28, 26, 18, 0.4); border-bottom: 1.5px solid rgba(28, 26, 18, 0.4);
+  border-right: 1.5px solid rgba(var(--ink-rgb), 0.4); border-bottom: 1.5px solid rgba(var(--ink-rgb), 0.4);
 }
 
 /* ── sticker (free-floating icon) ───────────────── */
@@ -210,7 +221,7 @@ body {
 .sticker svg {
   width: clamp(20px, 72cqmin, 420px); height: auto;
   color: var(--ink); stroke-width: 1.5;
-  filter: drop-shadow(0 2px 4px rgba(28, 26, 18, 0.18));
+  filter: drop-shadow(0 2px 4px rgba(var(--ink-rgb), 0.18));
 }
 .sticker-close {
   position: absolute; top: -8px; right: -8px;
@@ -229,7 +240,7 @@ body {
 
 /* drag ghost (follows the cursor while dragging an icon out) */
 .drag-ghost { position: fixed; z-index: 300; pointer-events: none; transform: translate(-50%, -50%); }
-.drag-ghost svg { width: 40px; height: 40px; color: var(--ink); filter: drop-shadow(0 3px 6px rgba(28, 26, 18, 0.3)); }
+.drag-ghost svg { width: 40px; height: 40px; color: var(--ink); filter: drop-shadow(0 3px 6px rgba(var(--ink-rgb), 0.3)); }
 
 /* drop menu */
 .drop-backdrop { position: fixed; inset: 0; z-index: 310; }
@@ -237,7 +248,7 @@ body {
   position: fixed; z-index: 320;
   background: var(--paper); border: 1px solid var(--edge); border-radius: 10px;
   padding: 5px; display: flex; flex-direction: column; gap: 3px;
-  box-shadow: 0 16px 40px -12px rgba(28, 26, 18, 0.4);
+  box-shadow: 0 16px 40px -12px rgba(var(--ink-rgb), 0.4);
 }
 .drop-menu button {
   display: flex; align-items: center; gap: 8px;
@@ -245,7 +256,7 @@ body {
   background: none; color: var(--ink); font-family: inherit; font-size: 12px;
   cursor: pointer; white-space: nowrap; text-align: left;
 }
-.drop-menu button:hover { background: rgba(28, 26, 18, 0.07); }
+.drop-menu button:hover { background: rgba(var(--ink-rgb), 0.07); }
 .drop-menu svg { width: 15px; height: 15px; stroke-width: 1.75; }
 
 /* ── sidebar toggle ─────────────────────────────── */
@@ -258,6 +269,18 @@ body {
 }
 .sidebar-toggle:hover { background: var(--panel); }
 body.sidebar-open .sidebar-toggle { opacity: 0; pointer-events: none; }
+
+/* theme toggle — top right */
+.theme-toggle {
+  position: fixed; top: 14px; right: 14px; z-index: 60;
+  width: 38px; height: 38px;
+  border: 1px solid var(--edge); border-radius: 10px;
+  background: var(--paper); color: var(--ink); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 0.15s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.theme-toggle:hover { background: var(--panel); }
+.theme-toggle svg { width: 17px; height: 17px; }
 
 /* ── sidebar pane ───────────────────────────────── */
 .sidebar {
@@ -275,13 +298,13 @@ body.sidebar-open .sidebar { transform: none; }
 }
 .brand { font-size: 13px; letter-spacing: 0.16em; font-weight: 600; }
 .brand-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 4px; vertical-align: middle; }
-.sidebar-close { border: none; background: none; cursor: pointer; color: rgba(28, 26, 18, 0.45); font-size: 13px; padding: 4px 6px; border-radius: 6px; }
-.sidebar-close:hover { color: var(--accent); background: rgba(28, 26, 18, 0.06); }
+.sidebar-close { border: none; background: none; cursor: pointer; color: rgba(var(--ink-rgb), 0.45); font-size: 13px; padding: 4px 6px; border-radius: 6px; }
+.sidebar-close:hover { color: var(--accent); background: rgba(var(--ink-rgb), 0.06); }
 
 .sidebar-scroll { overflow-y: auto; flex: 1; }
 .sidebar-section { padding: 16px; border-bottom: 1px solid var(--edge-soft); }
-.section-title { text-transform: uppercase; letter-spacing: 0.18em; font-size: 10px; color: rgba(28, 26, 18, 0.45); margin-bottom: 10px; }
-.section-hint { font-size: 10px; color: rgba(28, 26, 18, 0.35); margin-top: 10px; font-style: italic; }
+.section-title { text-transform: uppercase; letter-spacing: 0.18em; font-size: 10px; color: rgba(var(--ink-rgb), 0.45); margin-bottom: 10px; }
+.section-hint { font-size: 10px; color: rgba(var(--ink-rgb), 0.35); margin-top: 10px; font-style: italic; }
 
 .library { display: flex; flex-direction: column; gap: 6px; }
 .lib-item {
@@ -294,7 +317,7 @@ body.sidebar-open .sidebar { transform: none; }
 .lib-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--edge); flex-shrink: 0; }
 .lib-item.active .lib-dot { background: var(--accent); border-color: var(--accent); }
 .lib-label { flex: 1; }
-.lib-state { text-transform: uppercase; letter-spacing: 0.12em; font-size: 9px; color: rgba(28, 26, 18, 0.4); }
+.lib-state { text-transform: uppercase; letter-spacing: 0.12em; font-size: 9px; color: rgba(var(--ink-rgb), 0.4); }
 
 .icon-search {
   width: 100%; padding: 8px 10px; margin-bottom: 10px;
@@ -327,7 +350,7 @@ body.sidebar-open .sidebar { transform: none; }
 .foot {
   position: fixed; bottom: 16px; left: 0; right: 0; text-align: center;
   text-transform: uppercase; letter-spacing: 0.18em; font-size: 10px;
-  color: rgba(28, 26, 18, 0.3); pointer-events: none;
+  color: rgba(var(--ink-rgb), 0.3); pointer-events: none;
 }
 
 /* ── designed cursor: 3D jelly ball ─────────────── */
@@ -335,8 +358,8 @@ body.sidebar-open .sidebar { transform: none; }
   position: fixed; left: 0; top: 0; z-index: 401; pointer-events: none;
   width: 12px; height: 12px; margin: -6px 0 0 -6px;
   transform-origin: center;
-  /* mostly black, just a whisper of shading */
-  background: radial-gradient(circle at 42% 38%, #2a2a2a, #060606 62%);
+  /* mostly the ink color (flips with theme), a whisper of shading */
+  background: radial-gradient(circle at 40% 36%, color-mix(in srgb, var(--ink) 68%, #fff 32%), var(--ink) 60%);
   /* imperfect, gestural blob — never a perfect circle */
   border-radius: 47% 53% 51% 49% / 52% 48% 51% 49%;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);

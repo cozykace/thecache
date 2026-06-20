@@ -564,6 +564,21 @@ function setSidebar(open) {
 document.getElementById("sidebarToggle").addEventListener("click", () => setSidebar(true));
 document.getElementById("sidebarClose").addEventListener("click", () => setSidebar(false));
 
+// ── Theme (light / dark) ───────────────────────────────────
+const THEME_KEY = "money.theme";
+const themeBtn = document.getElementById("themeToggle");
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  localStorage.setItem(THEME_KEY, t);
+  themeBtn.innerHTML = '<i data-lucide="' + (t === "dark" ? "sun" : "moon") + '"></i>';
+  drawIcons();
+}
+themeBtn.addEventListener("click", () => {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  applyTheme(dark ? "light" : "dark");
+});
+applyTheme(localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light");
+
 // ── Menu: reset ────────────────────────────────────────────
 document.getElementById("resetLayout").addEventListener("click", () => {
   localStorage.removeItem(LAYOUT_KEY);

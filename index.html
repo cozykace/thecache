@@ -5,10 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Money</title>
     <link rel="stylesheet" href="styles.css" />
+    <!-- apply saved theme before paint to avoid a flash -->
+    <script>
+      try {
+        var t = localStorage.getItem("money.theme");
+        if (t) document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <!-- toggle: opens the sidebar -->
     <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open menu">☰</button>
+
+    <!-- theme toggle: light / dark -->
+    <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode"></button>
 
     <!-- the sliding pane: menu + libraries live here -->
     <aside id="sidebar" class="sidebar">
