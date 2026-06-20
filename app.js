@@ -71,15 +71,34 @@ const RENDERERS = {
       });
   },
   clock(el) {
+    el.classList.add("is-clock");
+    el.innerHTML =
+      '<div class="big"></div>' +
+      '<div class="sub"></div>' +
+      '<div class="clock-toggle">' +
+        '<button data-h="12">12H</button>' +
+        '<button data-h="24">24H</button>' +
+      '</div>';
+    const big = el.querySelector(".big");
+    const sub = el.querySelector(".sub");
+    const toggleEl = el.querySelector(".clock-toggle");
+    const is24 = () => localStorage.getItem("money.clock24") !== "0"; // default 24h
+    const paint = () =>
+      toggleEl.querySelectorAll("button").forEach((b) =>
+        b.classList.toggle("active", (b.dataset.h === "24") === is24()));
     const tick = () => {
       const now = new Date();
-      el.innerHTML =
-        '<div><div class="big">' +
-        now.toLocaleTimeString("en-US", { hour12: false }) +
-        '</div><div class="sub">' +
-        now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) +
-        '</div></div>';
+      big.textContent = now.toLocaleTimeString("en-US", { hour12: !is24() });
+      sub.textContent = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
     };
+    toggleEl.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      localStorage.setItem("money.clock24", b.dataset.h === "24" ? "1" : "0");
+      paint();
+      tick();
+    });
+    paint();
     tick();
     setInterval(tick, 1000);
   },

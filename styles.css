@@ -167,6 +167,24 @@ body {
 }
 .safe-reserve:hover { color: var(--accent); }
 
+/* clock widget + 12/24h toggle */
+.widget-body.is-clock {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; text-align: center;
+}
+.is-clock .big { white-space: nowrap; }
+.clock-toggle {
+  display: inline-flex; gap: 2px; margin-top: 8px;
+  border: 1px solid var(--edge-soft); border-radius: 999px; padding: 2px;
+}
+.clock-toggle button {
+  border: none; background: none; cursor: pointer; font-family: inherit;
+  font-size: 9px; letter-spacing: 0.1em; padding: 3px 9px; border-radius: 999px;
+  color: rgba(28, 26, 18, 0.45);
+  transition: background 0.2s ease, color 0.2s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.clock-toggle button.active { background: var(--ink); color: var(--paper); }
+
 /* resize handle */
 .widget-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
 .widget-resize::after {
