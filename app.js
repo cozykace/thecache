@@ -870,6 +870,15 @@ iconSearch.addEventListener("input", () => {
   });
 });
 
+// collapse / expand the Icon Library
+const iconSection = document.getElementById("iconSection");
+const ICONS_COLLAPSED = "money.icons.collapsed";
+if (localStorage.getItem(ICONS_COLLAPSED) === "1") iconSection.classList.add("collapsed");
+document.getElementById("iconToggle").addEventListener("click", () => {
+  const c = iconSection.classList.toggle("collapsed");
+  localStorage.setItem(ICONS_COLLAPSED, c ? "1" : "0");
+});
+
 // ── Sidebar open / close ───────────────────────────────────
 function setSidebar(open) {
   document.body.classList.toggle("sidebar-open", open);
@@ -1014,6 +1023,53 @@ document.addEventListener("click", (e) => {
   if (!sourcesPanel.contains(e.target) && !sourcesBtn.contains(e.target)) sourcesPanel.classList.remove("open");
 });
 renderSources();
+
+// ── Soundtrack (YouTube audio toggle) ──────────────────────
+const SND_KEY = "money.soundtrack";
+const sndBtn = document.getElementById("soundtrack");
+let ytPlayer = null, ytReady = false;
+
+function parseYtId(u) {
+  const m = String(u).match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/);
+  if (m) return m[1];
+  const s = String(u).trim();
+  return /^[\w-]{11}$/.test(s) ? s : null;
+}
+function buildPlayer(id, playNow) {
+  if (!ytReady || !window.YT) return;
+  if (ytPlayer && ytPlayer.destroy) { try { ytPlayer.destroy(); } catch (e) {} }
+  ytPlayer = new YT.Player("ytAudio", {
+    height: "0", width: "0", videoId: id,
+    playerVars: { loop: 1, playlist: id },
+    events: {
+      onReady: (e) => { if (playNow) { e.target.playVideo(); sndBtn.classList.add("playing"); } },
+      onStateChange: (e) => {
+        if (e.data === 1) sndBtn.classList.add("playing");
+        else if (e.data === 2 || e.data === 0) sndBtn.classList.remove("playing");
+      },
+    },
+  });
+}
+window.onYouTubeIframeAPIReady = function () {
+  ytReady = true;
+  const id = localStorage.getItem(SND_KEY);
+  if (id) buildPlayer(id, false);
+};
+sndBtn.addEventListener("click", () => {
+  let id = localStorage.getItem(SND_KEY);
+  if (!id) {
+    const u = prompt("Paste a YouTube link for your soundtrack:");
+    if (!u) return;
+    id = parseYtId(u);
+    if (!id) { alert("Couldn't find a YouTube video ID in that link."); return; }
+    localStorage.setItem(SND_KEY, id);
+    buildPlayer(id, true);
+    return;
+  }
+  if (!ytPlayer || !ytPlayer.getPlayerState) { buildPlayer(id, true); return; }
+  if (ytPlayer.getPlayerState() === 1) { ytPlayer.pauseVideo(); sndBtn.classList.remove("playing"); }
+  else { ytPlayer.playVideo(); sndBtn.classList.add("playing"); }
+});
 
 // ── Menu: reset ────────────────────────────────────────────
 document.getElementById("resetLayout").addEventListener("click", () => {

@@ -410,6 +410,20 @@ body.sidebar-open .sidebar { transform: none; }
 .section-title { text-transform: uppercase; letter-spacing: 0.18em; font-size: 10px; color: rgba(var(--ink-rgb), 0.45); margin-bottom: 10px; }
 .section-hint { font-size: 10px; color: rgba(var(--ink-rgb), 0.35); margin-top: 10px; font-style: italic; }
 
+/* collapsible section */
+.section-toggle {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  padding: 0; margin-bottom: 10px; border: none; background: none; cursor: pointer;
+  color: inherit; font-family: inherit;
+}
+.section-toggle .section-title { margin-bottom: 0; }
+.section-caret { font-size: 10px; opacity: 0.5; transition: transform 0.3s ease; }
+.sidebar-section.collapsed .section-caret { transform: rotate(-90deg); }
+.sidebar-section.collapsed .section-toggle { margin-bottom: 0; }
+.section-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.sidebar-section.collapsed .section-body { grid-template-rows: 0fr; }
+.section-body-inner { overflow: hidden; min-height: 0; }
+
 .library { display: flex; flex-direction: column; gap: 6px; }
 .lib-item {
   display: flex; align-items: center; gap: 10px;
@@ -462,6 +476,11 @@ body.sidebar-open .sidebar { transform: none; }
 }
 .status-pill:hover { background: var(--panel); }
 .src-count { font-weight: 600; color: var(--ink); }
+.snd-note { font-size: 12px; line-height: 1; display: inline-block; }
+.status-pill.playing { color: var(--accent); border-color: var(--accent); }
+.status-pill.playing .snd-note { animation: snd-pulse 0.9s ease-in-out infinite; }
+@keyframes snd-pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.25); opacity: 0.7; } }
+.yt-hidden { position: fixed; width: 0; height: 0; overflow: hidden; opacity: 0; pointer-events: none; }
 .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #3f8f4e; flex-shrink: 0; }
 .status-pill.syncing .sync-dot { animation: syncblink 1s steps(1) infinite; }
 @keyframes syncblink { 50% { opacity: 0.2; } }

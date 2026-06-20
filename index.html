@@ -34,11 +34,16 @@
           <div class="section-hint">click to add / remove from the board</div>
         </section>
 
-        <section class="sidebar-section">
-          <div class="section-title">Icon Library</div>
-          <input id="iconSearch" class="icon-search" type="text" placeholder="search icons…" />
-          <div id="iconGrid" class="icon-grid"></div>
-          <div class="section-hint">drag an icon onto a widget to stamp it, or onto empty space for a sticker · powered by Lucide</div>
+        <section class="sidebar-section" id="iconSection">
+          <button class="section-toggle" id="iconToggle" type="button">
+            <span class="section-title">Icon Library</span>
+            <span class="section-caret">▾</span>
+          </button>
+          <div class="section-body"><div class="section-body-inner">
+            <input id="iconSearch" class="icon-search" type="text" placeholder="search icons…" />
+            <div id="iconGrid" class="icon-grid"></div>
+            <div class="section-hint">drag an icon onto a widget to stamp it, or onto empty space for a sticker · powered by Lucide</div>
+          </div></div>
         </section>
 
         <section class="sidebar-section">
@@ -72,11 +77,16 @@
 
     <!-- bottom-right status: data sources + sync health -->
     <div class="status-bar">
+      <button id="soundtrack" class="status-pill" title="soundtrack on / off"><span class="snd-note">♪</span></button>
       <button id="sourcesBtn" class="status-pill" title="data sources"><span class="src-count">…</span>&nbsp;sources</button>
       <button id="syncHealth" class="status-pill" title="click to sync now"><span class="sync-dot"></span><span class="sync-text">…</span></button>
     </div>
 
+    <!-- hidden YouTube audio player for the soundtrack -->
+    <div id="ytAudio" class="yt-hidden"></div>
+
     <!-- free icon library (Lucide) + our engine, both deferred so the page paints first -->
+    <script src="https://www.youtube.com/iframe_api"></script>
     <script defer src="https://unpkg.com/lucide@latest"></script>
     <script defer src="app.js"></script>
     <script defer src="cursor.js"></script>
