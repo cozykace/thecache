@@ -119,59 +119,143 @@ const RENDERERS = {
     el.appendChild(note);
   },
   safe(el) {
-    el.classList.add("is-safe");
+    // Safe-to-spend as a tiny living planet: the number sits in its core,
+    // and your financial health is how lush vs barren the planet is.
+    el.classList.add("is-planet");
     el.innerHTML =
-      '<div class="sub">safe to spend</div>' +
-      '<div class="big">…</div>' +
-      '<div class="safe-meta"></div>' +
-      '<button class="safe-reserve"></button>';
-    const big = el.querySelector(".big");
-    const meta = el.querySelector(".safe-meta");
+      '<div class="planet-wrap"><svg viewBox="0 0 200 210" preserveAspectRatio="xMidYMid meet">' +
+        '<g class="plants"></g>' +
+        '<g class="body">' +
+          '<circle cx="100" cy="132" r="52" fill="rgba(28,26,18,0.03)" stroke="#1c1a12" stroke-width="1.4"/>' +
+          '<path d="M58 148 Q100 166 142 148" fill="none" stroke="rgba(28,26,18,0.22)" stroke-width="1"/>' +
+          '<path d="M72 120 Q84 114 96 120" fill="none" stroke="rgba(28,26,18,0.18)" stroke-width="1"/>' +
+        '</g>' +
+        '<text class="p-amount" x="100" y="136" text-anchor="middle">…</text>' +
+        '<text class="p-days" x="100" y="153" text-anchor="middle"></text>' +
+      '</svg></div>' +
+      '<div class="planet-controls">' +
+        '<input type="range" class="spend-slider" min="0" value="0" max="100" step="1" aria-label="Test a spend" />' +
+        '<div class="planet-meta">' +
+          '<span class="test-label">drag to test a spend</span>' +
+          '<button class="safe-reserve"></button>' +
+        '</div>' +
+      '</div>';
+
+    const plants = el.querySelector(".plants");
+    const amountT = el.querySelector(".p-amount");
+    const daysT = el.querySelector(".p-days");
+    const slider = el.querySelector(".spend-slider");
+    const testLabel = el.querySelector(".test-label");
     const resBtn = el.querySelector(".safe-reserve");
-    let current = null;
+    let data = null;
 
-    function render(d) {
-      const cash = d.cash != null ? d.cash : (d.total || 0);
-      const burn = d.burn_per_day || 0;
-      const reserve = parseFloat(localStorage.getItem(RESERVE_KEY) || "0") || 0;
-      const safe = cash - reserve;
-      const days = burn > 0 ? Math.floor(safe / burn) : null;
+    const r1 = (n) => Math.round(n * 10) / 10;
+    const reserve = () => parseFloat(localStorage.getItem(RESERVE_KEY) || "0") || 0;
+    const mix = (a, b, t) => {
+      const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
+      const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+      return "rgb(" + pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(",") + ")";
+    };
 
-      big.textContent = fmtUSD(safe);
-      let color = "var(--ink)";
-      if (safe <= 0) color = "#c9542e";
-      else if (days !== null && days < 14) color = "#d6920f";
-      else if (days !== null) color = "#3f8f4e";
-      big.style.color = color;
-
-      meta.textContent = safe <= 0
-        ? "over your safe line"
-        : burn > 0
-          ? days + " days at " + fmtUSD(burn) + "/day"
-          : "spending pace unknown yet";
-      resBtn.textContent = "keep safe: " + fmtUSD(reserve) + " ✎";
+    function plant(a, h, color, idx) {
+      const rad = (a * Math.PI) / 180, ox = Math.sin(rad), oy = -Math.cos(rad);
+      const R = 52, cx = 100, cy = 132;
+      const bx = cx + R * ox, by = cy + R * oy;
+      const droop = 1 - h, len = 12 + h * 30;
+      const tx = bx + ox * len * (1 - 0.25 * droop);
+      const ty = by + oy * len * (1 - 0.25 * droop) + droop * 18;
+      const sway = (idx % 2 ? 1 : -1) * 7 * (1 - 0.4 * droop);
+      const mx = (bx + tx) / 2 - oy * sway, my = (by + ty) / 2 + ox * sway;
+      let s = '<g class="plant" style="--d:' + idx + '">';
+      s += '<path d="M' + r1(bx) + " " + r1(by) + " Q " + r1(mx) + " " + r1(my) +
+        " " + r1(tx) + " " + r1(ty) + '" fill="none" stroke="' + color +
+        '" stroke-width="1.5" stroke-linecap="round"/>';
+      if (h > 0.55) {
+        const fc = idx % 2 ? "#bf6ba5" : "#d6920f";
+        for (let p = 0; p < 5; p++) {
+          const pa = (p * 72 * Math.PI) / 180;
+          s += '<circle cx="' + r1(tx + Math.cos(pa) * 4.4) + '" cy="' + r1(ty + Math.sin(pa) * 4.4) +
+            '" r="1.8" fill="' + fc + '" opacity="0.9"/>';
+        }
+        s += '<circle cx="' + r1(tx) + '" cy="' + r1(ty) + '" r="2" fill="#1c1a12"/>';
+      } else {
+        s += '<circle cx="' + r1(tx) + '" cy="' + r1(ty) + '" r="2.2" fill="' + color + '"/>';
+      }
+      return s + "</g>";
     }
 
+    function drawPlants(h) {
+      if (h <= 0) {
+        plants.innerHTML =
+          '<path d="M100 80 q -7 -11 -2 -20" fill="none" stroke="#9a9079" stroke-width="1.3" stroke-linecap="round"/>' +
+          '<path d="M97 64 l -6 -4" stroke="#9a9079" stroke-width="1.2" stroke-linecap="round"/>';
+        return;
+      }
+      const color = mix("9a9079", "3f8f4e", h);
+      const n = Math.max(1, Math.round(h * 5));
+      const spread = 58;
+      let s = "";
+      for (let i = 0; i < n; i++) {
+        const a = n === 1 ? 0 : -spread + 2 * spread * (i / (n - 1));
+        s += plant(a, h, color, i);
+      }
+      plants.innerHTML = s;
+    }
+
+    function healthFor(safe, burn) {
+      if (safe <= 0) return 0;
+      const days = burn > 0 ? safe / burn : 999;
+      return Math.max(0.06, Math.min(1, days / 30));
+    }
+
+    function show(test) {
+      const cash = data.cash != null ? data.cash : (data.total || 0);
+      const burn = data.burn_per_day || 0;
+      const safe = cash - reserve() - (test || 0);
+      const days = burn > 0 ? Math.floor(safe / burn) : null;
+
+      amountT.textContent = fmtUSD(safe);
+      amountT.setAttribute("fill",
+        safe <= 0 ? "#c9542e" : (days !== null && days < 14) ? "#d6920f" : "#3f8f4e");
+      daysT.textContent = safe <= 0 ? "over your line" : (burn > 0 ? days + " days left" : "");
+      drawPlants(healthFor(safe, burn));
+
+      testLabel.textContent = test > 0
+        ? "spend " + fmtUSD(test) + (days !== null ? " → " + days + " days" : "")
+        : "drag to test a spend";
+      resBtn.textContent = "keep safe: " + fmtUSD(reserve());
+    }
+
+    function setupSlider() {
+      const cash = data ? (data.cash != null ? data.cash : (data.total || 0)) : 0;
+      const base = cash - reserve();
+      const max = Math.max(100, Math.round((base > 0 ? base : 200) * 1.3));
+      slider.max = String(max);
+      slider.step = String(Math.max(1, Math.round(max / 120)));
+    }
+
+    slider.addEventListener("input", () => show(parseFloat(slider.value) || 0));
     resBtn.addEventListener("click", () => {
-      const v = prompt("Keep how much untouchable (e.g. savings, rent)?",
-        localStorage.getItem(RESERVE_KEY) || "0");
+      const v = prompt("Keep how much untouchable (savings, rent)?", localStorage.getItem(RESERVE_KEY) || "0");
       if (v !== null) {
         localStorage.setItem(RESERVE_KEY, String(parseFloat(v.replace(/[^0-9.]/g, "")) || 0));
-        if (current) render(current);
+        slider.value = "0";
+        setupSlider();
+        show(0);
       }
     });
 
     fetch("data/balances.json?t=" + Date.now())
       .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
-      .then((d) => { current = d; render(d); })
-      .catch(() => { big.textContent = "—"; meta.textContent = "no data · run sync"; });
+      .then((d) => { data = d; setupSlider(); show(0); })
+      .catch(() => { amountT.textContent = "—"; daysT.textContent = "no data · run sync"; });
   },
 };
 
 // ── Single-instance widgets (the Widget Library) ───────────
 const LIBRARY = [
   { type: "balance", title: "Total balance", w: 320, h: 190 },
-  { type: "safe", title: "Safe to spend", w: 300, h: 200 },
+  { type: "safe", title: "Safe to spend", w: 280, h: 320 },
   { type: "clock", title: "Local time", w: 260, h: 160 },
   { type: "date", title: "Today", w: 220, h: 150 },
   { type: "note", title: "Note", w: 280, h: 200 },
