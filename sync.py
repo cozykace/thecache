@@ -74,6 +74,7 @@ def run_sync(access_url=None):
     store.save_balances(snapshot)
     store.save_transactions(txns, WINDOW_DAYS)
     store.append_history(snapshot)
+    store.append_synclog(len(snapshot["accounts"]), len(txns))
     return snapshot, len(txns)
 
 

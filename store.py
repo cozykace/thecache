@@ -22,6 +22,7 @@ BALANCES = os.path.join(DATA, "balances.json")
 TRANSACTIONS = os.path.join(DATA, "transactions.json")
 HISTORY = os.path.join(DATA, "history.json")
 CATEGORIES = os.path.join(DATA, "categories.json")
+SYNCLOG = os.path.join(DATA, "synclog.json")
 
 # Built-in keyword rules (first match wins). User overrides in categories.json
 # are checked first, so anything you teach it takes priority.
@@ -249,6 +250,18 @@ def append_history(snapshot, cap=400):
     else:
         hist.append(entry)
     _write(HISTORY, hist[-cap:])
+
+
+def append_synclog(accounts, transactions, cap=50):
+    log = _read(SYNCLOG, [])
+    if not isinstance(log, list):
+        log = []
+    log.append({
+        "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "accounts": accounts,
+        "transactions": transactions,
+    })
+    _write(SYNCLOG, log[-cap:])
 
 
 def recompute_spending():

@@ -974,28 +974,40 @@ setInterval(updateSyncHealth, 60000);
 const sourcesBtn = document.getElementById("sourcesBtn");
 const sourcesPanel = document.getElementById("sourcesPanel");
 function renderSources() {
-  fetch("data/balances.json?t=" + Date.now())
-    .then((r) => (r.ok ? r.json() : null))
-    .then((d) => {
-      if (!d) return;
+  const grab = (u) => fetch(u + "?t=" + Date.now()).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  Promise.all([grab("data/balances.json"), grab("data/toggl.json"), grab("data/synclog.json")])
+    .then(([d, tg, log]) => {
       const orgs = {};
-      (d.accounts || []).forEach((a) => {
+      ((d && d.accounts) || []).forEach((a) => {
         const o = a.org || "Bank";
         (orgs[o] = orgs[o] || []).push(a.name);
       });
-      const names = Object.keys(orgs);
-      sourcesBtn.querySelector(".src-count").textContent = names.length;
-      const when = d.updated ? ageStr(Date.now() - new Date(d.updated).getTime()) : "—";
-      sourcesPanel.innerHTML =
-        '<div class="src-title">Data sources</div>' +
-        names.map((o) =>
-          '<div class="src-bank"><span class="src-bankdot"></span><div>' +
-            '<div class="src-bankname">' + escapeHtml(o) + '</div>' +
-            '<div class="src-accts">' + orgs[o].map(escapeHtml).join(" · ") + '</div>' +
-          '</div></div>').join("") +
-        '<div class="src-foot">last synced ' + when + '</div>';
-    })
-    .catch(() => {});
+      const banks = Object.keys(orgs);
+      sourcesBtn.querySelector(".src-count").textContent = banks.length + (tg ? 1 : 0);
+      const when = d && d.updated ? ageStr(Date.now() - new Date(d.updated).getTime()) : "—";
+
+      let html = '<div class="src-title">Data sources</div>';
+      banks.forEach((o) => {
+        html += '<div class="src-bank"><span class="src-bankdot"></span><div>' +
+          '<div class="src-bankname">' + escapeHtml(o) + '</div>' +
+          '<div class="src-accts">' + orgs[o].map(escapeHtml).join(" · ") + '</div></div></div>';
+      });
+      if (tg) {
+        html += '<a class="src-bank src-link" href="https://track.toggl.com" target="_blank" rel="noopener">' +
+          '<span class="src-bankdot" style="background:#e9408f"></span><div>' +
+          '<div class="src-bankname">Toggl ↗</div>' +
+          '<div class="src-accts">' + (tg.projects || 0) + ' projects · time tracking</div></div></a>';
+      }
+      if (log && log.length) {
+        html += '<div class="src-subtitle">Recent syncs</div>';
+        log.slice(-5).reverse().forEach((e) => {
+          html += '<div class="src-log">' + ageStr(Date.now() - new Date(e.time).getTime()) +
+            ' · ' + e.accounts + " accts, " + e.transactions + " txns</div>";
+        });
+      }
+      html += '<div class="src-foot">last synced ' + when + '</div>';
+      sourcesPanel.innerHTML = html;
+    });
 }
 sourcesBtn.addEventListener("click", (e) => { e.stopPropagation(); sourcesPanel.classList.toggle("open"); });
 document.addEventListener("click", (e) => {
