@@ -195,6 +195,24 @@ body {
 .fc-line { stroke: var(--ink); }
 .fc-dot { fill: var(--accent); }
 .fc-floor { stroke: rgba(var(--ink-rgb), 0.22); }
+
+/* spending breakdown */
+.widget-body.is-breakdown {
+  display: flex; flex-direction: column; padding: clamp(8px, 5cqmin, 18px); gap: 6px; overflow: hidden;
+}
+.bd-head { flex-shrink: 0; }
+.bd-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.bd-trend { font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.is-breakdown .bd-avg { font-size: clamp(22px, 16cqmin, 40px); line-height: 1; margin-top: 2px; }
+.bd-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+.bd-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.bd-cat {
+  width: 88px; flex-shrink: 0; text-align: left; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; color: rgba(var(--ink-rgb), 0.7);
+}
+.bd-track { flex: 1; height: 8px; border-radius: 999px; background: rgba(var(--ink-rgb), 0.08); overflow: hidden; }
+.bd-fill { display: block; height: 100%; border-radius: 999px; transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+.bd-amt { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
 .safe-reserve {
   border: none; background: none; cursor: pointer; flex-shrink: 0;
   font-family: inherit; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;

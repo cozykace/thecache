@@ -33,6 +33,38 @@ OUT = os.path.join(HERE, "data", "balances.json")    # what the dashboard reads
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
       "AppleWebKit/537.36 (KHTML, like Gecko) money-sync/1.0")
 
+# Approximate spending categories from a transaction description (first match wins).
+CATEGORY_RULES = [
+    ("housing", ["rent", "apartment", "property mgmt", "mortgage", "landlord", "leasing"]),
+    ("subscriptions", ["spotify", "netflix", "hulu", "adobe", "apple.com", "patreon",
+                        "disney", "youtube", "dropbox", "notion", "openai", "anthropic", "claude"]),
+    ("bills", ["electric", "water util", "internet", "comcast", "xfinity", "at&t",
+               "verizon", "t-mobile", "pg&e", "insurance", "utility"]),
+    ("transport", ["uber", "lyft", "shell", "chevron", "exxon", "gas ", "fuel", "parking",
+                   "transit", "bart", "metro", "toll", "arco", "76 "]),
+    ("groceries", ["trader joe", "whole foods", "safeway", "grocery", "market", "aldi",
+                   "kroger", "costco", "sprouts", "ralphs", "wegmans", "publix"]),
+    ("dining", ["restaurant", "cafe", "coffee", "starbucks", "chipotle", "doordash",
+                "uber eats", "grubhub", "mcdonald", "pizza", "taco", "sushi", "tavern",
+                "brewing", "dunkin", "peet", "diner", "kitchen", "grill"]),
+    ("music_art", ["guitar", "sam ash", "blick", "vinyl", "sweetwater", "reverb", "music", "art supply"]),
+    ("health", ["pharmacy", "cvs", "walgreens", "gym", "fitness", "doctor", "medical", "dental", "clinic"]),
+    ("entertainment", ["cinema", "theater", "movie", "ticketmaster", "steam ", "playstation",
+                       "xbox", "nintendo", "concert", "bar "]),
+    ("shopping", ["amazon", "target", "walmart", "etsy", "ebay", "best buy", "store", "shop"]),
+    ("fees", ["fee", "atm", "interest charge", "overdraft", "service charge"]),
+    ("transfer", ["transfer", "zelle", "venmo", "cash app", "paypal", "withdrawal",
+                  "online payment", "autopay", "ach ", "bill pay"]),
+]
+
+
+def categorize(desc):
+    d = (desc or "").lower()
+    for cat, keys in CATEGORY_RULES:
+        if any(k in d for k in keys):
+            return cat
+    return "other"
+
 
 def claim_setup_token(setup_token):
     """Exchange a one-time setup token for a durable access URL."""
@@ -102,6 +134,10 @@ def main():
     cash = 0.0          # money you actually have (positive balances only)
     outflow = 0.0       # spending over the window
     cutoff = now - window_days * 86400
+    mid = now - (window_days // 2) * 86400
+    cats = {}           # category -> spend
+    recent = 0.0        # spend in the recent half (for trend)
+    older = 0.0         # spend in the older half
 
     for a in data.get("accounts", []):
         bal = float(a.get("balance", 0) or 0)
@@ -115,7 +151,14 @@ def main():
             except (TypeError, ValueError):
                 continue
             if posted >= cutoff and amt < 0:
-                outflow += -amt
+                spend = -amt
+                outflow += spend
+                c = categorize(t.get("description") or t.get("payee") or "")
+                cats[c] = cats.get(c, 0.0) + spend
+                if posted >= mid:
+                    recent += spend
+                else:
+                    older += spend
         accounts.append({
             "id": a.get("id"),
             "name": a.get("name", "Account"),
@@ -124,12 +167,29 @@ def main():
             "currency": a.get("currency", "USD"),
         })
 
+    half = window_days / 2.0
+    recent_daily = recent / half
+    older_daily = older / half
+    trend_pct = round((recent_daily - older_daily) / older_daily * 100) if older_daily > 0 else None
+    categories = sorted(
+        ({"key": k, "amount": round(v, 2)} for k, v in cats.items()),
+        key=lambda c: -c["amount"],
+    )
+
     out = {
         "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "total": round(total, 2),
         "cash": round(cash, 2),
         "burn_per_day": round(outflow / window_days, 2),
         "spend_window_days": window_days,
+        "spending": {
+            "window_days": window_days,
+            "total": round(outflow, 2),
+            "per_month": round(outflow / window_days * 30, 2),
+            "per_day": round(outflow / window_days, 2),
+            "trend_pct": trend_pct,
+            "categories": categories,
+        },
         "accounts": accounts,
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

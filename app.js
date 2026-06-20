@@ -22,6 +22,23 @@ const fmtUSD = (n) =>
 const ACCT_COLORS = ["#c9542e", "#2e7dc9", "#3f8f4e", "#6a4bc4", "#d6920f", "#1fa6a6", "#bf6ba5", "#8a8f2e"];
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// spending category labels + colors
+const CAT_META = {
+  housing: { label: "Housing", color: "#c9542e" },
+  groceries: { label: "Groceries", color: "#3f8f4e" },
+  dining: { label: "Dining", color: "#d6920f" },
+  transport: { label: "Transport", color: "#2e7dc9" },
+  shopping: { label: "Shopping", color: "#bf6ba5" },
+  subscriptions: { label: "Subscriptions", color: "#6a4bc4" },
+  bills: { label: "Bills", color: "#1fa6a6" },
+  health: { label: "Health", color: "#4ec9a5" },
+  entertainment: { label: "Fun", color: "#e0734a" },
+  music_art: { label: "Music & Art", color: "#bf2e86" },
+  fees: { label: "Fees", color: "#9a5b3a" },
+  transfer: { label: "Transfers", color: "#8a8f73" },
+  other: { label: "Other", color: "#8c8470" },
+};
 const DRAG_IGNORE = ".widget-close,.widget-toggle,.sticker-close,.widget-resize,.sticker-resize";
 
 // ── How each widget type renders ───────────────────────────
@@ -211,12 +228,57 @@ const RENDERERS = {
       .then((d) => { data = d; draw(); })
       .catch(() => { big.textContent = "—"; runwayEl.textContent = "no data · run sync"; });
   },
+  breakdown(el) {
+    el.classList.add("is-breakdown");
+    el.innerHTML =
+      '<div class="bd-head">' +
+        '<div class="bd-top"><span class="fc-label">where it’s going</span><span class="bd-trend"></span></div>' +
+        '<div class="big bd-avg">…</div>' +
+        '<div class="fc-sub bd-sub"></div>' +
+      '</div>' +
+      '<div class="bd-list"></div>';
+    const avg = el.querySelector(".bd-avg");
+    const trendEl = el.querySelector(".bd-trend");
+    const sub = el.querySelector(".bd-sub");
+    const list = el.querySelector(".bd-list");
+
+    fetch("data/balances.json?t=" + Date.now())
+      .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
+      .then((d) => {
+        const sp = d.spending;
+        if (!sp || !sp.categories || !sp.categories.length) {
+          avg.textContent = "—"; sub.textContent = "not enough spending history"; return;
+        }
+        avg.textContent = fmtUSD(sp.per_month) + " /mo";
+        sub.textContent = "last " + sp.window_days + " days · " + fmtUSD(sp.per_day) + "/day";
+        if (sp.trend_pct !== null && sp.trend_pct !== undefined) {
+          const up = sp.trend_pct > 0;
+          trendEl.textContent = (up ? "▲ " : "▼ ") + Math.abs(sp.trend_pct) + "% vs prior";
+          trendEl.style.color = up ? "#c9542e" : "#3f8f4e";
+        }
+        const rows = sp.categories.slice(0, 7);
+        const max = rows[0].amount || 1;
+        list.innerHTML = rows.map((c) => {
+          const m = CAT_META[c.key] || CAT_META.other;
+          return '<div class="bd-row">' +
+            '<span class="bd-cat">' + m.label + '</span>' +
+            '<span class="bd-track"><span class="bd-fill" style="background:' + m.color + ';width:0"></span></span>' +
+            '<span class="bd-amt">' + fmtUSD(c.amount) + '</span>' +
+          '</div>';
+        }).join("");
+        const fills = list.querySelectorAll(".bd-fill");
+        requestAnimationFrame(() =>
+          fills.forEach((f, i) => { f.style.width = Math.max(4, (rows[i].amount / max) * 100) + "%"; }));
+      })
+      .catch(() => { avg.textContent = "—"; sub.textContent = "no data · run sync"; });
+  },
 };
 
 // ── Single-instance widgets (the Widget Library) ───────────
 const LIBRARY = [
   { type: "balance", title: "Total balance", w: 320, h: 190 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
+  { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
   { type: "clock", title: "Local time", w: 260, h: 160 },
   { type: "date", title: "Today", w: 220, h: 150 },
   { type: "note", title: "Note", w: 280, h: 200 },
