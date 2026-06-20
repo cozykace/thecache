@@ -151,7 +151,9 @@ def build_snapshot(accounts, window_days=30, now=None):
     cutoff = now - window_days * 86400
     mid = now - (window_days // 2) * 86400
     total = cash = outflow = recent = older = 0.0
+    income_total = 0.0
     cats = {}
+    inc = {}
     out_accounts = []
     txns = []
 
@@ -180,6 +182,10 @@ def build_snapshot(accounts, window_days=30, now=None):
                     recent += spend
                 else:
                     older += spend
+            elif amt > 0 and categorize(desc, overrides) != "transfer":
+                income_total += amt
+                ikey = _clean(desc) or "income"
+                inc[ikey] = inc.get(ikey, 0.0) + amt
         out_accounts.append({
             "id": a.get("id"), "name": a.get("name", "Account"),
             "org": (a.get("org") or {}).get("name", ""),
@@ -192,6 +198,10 @@ def build_snapshot(accounts, window_days=30, now=None):
     cats_list = sorted(
         ({"key": k, "amount": round(v, 2)} for k, v in cats.items()),
         key=lambda c: -c["amount"],
+    )
+    income_sources = sorted(
+        ({"source": k.title(), "key": k, "amount": round(v, 2)} for k, v in inc.items()),
+        key=lambda s: -s["amount"],
     )
 
     snapshot = {
@@ -207,6 +217,12 @@ def build_snapshot(accounts, window_days=30, now=None):
             "per_day": round(outflow / window_days, 2),
             "trend_pct": trend,
             "categories": cats_list,
+        },
+        "income": {
+            "window_days": window_days,
+            "total": round(income_total, 2),
+            "per_month": round(income_total / window_days * 30, 2),
+            "sources": income_sources,
         },
         "accounts": out_accounts,
     }

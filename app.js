@@ -278,6 +278,41 @@ const RENDERERS = {
     el.querySelector(".bd-fix").addEventListener("click", () => openCategorizer(load));
     load();
   },
+  income(el) {
+    el.classList.add("is-breakdown");
+    el.innerHTML =
+      '<div class="bd-head">' +
+        '<div class="bd-top"><span class="fc-label">what makes money</span></div>' +
+        '<div class="big bd-avg">…</div>' +
+        '<div class="fc-sub bd-sub"></div>' +
+      '</div>' +
+      '<div class="bd-list"></div>';
+    const avg = el.querySelector(".bd-avg");
+    const sub = el.querySelector(".bd-sub");
+    const list = el.querySelector(".bd-list");
+    fetch("data/balances.json?t=" + Date.now())
+      .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
+      .then((d) => {
+        const inc = d.income;
+        if (!inc || !inc.sources || !inc.sources.length) {
+          avg.textContent = "—"; sub.textContent = "no income detected yet"; return;
+        }
+        avg.textContent = fmtUSD(inc.per_month) + " /mo";
+        sub.textContent = "last " + inc.window_days + " days · auto-detected";
+        const rows = inc.sources.slice(0, 7);
+        const max = rows[0].amount || 1;
+        list.innerHTML = rows.map((s, i) =>
+          '<div class="bd-row">' +
+            '<span class="bd-cat" title="' + escapeHtml(s.source) + '">' + escapeHtml(s.source) + '</span>' +
+            '<span class="bd-track"><span class="bd-fill" style="background:' + ACCT_COLORS[i % ACCT_COLORS.length] + ';width:0"></span></span>' +
+            '<span class="bd-amt">' + fmtUSD(s.amount) + '</span>' +
+          '</div>').join("");
+        const fills = list.querySelectorAll(".bd-fill");
+        requestAnimationFrame(() =>
+          fills.forEach((f, i) => { f.style.width = Math.max(4, (rows[i].amount / max) * 100) + "%"; }));
+      })
+      .catch(() => { avg.textContent = "—"; sub.textContent = "no data · run sync"; });
+  },
 };
 
 // ── In-app category editor (talks to the local backend) ────
@@ -341,6 +376,7 @@ function openCategorizer(onDone) {
 // ── Single-instance widgets (the Widget Library) ───────────
 const LIBRARY = [
   { type: "balance", title: "Total balance", w: 320, h: 190 },
+  { type: "income", title: "What makes money", w: 300, h: 240 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
   { type: "clock", title: "Local time", w: 260, h: 160 },
@@ -781,6 +817,39 @@ syncHealth.addEventListener("click", () => {
 });
 updateSyncHealth();
 setInterval(updateSyncHealth, 60000);
+
+// ── Data sources panel (bottom-right) ──────────────────────
+const sourcesBtn = document.getElementById("sourcesBtn");
+const sourcesPanel = document.getElementById("sourcesPanel");
+function renderSources() {
+  fetch("data/balances.json?t=" + Date.now())
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (!d) return;
+      const orgs = {};
+      (d.accounts || []).forEach((a) => {
+        const o = a.org || "Bank";
+        (orgs[o] = orgs[o] || []).push(a.name);
+      });
+      const names = Object.keys(orgs);
+      sourcesBtn.querySelector(".src-count").textContent = names.length;
+      const when = d.updated ? ageStr(Date.now() - new Date(d.updated).getTime()) : "—";
+      sourcesPanel.innerHTML =
+        '<div class="src-title">Data sources</div>' +
+        names.map((o) =>
+          '<div class="src-bank"><span class="src-bankdot"></span><div>' +
+            '<div class="src-bankname">' + escapeHtml(o) + '</div>' +
+            '<div class="src-accts">' + orgs[o].map(escapeHtml).join(" · ") + '</div>' +
+          '</div></div>').join("") +
+        '<div class="src-foot">last synced ' + when + '</div>';
+    })
+    .catch(() => {});
+}
+sourcesBtn.addEventListener("click", (e) => { e.stopPropagation(); sourcesPanel.classList.toggle("open"); });
+document.addEventListener("click", (e) => {
+  if (!sourcesPanel.contains(e.target) && !sourcesBtn.contains(e.target)) sourcesPanel.classList.remove("open");
+});
+renderSources();
 
 // ── Menu: reset ────────────────────────────────────────────
 document.getElementById("resetLayout").addEventListener("click", () => {

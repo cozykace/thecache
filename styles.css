@@ -438,9 +438,9 @@ body.sidebar-open .sidebar { transform: none; }
 }
 .menu-item:hover { background: rgba(255, 255, 255, 0.4); }
 
-/* ── sync health (bottom-right) ─────────────────── */
-.sync-health {
-  position: fixed; bottom: 14px; right: 14px; z-index: 55;
+/* ── bottom-right status: sources + sync ─────────── */
+.status-bar { position: fixed; bottom: 14px; right: 14px; z-index: 55; display: flex; gap: 8px; }
+.status-pill {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 6px 11px; border: 1px solid var(--edge); border-radius: 999px;
   background: var(--paper); cursor: pointer;
@@ -448,10 +448,26 @@ body.sidebar-open .sidebar { transform: none; }
   text-transform: uppercase; color: rgba(var(--ink-rgb), 0.6);
   transition: background 0.15s ease;
 }
-.sync-health:hover { background: var(--panel); }
+.status-pill:hover { background: var(--panel); }
+.src-count { font-weight: 600; color: var(--ink); }
 .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #3f8f4e; flex-shrink: 0; }
-.sync-health.syncing .sync-dot { animation: syncblink 1s steps(1) infinite; }
+.status-pill.syncing .sync-dot { animation: syncblink 1s steps(1) infinite; }
 @keyframes syncblink { 50% { opacity: 0.2; } }
+
+.sources-panel {
+  position: fixed; bottom: 56px; right: 14px; z-index: 56; width: 260px;
+  background: var(--paper); border: 1px solid var(--edge); border-radius: 14px; padding: 14px;
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.4);
+  transform: translateY(10px); opacity: 0; pointer-events: none;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+}
+.sources-panel.open { transform: none; opacity: 1; pointer-events: auto; }
+.src-title { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.45); margin-bottom: 10px; }
+.src-bank { display: flex; gap: 9px; align-items: flex-start; padding: 6px 0; }
+.src-bankdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-top: 4px; flex-shrink: 0; }
+.src-bankname { font-size: 12px; color: var(--ink); }
+.src-accts { font-size: 10px; color: rgba(var(--ink-rgb), 0.5); margin-top: 2px; line-height: 1.4; }
+.src-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--edge-soft); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(var(--ink-rgb), 0.45); }
 
 /* ── footer ─────────────────────────────────────── */
 .foot {

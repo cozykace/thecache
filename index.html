@@ -53,10 +53,14 @@
 
     <footer class="foot">money · v1.1 — a new hope</footer>
 
-    <!-- sync health: shows freshness, click to sync now -->
-    <button id="syncHealth" class="sync-health" title="click to sync now">
-      <span class="sync-dot"></span><span class="sync-text">…</span>
-    </button>
+    <!-- data-sources slide-out -->
+    <div class="sources-panel" id="sourcesPanel"></div>
+
+    <!-- bottom-right status: data sources + sync health -->
+    <div class="status-bar">
+      <button id="sourcesBtn" class="status-pill" title="data sources"><span class="src-count">…</span>&nbsp;sources</button>
+      <button id="syncHealth" class="status-pill" title="click to sync now"><span class="sync-dot"></span><span class="sync-text">…</span></button>
+    </div>
 
     <!-- free icon library (Lucide) + our engine, both deferred so the page paints first -->
     <script defer src="https://unpkg.com/lucide@latest"></script>
