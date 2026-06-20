@@ -502,27 +502,39 @@ a.src-link:hover .src-bankname { color: var(--accent); }
 }
 .src-log { font-size: 10px; color: rgba(var(--ink-rgb), 0.55); padding: 2px 0; font-variant-numeric: tabular-nums; }
 
-/* ── jogger (hovers above the status pills) ──────── */
+/* ── jogger: goofy jointed cowboy hovering above the pills ── */
 .jogger {
-  position: fixed; bottom: 52px; right: 64px; z-index: 54;
-  width: 30px; height: 38px; pointer-events: none; color: var(--ink); opacity: 0.8;
+  position: fixed; bottom: 50px; right: 60px; z-index: 54;
+  width: 40px; height: 54px; pointer-events: none; color: var(--ink); opacity: 0.85;
   animation: jog-hover 3.6s ease-in-out infinite;
 }
 .jogger svg { width: 100%; height: 100%; overflow: visible; }
-.jog-body { animation: jog-bob 0.8s ease-in-out infinite; }
-.torso { fill: currentColor; }
+.jog-body { transform-box: view-box; transform-origin: 22px 30px; animation: jog-bob 0.5s ease-in-out infinite; }
+.seg, .torso, .hat { fill: currentColor; }
 .head { fill: none; stroke: currentColor; stroke-width: 1.6; }
-.limb { fill: currentColor; transform-box: fill-box; transform-origin: 50% 0%; }
-.legA { animation: jog-legA 1.6s ease-in-out infinite; }
-.legB { animation: jog-legB 1.6s ease-in-out infinite; }
-.armA { animation: jog-armA 1.6s ease-in-out infinite; }
-.armB { animation: jog-armB 1.6s ease-in-out infinite; }
+/* each segment pivots at its joint, in viewBox coordinates */
+.thigh { transform-box: view-box; transform-origin: 22px 32px; }
+.shin  { transform-box: view-box; transform-origin: 22px 41px; }
+.uarm  { transform-box: view-box; transform-origin: 22px 18px; }
+.farm  { transform-box: view-box; transform-origin: 22px 24px; }
+.tA { animation: thighA 1s ease-in-out infinite; }
+.tB { animation: thighB 1s ease-in-out infinite; }
+.sA { animation: shinA 1s ease-in-out infinite; }
+.sB { animation: shinB 1s ease-in-out infinite; }
+.aA { animation: uarmA 1s ease-in-out infinite; }
+.aB { animation: uarmB 1s ease-in-out infinite; }
+.fA { animation: farmA 1s ease-in-out infinite; }
+.fB { animation: farmB 1s ease-in-out infinite; }
 @keyframes jog-hover { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-@keyframes jog-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.4px); } }
-@keyframes jog-legA { 0%, 100% { transform: rotate(26deg); } 50% { transform: rotate(-26deg); } }
-@keyframes jog-legB { 0%, 100% { transform: rotate(-26deg); } 50% { transform: rotate(26deg); } }
-@keyframes jog-armA { 0%, 100% { transform: rotate(-18deg); } 50% { transform: rotate(18deg); } }
-@keyframes jog-armB { 0%, 100% { transform: rotate(18deg); } 50% { transform: rotate(-18deg); } }
+@keyframes jog-bob { 0% { transform: translateY(0) rotate(-2.5deg); } 50% { transform: translateY(-3.5px) rotate(2.5deg); } 100% { transform: translateY(0) rotate(-2.5deg); } }
+@keyframes thighA { 0%, 100% { transform: rotate(-40deg); } 50% { transform: rotate(45deg); } }
+@keyframes thighB { 0%, 100% { transform: rotate(45deg); } 50% { transform: rotate(-40deg); } }
+@keyframes shinA  { 0%, 100% { transform: rotate(80deg); } 50% { transform: rotate(6deg); } }
+@keyframes shinB  { 0%, 100% { transform: rotate(6deg); } 50% { transform: rotate(80deg); } }
+@keyframes uarmA  { 0%, 100% { transform: rotate(42deg); } 50% { transform: rotate(-42deg); } }
+@keyframes uarmB  { 0%, 100% { transform: rotate(-42deg); } 50% { transform: rotate(42deg); } }
+@keyframes farmA  { 0%, 100% { transform: rotate(-100deg); } 50% { transform: rotate(-55deg); } }
+@keyframes farmB  { 0%, 100% { transform: rotate(-55deg); } 50% { transform: rotate(-100deg); } }
 .src-title { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.45); margin-bottom: 10px; }
 .src-bank { display: flex; gap: 9px; align-items: flex-start; padding: 6px 0; }
 .src-bankdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-top: 4px; flex-shrink: 0; }
