@@ -236,43 +236,107 @@ const RENDERERS = {
         '<div class="big bd-avg">…</div>' +
         '<div class="fc-sub bd-sub"></div>' +
       '</div>' +
-      '<div class="bd-list"></div>';
+      '<div class="bd-list"></div>' +
+      '<button class="bd-fix" type="button">⚙ fix categories</button>';
     const avg = el.querySelector(".bd-avg");
     const trendEl = el.querySelector(".bd-trend");
     const sub = el.querySelector(".bd-sub");
     const list = el.querySelector(".bd-list");
 
-    fetch("data/balances.json?t=" + Date.now())
-      .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
-      .then((d) => {
-        const sp = d.spending;
-        if (!sp || !sp.categories || !sp.categories.length) {
-          avg.textContent = "—"; sub.textContent = "not enough spending history"; return;
-        }
-        avg.textContent = fmtUSD(sp.per_month) + " /mo";
-        sub.textContent = "last " + sp.window_days + " days · " + fmtUSD(sp.per_day) + "/day";
-        if (sp.trend_pct !== null && sp.trend_pct !== undefined) {
-          const up = sp.trend_pct > 0;
-          trendEl.textContent = (up ? "▲ " : "▼ ") + Math.abs(sp.trend_pct) + "% vs prior";
-          trendEl.style.color = up ? "#c9542e" : "#3f8f4e";
-        }
-        const rows = sp.categories.slice(0, 7);
-        const max = rows[0].amount || 1;
-        list.innerHTML = rows.map((c) => {
-          const m = CAT_META[c.key] || CAT_META.other;
-          return '<div class="bd-row">' +
-            '<span class="bd-cat">' + m.label + '</span>' +
-            '<span class="bd-track"><span class="bd-fill" style="background:' + m.color + ';width:0"></span></span>' +
-            '<span class="bd-amt">' + fmtUSD(c.amount) + '</span>' +
-          '</div>';
-        }).join("");
-        const fills = list.querySelectorAll(".bd-fill");
-        requestAnimationFrame(() =>
-          fills.forEach((f, i) => { f.style.width = Math.max(4, (rows[i].amount / max) * 100) + "%"; }));
-      })
-      .catch(() => { avg.textContent = "—"; sub.textContent = "no data · run sync"; });
+    function load() {
+      fetch("data/balances.json?t=" + Date.now())
+        .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
+        .then((d) => {
+          const sp = d.spending;
+          if (!sp || !sp.categories || !sp.categories.length) {
+            avg.textContent = "—"; sub.textContent = "not enough spending history"; list.innerHTML = ""; return;
+          }
+          avg.textContent = fmtUSD(sp.per_month) + " /mo";
+          sub.textContent = "last " + sp.window_days + " days · " + fmtUSD(sp.per_day) + "/day";
+          if (sp.trend_pct !== null && sp.trend_pct !== undefined) {
+            const up = sp.trend_pct > 0;
+            trendEl.textContent = (up ? "▲ " : "▼ ") + Math.abs(sp.trend_pct) + "% vs prior";
+            trendEl.style.color = up ? "#c9542e" : "#3f8f4e";
+          } else { trendEl.textContent = ""; }
+          const rows = sp.categories.slice(0, 7);
+          const max = rows[0].amount || 1;
+          list.innerHTML = rows.map((c) => {
+            const m = CAT_META[c.key] || CAT_META.other;
+            return '<div class="bd-row">' +
+              '<span class="bd-cat">' + m.label + '</span>' +
+              '<span class="bd-track"><span class="bd-fill" style="background:' + m.color + ';width:0"></span></span>' +
+              '<span class="bd-amt">' + fmtUSD(c.amount) + '</span>' +
+            '</div>';
+          }).join("");
+          const fills = list.querySelectorAll(".bd-fill");
+          requestAnimationFrame(() =>
+            fills.forEach((f, i) => { f.style.width = Math.max(4, (rows[i].amount / max) * 100) + "%"; }));
+        })
+        .catch(() => { avg.textContent = "—"; sub.textContent = "no data · run sync"; });
+    }
+
+    el.querySelector(".bd-fix").addEventListener("click", () => openCategorizer(load));
+    load();
   },
 };
+
+// ── In-app category editor (talks to the local backend) ────
+function closeCategorizer(onDone) {
+  const m = document.querySelector(".cat-modal");
+  const b = document.getElementById("catBackdrop");
+  if (m) m.remove();
+  if (b) b.remove();
+  if (typeof onDone === "function") onDone();
+}
+function openCategorizer(onDone) {
+  closeCategorizer();
+  const back = document.createElement("div");
+  back.className = "cat-backdrop";
+  back.id = "catBackdrop";
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) closeCategorizer(onDone); });
+
+  const modal = document.createElement("div");
+  modal.className = "cat-modal";
+  modal.innerHTML =
+    '<div class="cat-head"><span>Fix categories</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="cat-hint">your biggest uncategorized charges — pick a category and it sticks</div>' +
+    '<div class="cat-list">loading…</div>';
+  document.body.appendChild(back);
+  document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer(onDone));
+
+  const listEl = modal.querySelector(".cat-list");
+  const opts = Object.keys(CAT_META)
+    .filter((k) => k !== "other" && k !== "transfer")
+    .map((k) => '<option value="' + k + '">' + CAT_META[k].label + '</option>')
+    .join("");
+
+  fetch("/api/other-merchants")
+    .then((r) => r.json())
+    .then((d) => {
+      const ms = d.merchants || [];
+      if (!ms.length) { listEl.innerHTML = '<div class="cat-empty">nothing left uncategorized 🎉</div>'; return; }
+      listEl.innerHTML = ms.map((m) =>
+        '<div class="cat-row">' +
+          '<span class="cat-merch" title="' + escapeHtml(m.merchant) + '">' + escapeHtml(m.merchant) + '</span>' +
+          '<span class="cat-amt">' + fmtUSD(m.amount) + '</span>' +
+          '<select class="cat-select"><option value="">—</option>' + opts + '</select>' +
+        '</div>').join("");
+      listEl.querySelectorAll(".cat-row").forEach((row, i) => {
+        row.querySelector(".cat-select").addEventListener("change", (e) => {
+          if (!e.target.value) return;
+          fetch("/api/categorize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ merchant: ms[i].key, category: e.target.value }),
+          }).then(() => row.classList.add("done"));
+        });
+      });
+    })
+    .catch(() => {
+      listEl.innerHTML = '<div class="cat-empty">backend not running — start it with <b>python3 server.py</b></div>';
+    });
+}
 
 // ── Single-instance widgets (the Widget Library) ───────────
 const LIBRARY = [

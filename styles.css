@@ -213,6 +213,47 @@ body {
 .bd-track { flex: 1; height: 8px; border-radius: 999px; background: rgba(var(--ink-rgb), 0.08); overflow: hidden; }
 .bd-fill { display: block; height: 100%; border-radius: 999px; transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
 .bd-amt { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.bd-fix {
+  flex-shrink: 0; margin-top: 8px; align-self: flex-start;
+  border: none; background: none; cursor: pointer; font-family: inherit;
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: rgba(var(--ink-rgb), 0.45);
+  transition: color 0.2s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.bd-fix:hover { color: var(--accent); }
+
+/* category editor modal */
+.cat-backdrop { position: fixed; inset: 0; z-index: 330; background: rgba(0, 0, 0, 0.3); }
+.cat-modal {
+  position: fixed; z-index: 340; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(420px, 92vw); max-height: 80vh; display: flex; flex-direction: column;
+  background: var(--paper); color: var(--ink);
+  border: 1px solid var(--edge); border-radius: 16px; overflow: hidden;
+  box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.5);
+}
+.cat-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--edge-soft);
+  font-size: 13px; letter-spacing: 0.04em;
+}
+.cat-close { border: none; background: none; cursor: pointer; color: rgba(var(--ink-rgb), 0.5); font-size: 14px; }
+.cat-close:hover { color: var(--accent); }
+.cat-hint { padding: 10px 16px 4px; font-size: 11px; font-style: italic; color: rgba(var(--ink-rgb), 0.5); }
+.cat-list { overflow-y: auto; padding: 8px 16px 16px; display: flex; flex-direction: column; gap: 6px; }
+.cat-empty { padding: 20px 4px; text-align: center; font-size: 12px; color: rgba(var(--ink-rgb), 0.5); }
+.cat-row {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  padding: 6px 0; border-bottom: 1px solid var(--edge-soft);
+  transition: opacity 0.25s ease;
+}
+.cat-row.done { opacity: 0.4; }
+.cat-merch { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cat-amt { flex-shrink: 0; font-variant-numeric: tabular-nums; color: rgba(var(--ink-rgb), 0.6); }
+.cat-select {
+  flex-shrink: 0; font-family: inherit; font-size: 11px; padding: 4px 6px;
+  border: 1px solid var(--edge); border-radius: 7px;
+  background: var(--panel); color: var(--ink); cursor: pointer;
+}
 .safe-reserve {
   border: none; background: none; cursor: pointer; flex-shrink: 0;
   font-family: inherit; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
