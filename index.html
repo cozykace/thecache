@@ -10,30 +10,41 @@
     <!-- toggle: opens the sidebar -->
     <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open menu">☰</button>
 
-    <!-- the sliding pane: menu + widget library live here -->
+    <!-- the sliding pane: menu + libraries live here -->
     <aside id="sidebar" class="sidebar">
       <header class="sidebar-head">
         <span class="brand"><span class="brand-dot"></span> MONEY</span>
         <button id="sidebarClose" class="sidebar-close" aria-label="Close menu">✕</button>
       </header>
 
-      <section class="sidebar-section">
-        <div class="section-title">Widget Library</div>
-        <div id="library" class="library"><!-- filled by app.js --></div>
-        <div class="section-hint">click to add / remove from the board</div>
-      </section>
+      <div class="sidebar-scroll">
+        <section class="sidebar-section">
+          <div class="section-title">Widget Library</div>
+          <div id="library" class="library"></div>
+          <div class="section-hint">click to add / remove from the board</div>
+        </section>
 
-      <section class="sidebar-section">
-        <div class="section-title">Menu</div>
-        <button class="menu-item" id="resetLayout">↺ Reset layout</button>
-      </section>
+        <section class="sidebar-section">
+          <div class="section-title">Icon Library</div>
+          <input id="iconSearch" class="icon-search" type="text" placeholder="search icons…" />
+          <div id="iconGrid" class="icon-grid"></div>
+          <div class="section-hint">click an icon to drop it on the board · powered by Lucide</div>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title">Menu</div>
+          <button class="menu-item" id="resetLayout">↺ Reset layout</button>
+        </section>
+      </div>
     </aside>
 
-    <!-- the board: widgets are drawn here by app.js -->
+    <!-- the board: widgets are drawn here -->
     <div id="board" class="board"></div>
 
-    <footer class="foot">money · local · v0.0 · drag a tile by its title bar</footer>
+    <footer class="foot">money · local · v0.0 · drag to move · drag corner to resize</footer>
 
-    <script src="app.js"></script>
+    <!-- free icon library (Lucide) + our engine, both deferred so the page paints first -->
+    <script defer src="https://unpkg.com/lucide@latest"></script>
+    <script defer src="app.js"></script>
   </body>
 </html>

@@ -1,10 +1,12 @@
 /* ───────────────────────────────────────────────
-   Money — lightweight widget board + sidebar. Plain CSS.
+   Money — widget board + sidebar. Plain CSS.
+   Widgets scale their contents with container queries,
+   so resizing keeps things reasonably designed inside.
    ─────────────────────────────────────────────── */
 
 :root {
   --paper: #ece6d6;
-  --panel: #e4ddca;       /* sidebar tone, a touch deeper than paper */
+  --panel: #e4ddca;
   --ink: #1c1a12;
   --accent: #c9542e;
   --edge: rgba(28, 26, 18, 0.30);
@@ -37,6 +39,8 @@ body {
   border-radius: 14px;
   overflow: hidden;
   transition: box-shadow 0.18s ease;
+  /* each widget is its own sizing context → contents can scale to it */
+  container-type: size;
 }
 .widget.dragging { box-shadow: 0 14px 40px -12px rgba(28, 26, 18, 0.35); }
 
@@ -50,6 +54,7 @@ body {
   cursor: grab;
   user-select: none;
   touch-action: none;
+  flex-shrink: 0;
 }
 .widget-bar:active { cursor: grabbing; }
 .widget-title {
@@ -57,63 +62,85 @@ body {
   letter-spacing: 0.16em;
   font-size: 10px;
   color: rgba(28, 26, 18, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .widget-close {
-  border: none;
-  background: none;
-  color: rgba(28, 26, 18, 0.35);
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: 5px;
+  border: none; background: none; cursor: pointer;
+  color: rgba(28, 26, 18, 0.35); font-size: 12px; line-height: 1;
+  padding: 2px 4px; border-radius: 5px; flex-shrink: 0;
 }
 .widget-close:hover { color: var(--accent); background: rgba(28, 26, 18, 0.06); }
 
+/* body scales its padding with widget size */
 .widget-body {
   flex: 1;
+  min-height: 0;
   display: grid;
   place-items: center;
   text-align: center;
-  padding: 12px;
-  overflow: auto;
+  padding: clamp(8px, 6cqmin, 22px);
+  overflow: hidden;
 }
-.big { font-size: 52px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+
+/* numbers + labels scale fluidly with the widget */
+.big {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-size: clamp(20px, 26cqmin, 80px);
+}
 .sub {
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  font-size: 10px;
+  margin-top: 8px;
   color: rgba(28, 26, 18, 0.45);
-  margin-top: 10px;
+  font-size: clamp(8px, 4.5cqmin, 13px);
 }
+
+/* icon widget — the glyph scales with the widget */
+.widget-body.is-icon { padding: clamp(8px, 8cqmin, 28px); }
+.widget-body.is-icon svg {
+  width: clamp(24px, 60cqmin, 260px);
+  height: auto;
+  stroke-width: 1.5;
+  color: var(--ink);
+}
+
+/* note widget — readable fixed text, fills the tile */
+.widget-body.is-note { place-items: stretch; padding: 12px; }
 .note-edit {
-  width: 100%;
-  height: 100%;
-  outline: none;
-  text-align: left;
-  font-size: 13px;
-  line-height: 1.5;
-  color: rgba(28, 26, 18, 0.8);
+  width: 100%; height: 100%; outline: none;
+  text-align: left; font-size: 13px; line-height: 1.5;
+  color: rgba(28, 26, 18, 0.8); overflow: auto;
 }
-.note-edit:empty::before {
-  content: "write a note…";
-  color: rgba(28, 26, 18, 0.3);
+.note-edit:empty::before { content: "write a note…"; color: rgba(28, 26, 18, 0.3); }
+
+/* resize handle (bottom-right corner) */
+.widget-resize {
+  position: absolute;
+  right: 0; bottom: 0;
+  width: 18px; height: 18px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.widget-resize::after {
+  content: "";
+  position: absolute;
+  right: 4px; bottom: 4px;
+  width: 7px; height: 7px;
+  border-right: 1.5px solid rgba(28, 26, 18, 0.4);
+  border-bottom: 1.5px solid rgba(28, 26, 18, 0.4);
 }
 
 /* ── sidebar toggle ─────────────────────────────── */
 .sidebar-toggle {
-  position: fixed;
-  top: 14px;
-  left: 14px;
-  z-index: 60;
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--edge);
-  border-radius: 10px;
-  background: var(--paper);
-  color: var(--ink);
-  font-size: 15px;
-  cursor: pointer;
+  position: fixed; top: 14px; left: 14px; z-index: 60;
+  width: 38px; height: 38px;
+  border: 1px solid var(--edge); border-radius: 10px;
+  background: var(--paper); color: var(--ink);
+  font-size: 15px; cursor: pointer;
   transition: opacity 0.2s ease, background 0.15s ease;
 }
 .sidebar-toggle:hover { background: var(--panel); }
@@ -121,14 +148,9 @@ body.sidebar-open .sidebar-toggle { opacity: 0; pointer-events: none; }
 
 /* ── sidebar pane ───────────────────────────────── */
 .sidebar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 280px;
-  z-index: 70;
-  display: flex;
-  flex-direction: column;
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: 280px; z-index: 70;
+  display: flex; flex-direction: column;
   background: var(--panel);
   border-right: 1px solid var(--edge);
   transform: translateX(-100%);
@@ -137,100 +159,76 @@ body.sidebar-open .sidebar-toggle { opacity: 0; pointer-events: none; }
 body.sidebar-open .sidebar { transform: none; }
 
 .sidebar-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px;
-  border-bottom: 1px solid var(--edge-soft);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px; border-bottom: 1px solid var(--edge-soft); flex-shrink: 0;
 }
 .brand { font-size: 13px; letter-spacing: 0.16em; font-weight: 600; }
 .brand-dot {
-  display: inline-block;
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  margin-right: 4px;
-  vertical-align: middle;
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); margin-right: 4px; vertical-align: middle;
 }
 .sidebar-close {
   border: none; background: none; cursor: pointer;
-  color: rgba(28, 26, 18, 0.45); font-size: 13px; padding: 4px 6px;
-  border-radius: 6px;
+  color: rgba(28, 26, 18, 0.45); font-size: 13px; padding: 4px 6px; border-radius: 6px;
 }
 .sidebar-close:hover { color: var(--accent); background: rgba(28, 26, 18, 0.06); }
 
+.sidebar-scroll { overflow-y: auto; flex: 1; }
 .sidebar-section { padding: 16px; border-bottom: 1px solid var(--edge-soft); }
 .section-title {
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-size: 10px;
-  color: rgba(28, 26, 18, 0.45);
-  margin-bottom: 10px;
+  text-transform: uppercase; letter-spacing: 0.18em; font-size: 10px;
+  color: rgba(28, 26, 18, 0.45); margin-bottom: 10px;
 }
-.section-hint {
-  font-size: 10px;
-  color: rgba(28, 26, 18, 0.35);
-  margin-top: 10px;
-  font-style: italic;
-}
+.section-hint { font-size: 10px; color: rgba(28, 26, 18, 0.35); margin-top: 10px; font-style: italic; }
 
-/* library items */
+/* widget library items */
 .library { display: flex; flex-direction: column; gap: 6px; }
 .lib-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 11px;
-  border: 1px solid var(--edge-soft);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.16);
-  cursor: pointer;
-  font-size: 12px;
-  text-align: left;
-  color: var(--ink);
-  transition: background 0.14s ease, border-color 0.14s ease;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 11px; border: 1px solid var(--edge-soft); border-radius: 9px;
+  background: rgba(255, 255, 255, 0.16); cursor: pointer;
+  font-size: 12px; text-align: left; color: var(--ink);
+  transition: background 0.14s ease;
 }
 .lib-item:hover { background: rgba(255, 255, 255, 0.4); }
-.lib-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  border: 1px solid var(--edge);
-  flex-shrink: 0;
-}
-.lib-item.active { border-color: var(--edge); }
+.lib-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--edge); flex-shrink: 0; }
 .lib-item.active .lib-dot { background: var(--accent); border-color: var(--accent); }
 .lib-label { flex: 1; }
-.lib-state {
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 9px;
-  color: rgba(28, 26, 18, 0.4);
+.lib-state { text-transform: uppercase; letter-spacing: 0.12em; font-size: 9px; color: rgba(28, 26, 18, 0.4); }
+
+/* icon library */
+.icon-search {
+  width: 100%; padding: 8px 10px; margin-bottom: 10px;
+  border: 1px solid var(--edge-soft); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.25); color: var(--ink);
+  font-family: inherit; font-size: 12px; outline: none;
 }
+.icon-search:focus { border-color: var(--edge); }
+.icon-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+}
+.icon-cell {
+  display: grid; place-items: center;
+  aspect-ratio: 1; border: 1px solid var(--edge-soft); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.16); cursor: pointer; color: var(--ink);
+  transition: background 0.12s ease, transform 0.08s ease;
+}
+.icon-cell:hover { background: rgba(255, 255, 255, 0.5); transform: translateY(-1px); }
+.icon-cell svg { width: 18px; height: 18px; stroke-width: 1.5; }
+.icon-cell.hidden { display: none; }
 
 /* menu items */
 .menu-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 9px 11px;
-  border: 1px solid var(--edge-soft);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.16);
-  color: var(--ink);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
+  display: block; width: 100%; text-align: left;
+  padding: 9px 11px; border: 1px solid var(--edge-soft); border-radius: 9px;
+  background: rgba(255, 255, 255, 0.16); color: var(--ink);
+  font-family: inherit; font-size: 12px; cursor: pointer;
 }
 .menu-item:hover { background: rgba(255, 255, 255, 0.4); }
 
 /* ── footer ─────────────────────────────────────── */
 .foot {
-  position: fixed;
-  bottom: 16px;
-  left: 0; right: 0;
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-size: 10px;
-  color: rgba(28, 26, 18, 0.3);
-  pointer-events: none;
+  position: fixed; bottom: 16px; left: 0; right: 0; text-align: center;
+  text-transform: uppercase; letter-spacing: 0.18em; font-size: 10px;
+  color: rgba(28, 26, 18, 0.3); pointer-events: none;
 }
