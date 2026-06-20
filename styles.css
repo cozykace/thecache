@@ -117,9 +117,16 @@ body {
   justify-content: center; text-align: center; gap: 4px; overflow-y: auto;
 }
 .widget-body.is-balance.expanded { justify-content: flex-start; }
-.bal-head { flex-shrink: 0; cursor: pointer; }
-.bal-caret { display: inline-block; opacity: 0.55; transition: transform 0.3s ease; }
-.is-balance.expanded .bal-caret { transform: rotate(180deg); }
+.bal-head { flex-shrink: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; }
+.bal-skull {
+  margin-top: 8px; padding: 4px; border: none; background: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: rgba(28, 26, 18, 0.5); cursor: pointer;
+  transition: color 0.2s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.bal-skull svg { width: 22px; height: 22px; stroke-width: 1.5; }
+.bal-skull:hover { color: var(--accent); }
+.is-balance.expanded .bal-skull { color: var(--accent); transform: scale(1.12); }
 .bal-accounts {
   display: grid; grid-template-rows: 0fr; opacity: 0;
   transition: grid-template-rows 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;

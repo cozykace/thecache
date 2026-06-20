@@ -31,13 +31,17 @@ const RENDERERS = {
       '<div class="bal-head">' +
         '<div class="big">…</div>' +
         '<div class="sub">syncing…</div>' +
+        '<button class="bal-skull" aria-label="Show accounts"><i data-lucide="skull"></i></button>' +
       '</div>' +
       '<div class="bal-accounts"><div class="bal-accounts-inner"></div></div>';
+    drawIcons();
     const head = el.querySelector(".bal-head");
     const big = el.querySelector(".big");
     const sub = el.querySelector(".sub");
     const list = el.querySelector(".bal-accounts-inner");
-    head.addEventListener("click", () => el.classList.toggle("expanded"));
+    const toggle = () => el.classList.toggle("expanded");
+    head.addEventListener("click", toggle);
+    el.querySelector(".bal-skull").addEventListener("click", (e) => { e.stopPropagation(); toggle(); });
 
     // read the local file written by sync.py (cache-busted so refresh is instant)
     fetch("data/balances.json?t=" + Date.now())
@@ -49,7 +53,7 @@ const RENDERERS = {
           ? "as of " + when.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
             " " + when.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
           : "synced";
-        sub.innerHTML = stamp + ' <span class="bal-caret">▾</span>';
+        sub.textContent = stamp;
         list.innerHTML = (d.accounts || [])
           .map((a, i) =>
             '<div class="acct" style="--i:' + i + '">' +
