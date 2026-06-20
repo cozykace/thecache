@@ -234,6 +234,19 @@ body {
 }
 .bd-fix:hover { color: var(--accent); }
 
+/* core vs flex toggles */
+.cf-list { gap: 6px; }
+.cf-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.cf-cat { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: rgba(var(--ink-rgb), 0.7); }
+.cf-amt { width: 52px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; color: var(--ink); }
+.cf-toggle {
+  flex-shrink: 0; width: 46px; padding: 3px 0; border: 1px solid var(--edge-soft); border-radius: 999px;
+  background: none; cursor: pointer; font-family: inherit; font-size: 9px;
+  text-transform: uppercase; letter-spacing: 0.08em; transition: background 0.15s ease, color 0.15s ease;
+}
+.cf-toggle.is-core { background: #3f8f4e; color: #fff; border-color: #3f8f4e; }
+.cf-toggle.is-flex { color: rgba(var(--ink-rgb), 0.5); }
+
 /* category editor modal */
 .cat-backdrop { position: fixed; inset: 0; z-index: 330; background: rgba(0, 0, 0, 0.3); }
 .cat-modal {

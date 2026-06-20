@@ -40,6 +40,39 @@ const CAT_META = {
   other: { label: "Other", color: "#8c8470" },
 };
 
+// ── Core (non-negotiable) vs flexible (cuttable) spending ──
+const CORE_KEY = "money.core";
+const CORE_DEFAULT = {
+  housing: 1, bills: 1, groceries: 1, health: 1, transport: 1, fees: 1,
+  dining: 0, shopping: 0, entertainment: 0, music_art: 0, subscriptions: 0, other: 0,
+};
+function coreMap() {
+  let ov = {};
+  try { ov = JSON.parse(localStorage.getItem(CORE_KEY) || "{}"); } catch (e) {}
+  return Object.assign({}, CORE_DEFAULT, ov);
+}
+function isCore(key) { return key !== "transfer" && coreMap()[key] === 1; }
+function setCore(key, val) {
+  let ov = {};
+  try { ov = JSON.parse(localStorage.getItem(CORE_KEY) || "{}"); } catch (e) {}
+  ov[key] = val ? 1 : 0;
+  localStorage.setItem(CORE_KEY, JSON.stringify(ov));
+}
+function coreMonthly(d) {
+  const sp = d && d.spending;
+  if (!sp || !sp.categories) return 0;
+  const w = sp.window_days || 30;
+  return sp.categories.filter((c) => isCore(c.key)).reduce((s, c) => s + c.amount / w * 30, 0);
+}
+// the gap's "need" = your manual override, else your core spend, else total spend
+function monthlyNeed(d) {
+  const s = localStorage.getItem("money.need");
+  if (s !== null) return parseFloat(s) || 0;
+  const cm = coreMonthly(d);
+  const tot = d && d.spending ? d.spending.per_month : 0;
+  return Math.round(cm > 0 ? cm : tot);
+}
+
 // Typical Instacart busy windows (general demand patterns, not your market).
 const INSTACART_WINDOWS = [
   { days: [0], sh: 11, eh: 16, label: "Sunday rush" },
@@ -374,8 +407,7 @@ const RENDERERS = {
     }
     function render() {
       const income = (data.income && data.income.per_month) || 0;
-      const spend = (data.spending && data.spending.per_month) || 0;
-      const need = needOf(spend);
+      const need = monthlyNeed(data);
       const g = need - income;
       num.textContent = fmtUSD(Math.abs(g));
       num.style.color = g > 0 ? "#c9542e" : "#3f8f4e";
@@ -387,14 +419,14 @@ const RENDERERS = {
       needBtn.textContent = "need: " + fmtUSD(need) + " /mo ✎";
     }
     needBtn.addEventListener("click", () => {
-      const cur = localStorage.getItem(NEED_KEY) ||
-        (data && data.spending ? String(Math.round(data.spending.per_month)) : "");
-      const v = prompt("How much do you need per month? (rent + bills + living)", cur);
+      const cur = localStorage.getItem(NEED_KEY) || String(monthlyNeed(data));
+      const v = prompt("Override your monthly need? (blank uses your Core spend)", cur);
       if (v !== null) {
         localStorage.setItem(NEED_KEY, String(parseFloat(v.replace(/[^0-9.]/g, "")) || 0));
         if (data) render();
       }
     });
+    window.addEventListener("money:corechange", () => { if (data) render(); });
     fetch("data/balances.json?t=" + Date.now())
       .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
       .then((d) => { data = d; render(); })
@@ -430,8 +462,7 @@ const RENDERERS = {
     };
     function render() {
       const income = (data.income && data.income.per_month) || 0;
-      const spend = (data.spending && data.spending.per_month) || 0;
-      const gap = needOf(spend) - income;
+      const gap = monthlyNeed(data) - income;
       const rate = rateOf();
       rateBtn.textContent = "rate: " + fmtUSD(rate) + "/hr ✎";
       whenEl.innerHTML = '<span class="work-when-label">next busy window</span><b>' + fmtBusy(nextBusyWindow()) + "</b>";
@@ -458,6 +489,55 @@ const RENDERERS = {
         if (data) render();
       }
     });
+    window.addEventListener("money:corechange", () => { if (data) render(); });
+    fetch("data/balances.json?t=" + Date.now())
+      .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
+      .then((d) => { data = d; render(); })
+      .catch(() => { big.textContent = "—"; sub.textContent = "no data · run sync"; });
+  },
+  coreflex(el) {
+    el.classList.add("is-breakdown");
+    el.innerHTML =
+      '<div class="bd-head">' +
+        '<div class="bd-top"><span class="fc-label">core vs flex</span></div>' +
+        '<div class="big bd-avg">…</div>' +
+        '<div class="fc-sub cf-sub"></div>' +
+      '</div>' +
+      '<div class="bd-list cf-list"></div>';
+    const big = el.querySelector(".bd-avg");
+    const sub = el.querySelector(".cf-sub");
+    const list = el.querySelector(".cf-list");
+    let data = null;
+    function render() {
+      const sp = data && data.spending;
+      if (!sp || !sp.categories || !sp.categories.length) {
+        big.textContent = "—"; sub.textContent = "not enough spending history"; list.innerHTML = ""; return;
+      }
+      const w = sp.window_days || 30;
+      const cats = sp.categories.filter((c) => c.key !== "transfer");
+      let core = 0, flex = 0;
+      cats.forEach((c) => { const m = c.amount / w * 30; if (isCore(c.key)) core += m; else flex += m; });
+      big.textContent = fmtUSD(core) + " /mo";
+      big.style.color = "var(--ink)";
+      sub.innerHTML = "non-negotiable core · <b style=\"color:#c9542e\">" + fmtUSD(flex) + "</b> flex you could cut";
+      list.innerHTML = cats.map((c) => {
+        const meta = CAT_META[c.key] || CAT_META.other;
+        const on = isCore(c.key);
+        return '<div class="cf-row">' +
+          '<span class="cf-cat">' + meta.label + '</span>' +
+          '<span class="cf-amt">' + fmtUSD(c.amount / w * 30) + '</span>' +
+          '<button class="cf-toggle ' + (on ? "is-core" : "is-flex") + '" data-key="' + c.key + '">' +
+          (on ? "core" : "flex") + "</button></div>";
+      }).join("");
+      list.querySelectorAll(".cf-toggle").forEach((b) => {
+        b.addEventListener("click", () => {
+          setCore(b.dataset.key, !isCore(b.dataset.key));
+          window.dispatchEvent(new Event("money:corechange"));
+          render();
+        });
+      });
+    }
+    window.addEventListener("money:corechange", () => { if (data) render(); });
     fetch("data/balances.json?t=" + Date.now())
       .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
       .then((d) => { data = d; render(); })
@@ -528,6 +608,7 @@ const LIBRARY = [
   { type: "balance", title: "Total balance", w: 320, h: 190 },
   { type: "income", title: "What makes money", w: 300, h: 240 },
   { type: "gap", title: "The gap", w: 300, h: 230 },
+  { type: "coreflex", title: "Core vs flex", w: 300, h: 300 },
   { type: "work", title: "Work planner", w: 300, h: 210 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
