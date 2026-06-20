@@ -71,12 +71,24 @@
           <!-- back arm (upper → forearm) -->
           <g class="uarm aB"><rect class="seg" x="21.2" y="18" width="1.7" height="6.4" rx="0.85" />
             <g class="farm fB"><rect class="seg" x="21.2" y="24" width="1.6" height="6.2" rx="0.8" /></g></g>
-          <!-- torso + head -->
+          <!-- torso -->
           <rect class="torso" x="21" y="15" width="2" height="17" rx="1" />
-          <circle class="head" cx="22" cy="11" r="4" />
-          <!-- cowboy hat -->
-          <ellipse class="hat" cx="22" cy="7.6" rx="7.4" ry="1.7" />
-          <path class="hat" d="M18.4 7.8 C18.2 3.4 20 2.4 22 2.4 C24 2.4 25.8 3.4 25.6 7.8 Z" />
+          <!-- suffering goat head -->
+          <g class="goat-head">
+            <path class="goat-line" d="M19.6 7 C17.8 5.2 17.4 3.4 18.6 2" />
+            <path class="goat-line" d="M24.4 7 C23.2 4.8 23.2 3.2 24 1.9" />
+            <ellipse class="goat-fill" cx="16.6" cy="10.2" rx="2.6" ry="1.1" transform="rotate(38 16.6 10.2)" />
+            <ellipse class="goat-fill" cx="27.4" cy="10.2" rx="2.6" ry="1.1" transform="rotate(-38 27.4 10.2)" />
+            <ellipse class="goat-fill" cx="22" cy="10" rx="4.4" ry="4.1" />
+            <ellipse class="goat-fill" cx="22" cy="12.8" rx="2.7" ry="2" />
+            <circle class="goat-ink" cx="21" cy="12.9" r="0.4" />
+            <circle class="goat-ink" cx="23" cy="12.9" r="0.4" />
+            <path class="goat-eye" d="M19.4 8.7 l1.6 1.6 M21 8.7 l-1.6 1.6" />
+            <path class="goat-eye" d="M23 8.7 l1.6 1.6 M24.6 8.7 l-1.6 1.6" />
+            <ellipse class="goat-ink" cx="22" cy="13.6" rx="0.9" ry="0.6" />
+            <path class="goat-ink-fill" d="M20.7 14.4 L22 18 L23.3 14.4 Z" />
+            <path class="goat-sweat" d="M28.4 4.2 q1 1.4 0 2.3 q-1 -0.9 0 -2.3 z" />
+          </g>
           <!-- front arm -->
           <g class="uarm aA"><rect class="seg" x="21.2" y="18" width="1.7" height="6.4" rx="0.85" />
             <g class="farm fA"><rect class="seg" x="21.2" y="24" width="1.6" height="6.2" rx="0.8" /></g></g>
