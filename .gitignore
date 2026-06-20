@@ -1,11 +1,5 @@
-# Dependencies & build output
-node_modules/
-dist/
-*.local
-*.tsbuildinfo
-
 # ── NEVER COMMIT THESE ──────────────────────────────
-# Secrets: SimpleFIN tokens, API keys, anything sensitive
+# Secrets: bank tokens, API keys, anything sensitive
 .env
 .env.*
 *.secret

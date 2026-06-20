@@ -1,0 +1,102 @@
+/* ───────────────────────────────────────────────
+   Money — lightweight. Plain CSS, no build step.
+   Edit colors/sizes here; edit content in index.html.
+   ─────────────────────────────────────────────── */
+
+:root {
+  --paper: #ece6d6;
+  --ink: #1c1a12;
+  --accent: #c9542e;   /* the one warm accent, for now */
+  --ring: #6a4bc4;     /* quiet violet — leaning a little alien */
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  background-color: var(--paper);
+  /* faint dot grid — early-web print texture */
+  background-image: radial-gradient(rgba(28, 26, 18, 0.06) 1px, transparent 1px);
+  background-size: 14px 14px;
+  color: var(--ink);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.stage {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* central piece — number with a ring composed around it */
+.core {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 360px;
+  height: 360px;
+}
+
+.ring {
+  position: absolute;
+  inset: 0;
+  border: 1px dashed color-mix(in srgb, var(--ring) 55%, transparent);
+  border-radius: 50%;
+  animation: spin 90s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.readout { text-align: center; }
+
+.label,
+.status,
+.foot {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+}
+
+.label { color: rgba(28, 26, 18, 0.5); }
+
+.number {
+  font-size: 84px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin: 12px 0 0;
+}
+
+.status {
+  margin-top: 22px;
+  color: rgba(28, 26, 18, 0.45);
+}
+
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 4px;
+  vertical-align: middle;
+  animation: blink 1.6s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0.2; }
+}
+
+.foot {
+  position: fixed;
+  bottom: 18px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 10px;
+  color: rgba(28, 26, 18, 0.3);
+}

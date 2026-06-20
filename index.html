@@ -1,12 +1,26 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Money</title>
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <main class="stage">
+      <!-- the central piece: one number, a quiet ring around it -->
+      <div class="core">
+        <div class="ring"></div>
+        <div class="readout">
+          <div class="label">Total balance</div>
+          <div class="number" id="balance">—</div>
+          <div class="status">
+            <span class="dot"></span> no data yet · next brick connects it
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="foot">money · local · v0.0</footer>
   </body>
 </html>
