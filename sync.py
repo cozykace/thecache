@@ -79,6 +79,10 @@ def run_sync(access_url=None):
     total_ledger = store.merge_ledger(txns)
     store.append_history(snapshot)
     store.append_synclog(len(snapshot["accounts"]), len(txns))
+    try:
+        store.backup()  # local daily restore point
+    except Exception:
+        pass
     return snapshot, len(txns), total_ledger
 
 

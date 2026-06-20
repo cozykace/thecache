@@ -12,6 +12,8 @@ data/
 *.db
 transactions*.json
 accounts*.json
+# local backups of your data — stay on your machine
+backups/
 # ────────────────────────────────────────────────────
 
 # macOS noise

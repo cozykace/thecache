@@ -14,6 +14,7 @@ import os
 import re
 import json
 import time
+import shutil
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -24,6 +25,10 @@ HISTORY = os.path.join(DATA, "history.json")
 CATEGORIES = os.path.join(DATA, "categories.json")
 SYNCLOG = os.path.join(DATA, "synclog.json")
 LEDGER = os.path.join(DATA, "ledger.json")  # permanent, ever-growing transaction store
+BACKUPS = os.path.join(HERE, "backups")     # local snapshots (gitignored, stays on your Mac)
+
+_BACKUP_FILES = ("balances.json", "transactions.json", "ledger.json",
+                 "history.json", "synclog.json", "categories.json")
 
 # Built-in keyword rules (first match wins). User overrides in categories.json
 # are checked first, so anything you teach it takes priority.
@@ -281,6 +286,26 @@ def append_synclog(accounts, transactions, cap=50):
         "transactions": transactions,
     })
     _write(SYNCLOG, log[-cap:])
+
+
+def backup(keep=45, force=False):
+    """Copy the data files into backups/<date>/ — a local restore point.
+    One per day unless force=True. Keeps the most recent `keep` days."""
+    label = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if force:
+        label = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
+    dest = os.path.join(BACKUPS, label)
+    if os.path.exists(dest) and not force:
+        return None  # already backed up today
+    os.makedirs(dest, exist_ok=True)
+    for name in _BACKUP_FILES:
+        src = os.path.join(DATA, name)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(dest, name))
+    days = sorted(d for d in os.listdir(BACKUPS) if os.path.isdir(os.path.join(BACKUPS, d)))
+    for old in days[:-keep]:
+        shutil.rmtree(os.path.join(BACKUPS, old), ignore_errors=True)
+    return dest
 
 
 def recompute_spending():
