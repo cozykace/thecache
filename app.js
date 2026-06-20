@@ -3,17 +3,17 @@
 //
 //  • RENDERERS = how each widget TYPE draws itself
 //  • LIBRARY   = single-instance widgets you toggle on/off
-//  • ICONS     = icon library (Lucide) → click spawns an icon widget
-//  • layout    = which widgets are on the board + where/how big (saved)
-//
-//  Widgets are resizable (drag the bottom-right corner) and their
-//  contents scale via CSS container queries.
+//  • ICONS     = icon library (Lucide). DRAG an icon onto the
+//               board → drop on a widget to set its icon, or on
+//               empty space to leave a free-floating sticker.
+//  • layout    = everything on the board + where/size (saved)
 // ============================================================
 
 const LAYOUT_KEY = "money.layout.v2";
 const SIDEBAR_KEY = "money.sidebar";
 const NOTE_KEY = "money.note";
-const MIN_W = 120, MIN_H = 90;
+const MIN_W = 90, MIN_H = 70;
+const DRAG_IGNORE = ".widget-close,.sticker-close,.widget-resize,.sticker-resize";
 
 // ── How each widget type renders ───────────────────────────
 const RENDERERS = {
@@ -48,11 +48,6 @@ const RENDERERS = {
     note.textContent = localStorage.getItem(NOTE_KEY) || "";
     note.addEventListener("input", () => localStorage.setItem(NOTE_KEY, note.textContent));
     el.appendChild(note);
-  },
-  icon(el, entry) {
-    el.classList.add("is-icon");
-    el.innerHTML = '<i data-lucide="' + entry.icon + '"></i>';
-    drawIcons();
   },
 };
 
@@ -90,7 +85,6 @@ function loadLayout() {
     const saved = localStorage.getItem(LAYOUT_KEY);
     if (!saved) return defaultLayout();
     const obj = JSON.parse(saved);
-    // migrate older entries that predate `type`
     Object.keys(obj).forEach((id) => { if (!obj[id].type) obj[id].type = id; });
     return obj;
   } catch (e) {
@@ -106,16 +100,23 @@ const board = document.getElementById("board");
 let layout = loadLayout();
 const nodes = {};
 let zTop = 10;
+let stickerSeq = 0;
 
 function titleFor(entry) {
-  if (entry.type === "icon") return entry.icon;
+  if (entry.type === "sticker") return entry.icon;
   return libByType[entry.type] ? libByType[entry.type].title : entry.type;
 }
+function drawIcons() {
+  if (window.lucide && typeof window.lucide.createIcons === "function") {
+    window.lucide.createIcons();
+  }
+}
 
-// ── Build a widget on the board ────────────────────────────
+// ── Build a framed widget ──────────────────────────────────
 function makeWidget(id, entry) {
   const node = document.createElement("section");
   node.className = "widget";
+  node.dataset.id = id;
   node.style.left = entry.x + "px";
   node.style.top = entry.y + "px";
   node.style.width = entry.w + "px";
@@ -124,12 +125,14 @@ function makeWidget(id, entry) {
   const bar = document.createElement("header");
   bar.className = "widget-bar";
   bar.innerHTML =
-    '<span class="widget-title">' + titleFor(entry) +
-    '</span><button class="widget-close" aria-label="Remove">✕</button>';
+    '<span class="bar-left">' +
+    '<span class="bar-ico">' + (entry.barIcon ? '<i data-lucide="' + entry.barIcon + '"></i>' : "") + "</span>" +
+    '<span class="widget-title">' + titleFor(entry) + "</span>" +
+    "</span>" +
+    '<button class="widget-close" aria-label="Remove">✕</button>';
 
   const body = document.createElement("div");
   body.className = "widget-body";
-
   const grip = document.createElement("div");
   grip.className = "widget-resize";
 
@@ -140,9 +143,40 @@ function makeWidget(id, entry) {
   nodes[id] = node;
 
   RENDERERS[entry.type](body, entry);
+  drawIcons();
   bar.querySelector(".widget-close").addEventListener("click", () => removeWidget(id));
   makeDraggable(node, bar, id);
   makeResizable(node, grip, id);
+}
+
+// ── Build a free-floating sticker ──────────────────────────
+function makeSticker(id, entry) {
+  const node = document.createElement("div");
+  node.className = "sticker";
+  node.dataset.id = id;
+  node.style.left = entry.x + "px";
+  node.style.top = entry.y + "px";
+  node.style.width = entry.w + "px";
+  node.style.height = entry.h + "px";
+  node.innerHTML =
+    '<i data-lucide="' + entry.icon + '"></i>' +
+    '<button class="sticker-close" aria-label="Remove">✕</button>' +
+    '<div class="sticker-resize"></div>';
+  board.appendChild(node);
+  nodes[id] = node;
+  drawIcons();
+
+  node.querySelector(".sticker-close").addEventListener("click", (e) => {
+    e.stopPropagation();
+    removeWidget(id);
+  });
+  makeDraggable(node, node, id);
+  makeResizable(node, node.querySelector(".sticker-resize"), id);
+}
+
+function makeAny(id, entry) {
+  if (entry.type === "sticker") makeSticker(id, entry);
+  else if (RENDERERS[entry.type]) makeWidget(id, entry);
 }
 
 // ── Add / remove ───────────────────────────────────────────
@@ -155,12 +189,20 @@ function addSingleton(type) {
   saveLayout();
   renderLibrary();
 }
-function spawnIcon(name) {
-  const id = "icon-" + name + "-" + Date.now().toString(36);
-  const n = Object.keys(layout).length;
-  layout[id] = { type: "icon", icon: name, x: 110 + (n % 8) * 28, y: 110 + (n % 8) * 28, w: 150, h: 150 };
-  makeWidget(id, layout[id]);
+function placeSticker(name, x, y) {
+  const id = "sticker-" + name + "-" + stickerSeq++;
+  layout[id] = { type: "sticker", icon: name, x: Math.round(x), y: Math.round(y), w: 110, h: 110 };
+  makeSticker(id, layout[id]);
   saveLayout();
+}
+function applyIconToWidget(id, name) {
+  if (!layout[id] || layout[id].type === "sticker") return;
+  layout[id].barIcon = name;
+  saveLayout();
+  const node = nodes[id];
+  if (!node) return;
+  node.querySelector(".bar-ico").innerHTML = '<i data-lucide="' + name + '"></i>';
+  drawIcons();
 }
 function removeWidget(id) {
   if (nodes[id]) { nodes[id].remove(); delete nodes[id]; }
@@ -173,7 +215,7 @@ function removeWidget(id) {
 function makeDraggable(node, handle, id) {
   let sx = 0, sy = 0, ox = 0, oy = 0, drag = false;
   handle.addEventListener("pointerdown", (e) => {
-    if (e.target.closest(".widget-close")) return;
+    if (e.target.closest(DRAG_IGNORE)) return;
     drag = true;
     handle.setPointerCapture(e.pointerId);
     node.style.zIndex = ++zTop;
@@ -226,11 +268,82 @@ function makeResizable(node, grip, id) {
   grip.addEventListener("pointercancel", end);
 }
 
-// ── Lucide helper ──────────────────────────────────────────
-function drawIcons() {
-  if (window.lucide && typeof window.lucide.createIcons === "function") {
-    window.lucide.createIcons();
-  }
+// ── Drag an icon out of the library ────────────────────────
+function startIconDrag(downEvent, name, cell) {
+  downEvent.preventDefault();
+  const startX = downEvent.clientX, startY = downEvent.clientY;
+  let moved = false, ghost = null;
+  cell.setPointerCapture(downEvent.pointerId);
+
+  const onMove = (e) => {
+    if (!moved && Math.hypot(e.clientX - startX, e.clientY - startY) > 6) {
+      moved = true;
+      ghost = document.createElement("div");
+      ghost.className = "drag-ghost";
+      ghost.innerHTML = '<i data-lucide="' + name + '"></i>';
+      document.body.appendChild(ghost);
+      drawIcons();
+    }
+    if (ghost) { ghost.style.left = e.clientX + "px"; ghost.style.top = e.clientY + "px"; }
+  };
+  const onUp = (e) => {
+    cell.removeEventListener("pointermove", onMove);
+    cell.removeEventListener("pointerup", onUp);
+    cell.removeEventListener("pointercancel", onUp);
+    if (ghost) ghost.remove();
+
+    if (e.type === "pointercancel") return;
+    if (!moved) {
+      // a plain click → drop a sticker in the middle
+      placeSticker(name, window.innerWidth / 2 - 55, window.innerHeight / 2 - 55);
+      return;
+    }
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (el && el.closest(".sidebar")) return; // dropped back on the panel → cancel
+    const widget = el ? el.closest(".widget") : null;
+    if (widget) showDropMenu(e.clientX, e.clientY, name, widget.dataset.id);
+    else placeSticker(name, e.clientX - 55, e.clientY - 55);
+  };
+  cell.addEventListener("pointermove", onMove);
+  cell.addEventListener("pointerup", onUp);
+  cell.addEventListener("pointercancel", onUp);
+}
+
+// ── Drop menu (apply to widget vs sticker) ─────────────────
+function showDropMenu(x, y, name, widgetId) {
+  closeDropMenu();
+  const backdrop = document.createElement("div");
+  backdrop.className = "drop-backdrop";
+  backdrop.id = "dropBackdrop";
+  backdrop.addEventListener("pointerdown", closeDropMenu);
+
+  const menu = document.createElement("div");
+  menu.className = "drop-menu";
+  menu.style.left = Math.min(x, window.innerWidth - 190) + "px";
+  menu.style.top = Math.min(y, window.innerHeight - 90) + "px";
+
+  const title = libByType[layout[widgetId] && layout[widgetId].type]
+    ? libByType[layout[widgetId].type].title : "widget";
+
+  const apply = document.createElement("button");
+  apply.innerHTML = '<i data-lucide="' + name + '"></i> Apply to “' + title + "”";
+  apply.addEventListener("click", () => { applyIconToWidget(widgetId, name); closeDropMenu(); });
+
+  const sticker = document.createElement("button");
+  sticker.innerHTML = '<i data-lucide="' + name + '"></i> Place as sticker';
+  sticker.addEventListener("click", () => { placeSticker(name, x - 55, y - 55); closeDropMenu(); });
+
+  menu.appendChild(apply);
+  menu.appendChild(sticker);
+  document.body.appendChild(backdrop);
+  document.body.appendChild(menu);
+  drawIcons();
+}
+function closeDropMenu() {
+  const m = document.querySelector(".drop-menu");
+  const b = document.getElementById("dropBackdrop");
+  if (m) m.remove();
+  if (b) b.remove();
 }
 
 // ── Sidebar: widget library ────────────────────────────────
@@ -243,7 +356,7 @@ function renderLibrary() {
     item.className = "lib-item" + (on ? " active" : "");
     item.innerHTML =
       '<span class="lib-dot"></span><span class="lib-label">' + def.title +
-      '</span><span class="lib-state">' + (on ? "on" : "add") + '</span>';
+      '</span><span class="lib-state">' + (on ? "on" : "add") + "</span>";
     item.addEventListener("click", () => (on ? removeWidget(def.type) : addSingleton(def.type)));
     library.appendChild(item);
   });
@@ -260,7 +373,7 @@ function renderIcons() {
     cell.dataset.name = name;
     cell.title = name;
     cell.innerHTML = '<i data-lucide="' + name + '"></i>';
-    cell.addEventListener("click", () => spawnIcon(name));
+    cell.addEventListener("pointerdown", (e) => startIconDrag(e, name, cell));
     iconGrid.appendChild(cell);
   });
   drawIcons();
@@ -272,7 +385,7 @@ iconSearch.addEventListener("input", () => {
   });
 });
 
-// ── Sidebar: open / close ──────────────────────────────────
+// ── Sidebar open / close ───────────────────────────────────
 function setSidebar(open) {
   document.body.classList.toggle("sidebar-open", open);
   localStorage.setItem(SIDEBAR_KEY, open ? "1" : "0");
@@ -287,9 +400,7 @@ document.getElementById("resetLayout").addEventListener("click", () => {
 });
 
 // ── Boot ───────────────────────────────────────────────────
-Object.keys(layout).forEach((id) => {
-  if (RENDERERS[layout[id].type]) makeWidget(id, layout[id]);
-});
+Object.keys(layout).forEach((id) => makeAny(id, layout[id]));
 renderLibrary();
 renderIcons();
 setSidebar(localStorage.getItem(SIDEBAR_KEY) === "1");
