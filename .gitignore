@@ -17,3 +17,7 @@ accounts*.json
 # macOS noise
 .DS_Store
 *.log
+
+# Python
+__pycache__/
+*.pyc
