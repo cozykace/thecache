@@ -45,7 +45,8 @@ def claim_setup_token(setup_token):
         access_url = r.read().decode("utf-8").strip()
     with open(SECRET, "w") as f:
         f.write(access_url)
-    print("✓ Claimed. Access credential saved to .simplefin (gitignored).")
+    os.chmod(SECRET, 0o600)  # owner read/write only
+    print("✓ Claimed. Access credential saved to .simplefin (gitignored, chmod 600).")
     return access_url
 
 
@@ -100,6 +101,7 @@ def main():
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
         json.dump(out, f, indent=2)
+    os.chmod(OUT, 0o600)  # owner read/write only
 
     print(f"✓ Synced {len(accounts)} account(s). Total: ${total:,.2f}")
     print("  Reload the dashboard to see it.")
