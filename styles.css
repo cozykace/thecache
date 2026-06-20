@@ -482,6 +482,28 @@ a.src-link:hover .src-bankname { color: var(--accent); }
   font-size: 9px; text-transform: uppercase; letter-spacing: 0.14em; color: rgba(var(--ink-rgb), 0.4);
 }
 .src-log { font-size: 10px; color: rgba(var(--ink-rgb), 0.55); padding: 2px 0; font-variant-numeric: tabular-nums; }
+
+/* ── jogger (hovers above the status pills) ──────── */
+.jogger {
+  position: fixed; bottom: 52px; right: 64px; z-index: 54;
+  width: 30px; height: 38px; pointer-events: none; color: var(--ink); opacity: 0.8;
+  animation: jog-hover 3.6s ease-in-out infinite;
+}
+.jogger svg { width: 100%; height: 100%; overflow: visible; }
+.jog-body { animation: jog-bob 0.8s ease-in-out infinite; }
+.torso { fill: currentColor; }
+.head { fill: none; stroke: currentColor; stroke-width: 1.6; }
+.limb { fill: currentColor; transform-box: fill-box; transform-origin: 50% 0%; }
+.legA { animation: jog-legA 1.6s ease-in-out infinite; }
+.legB { animation: jog-legB 1.6s ease-in-out infinite; }
+.armA { animation: jog-armA 1.6s ease-in-out infinite; }
+.armB { animation: jog-armB 1.6s ease-in-out infinite; }
+@keyframes jog-hover { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes jog-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.4px); } }
+@keyframes jog-legA { 0%, 100% { transform: rotate(26deg); } 50% { transform: rotate(-26deg); } }
+@keyframes jog-legB { 0%, 100% { transform: rotate(-26deg); } 50% { transform: rotate(26deg); } }
+@keyframes jog-armA { 0%, 100% { transform: rotate(-18deg); } 50% { transform: rotate(18deg); } }
+@keyframes jog-armB { 0%, 100% { transform: rotate(18deg); } 50% { transform: rotate(-18deg); } }
 .src-title { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.45); margin-bottom: 10px; }
 .src-bank { display: flex; gap: 9px; align-items: flex-start; padding: 6px 0; }
 .src-bankdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-top: 4px; flex-shrink: 0; }
