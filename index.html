@@ -7,20 +7,11 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="stage">
-      <!-- the central piece: one number, a quiet ring around it -->
-      <div class="core">
-        <div class="ring"></div>
-        <div class="readout">
-          <div class="label">Total balance</div>
-          <div class="number" id="balance">—</div>
-          <div class="status">
-            <span class="dot"></span> no data yet · next brick connects it
-          </div>
-        </div>
-      </div>
-    </main>
+    <!-- the board: widgets are drawn here by app.js -->
+    <div id="board" class="board"></div>
 
-    <footer class="foot">money · local · v0.0</footer>
+    <footer class="foot">money · local · v0.0 · drag a tile by its title bar</footer>
+
+    <script src="app.js"></script>
   </body>
 </html>
