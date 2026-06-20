@@ -18,6 +18,7 @@ EVERY TIME AFTER (refresh balances):
 import sys
 import os
 import json
+import time
 import base64
 import urllib.request
 import urllib.parse
@@ -59,16 +60,19 @@ def claim_setup_token(setup_token):
     return access_url
 
 
-def fetch_accounts(access_url):
-    """GET /accounts from SimpleFIN using the credentials in the access URL."""
+def fetch_accounts(access_url, start_date=None):
+    """GET /accounts from SimpleFIN. Pass start_date (unix secs) to include
+    transactions since then."""
     p = urllib.parse.urlparse(access_url)
     auth = base64.b64encode(f"{p.username}:{p.password}".encode()).decode()
     base = f"{p.scheme}://{p.hostname}{p.path}"
+    url = base + "/accounts"
+    if start_date:
+        url += "?start-date=" + str(int(start_date))
     req = urllib.request.Request(
-        base + "/accounts",
-        headers={"Authorization": "Basic " + auth, "User-Agent": UA},
+        url, headers={"Authorization": "Basic " + auth, "User-Agent": UA}
     )
-    with urllib.request.urlopen(req, timeout=30) as r:
+    with urllib.request.urlopen(req, timeout=60) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
@@ -88,13 +92,30 @@ def main():
             sys.exit(1)
         access_url = open(SECRET).read().strip()
 
-    data = fetch_accounts(access_url)
+    # pull ~35 days of transactions so we can gauge spending pace
+    window_days = 30
+    now = int(time.time())
+    data = fetch_accounts(access_url, now - (window_days + 5) * 86400)
 
     accounts = []
     total = 0.0
+    cash = 0.0          # money you actually have (positive balances only)
+    outflow = 0.0       # spending over the window
+    cutoff = now - window_days * 86400
+
     for a in data.get("accounts", []):
         bal = float(a.get("balance", 0) or 0)
         total += bal
+        if bal > 0:
+            cash += bal
+        for t in (a.get("transactions") or []):
+            try:
+                posted = int(t.get("posted", 0))
+                amt = float(t.get("amount", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if posted >= cutoff and amt < 0:
+                outflow += -amt
         accounts.append({
             "id": a.get("id"),
             "name": a.get("name", "Account"),
@@ -106,6 +127,9 @@ def main():
     out = {
         "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "total": round(total, 2),
+        "cash": round(cash, 2),
+        "burn_per_day": round(outflow / window_days, 2),
+        "spend_window_days": window_days,
         "accounts": accounts,
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
@@ -113,7 +137,8 @@ def main():
         json.dump(out, f, indent=2)
     os.chmod(OUT, 0o600)  # owner read/write only
 
-    print(f"✓ Synced {len(accounts)} account(s). Total: ${total:,.2f}")
+    # note: we deliberately don't print balances/totals to the terminal
+    print(f"✓ Synced {len(accounts)} account(s) + spending pace.")
     print("  Reload the dashboard to see it.")
 
 

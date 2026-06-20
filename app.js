@@ -12,6 +12,7 @@
 const LAYOUT_KEY = "money.layout.v2";
 const SIDEBAR_KEY = "money.sidebar";
 const NOTE_KEY = "money.note";
+const RESERVE_KEY = "money.reserve";
 const MIN_W = 90, MIN_H = 70;
 
 const fmtUSD = (n) =>
@@ -98,11 +99,60 @@ const RENDERERS = {
     note.addEventListener("input", () => localStorage.setItem(NOTE_KEY, note.textContent));
     el.appendChild(note);
   },
+  safe(el) {
+    el.classList.add("is-safe");
+    el.innerHTML =
+      '<div class="sub">safe to spend</div>' +
+      '<div class="big">…</div>' +
+      '<div class="safe-meta"></div>' +
+      '<button class="safe-reserve"></button>';
+    const big = el.querySelector(".big");
+    const meta = el.querySelector(".safe-meta");
+    const resBtn = el.querySelector(".safe-reserve");
+    let current = null;
+
+    function render(d) {
+      const cash = d.cash != null ? d.cash : (d.total || 0);
+      const burn = d.burn_per_day || 0;
+      const reserve = parseFloat(localStorage.getItem(RESERVE_KEY) || "0") || 0;
+      const safe = cash - reserve;
+      const days = burn > 0 ? Math.floor(safe / burn) : null;
+
+      big.textContent = fmtUSD(safe);
+      let color = "var(--ink)";
+      if (safe <= 0) color = "#c9542e";
+      else if (days !== null && days < 14) color = "#d6920f";
+      else if (days !== null) color = "#3f8f4e";
+      big.style.color = color;
+
+      meta.textContent = safe <= 0
+        ? "over your safe line"
+        : burn > 0
+          ? days + " days at " + fmtUSD(burn) + "/day"
+          : "spending pace unknown yet";
+      resBtn.textContent = "keep safe: " + fmtUSD(reserve) + " ✎";
+    }
+
+    resBtn.addEventListener("click", () => {
+      const v = prompt("Keep how much untouchable (e.g. savings, rent)?",
+        localStorage.getItem(RESERVE_KEY) || "0");
+      if (v !== null) {
+        localStorage.setItem(RESERVE_KEY, String(parseFloat(v.replace(/[^0-9.]/g, "")) || 0));
+        if (current) render(current);
+      }
+    });
+
+    fetch("data/balances.json?t=" + Date.now())
+      .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
+      .then((d) => { current = d; render(d); })
+      .catch(() => { big.textContent = "—"; meta.textContent = "no data · run sync"; });
+  },
 };
 
 // ── Single-instance widgets (the Widget Library) ───────────
 const LIBRARY = [
   { type: "balance", title: "Total balance", w: 320, h: 190 },
+  { type: "safe", title: "Safe to spend", w: 300, h: 200 },
   { type: "clock", title: "Local time", w: 260, h: 160 },
   { type: "date", title: "Today", w: 220, h: 150 },
   { type: "note", title: "Note", w: 280, h: 200 },

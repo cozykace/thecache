@@ -153,6 +153,20 @@ body {
 }
 .acct-bal { font-variant-numeric: tabular-nums; color: var(--ink); }
 
+/* safe-to-spend widget */
+.widget-body.is-safe {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; text-align: center;
+}
+.is-safe .big { transition: color 0.3s ease; }
+.safe-meta { font-size: 11px; letter-spacing: 0.04em; color: rgba(28, 26, 18, 0.55); }
+.safe-reserve {
+  margin-top: 8px; border: none; background: none; cursor: pointer;
+  font-family: inherit; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(28, 26, 18, 0.45);
+}
+.safe-reserve:hover { color: var(--accent); }
+
 /* resize handle */
 .widget-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
 .widget-resize::after {
