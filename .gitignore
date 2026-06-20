@@ -1,0 +1,23 @@
+# Dependencies & build output
+node_modules/
+dist/
+*.local
+
+# ── NEVER COMMIT THESE ──────────────────────────────
+# Secrets: SimpleFIN tokens, API keys, anything sensitive
+.env
+.env.*
+*.secret
+
+# Your actual financial data — stays on YOUR machine only
+data/
+*.sqlite
+*.sqlite3
+*.db
+transactions*.json
+accounts*.json
+# ────────────────────────────────────────────────────
+
+# macOS noise
+.DS_Store
+*.log

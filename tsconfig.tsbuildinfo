@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/card.tsx","./src/components/cashflowchart.tsx","./src/components/countup.tsx","./src/lib/categories.ts","./src/lib/format.ts","./src/lib/metrics.ts","./src/lib/sample.ts","./src/lib/types.ts"],"version":"5.9.3"}
