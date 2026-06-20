@@ -16,24 +16,49 @@ const MIN_W = 90, MIN_H = 70;
 
 const fmtUSD = (n) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+// soft, pleasing palette assigned per-account
+const ACCT_COLORS = ["#c9542e", "#2e7dc9", "#3f8f4e", "#6a4bc4", "#d6920f", "#1fa6a6", "#bf6ba5", "#8a8f2e"];
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const DRAG_IGNORE = ".widget-close,.widget-toggle,.sticker-close,.widget-resize,.sticker-resize";
 
 // ── How each widget type renders ───────────────────────────
 const RENDERERS = {
   balance(el) {
-    el.innerHTML = '<div><div class="big">…</div><div class="sub">syncing…</div></div>';
+    el.classList.add("is-balance");
+    el.innerHTML =
+      '<div class="bal-head">' +
+        '<div class="big">…</div>' +
+        '<div class="sub">syncing…</div>' +
+      '</div>' +
+      '<div class="bal-accounts"><div class="bal-accounts-inner"></div></div>';
+    const head = el.querySelector(".bal-head");
     const big = el.querySelector(".big");
     const sub = el.querySelector(".sub");
+    const list = el.querySelector(".bal-accounts-inner");
+    head.addEventListener("click", () => el.classList.toggle("expanded"));
+
     // read the local file written by sync.py (cache-busted so refresh is instant)
     fetch("data/balances.json?t=" + Date.now())
       .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
       .then((d) => {
         big.textContent = fmtUSD(d.total || 0);
         const when = d.updated ? new Date(d.updated) : null;
-        sub.textContent = when
+        const stamp = when
           ? "as of " + when.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
             " " + when.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
           : "synced";
+        sub.innerHTML = stamp + ' <span class="bal-caret">▾</span>';
+        list.innerHTML = (d.accounts || [])
+          .map((a, i) =>
+            '<div class="acct">' +
+              '<span class="acct-dot" style="background:' + ACCT_COLORS[i % ACCT_COLORS.length] + '"></span>' +
+              '<span class="acct-name">' + escapeHtml(a.name || "Account") + '</span>' +
+              '<span class="acct-bal">' + fmtUSD(a.balance || 0) + '</span>' +
+            '</div>'
+          )
+          .join("");
       })
       .catch(() => {
         big.textContent = "—";

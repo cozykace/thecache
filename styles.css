@@ -111,6 +111,32 @@ body {
 }
 .note-edit:empty::before { content: "write a note…"; color: rgba(28, 26, 18, 0.3); }
 
+/* balance widget — total with a slide-down per-account breakdown */
+.widget-body.is-balance {
+  display: flex; flex-direction: column; align-items: stretch;
+  justify-content: center; text-align: center; gap: 4px; overflow-y: auto;
+}
+.widget-body.is-balance.expanded { justify-content: flex-start; }
+.bal-head { flex-shrink: 0; cursor: pointer; }
+.bal-caret { display: inline-block; opacity: 0.55; transition: transform 0.3s ease; }
+.is-balance.expanded .bal-caret { transform: rotate(180deg); }
+.bal-accounts {
+  display: grid; grid-template-rows: 0fr; opacity: 0;
+  transition: grid-template-rows 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+}
+.is-balance.expanded .bal-accounts { grid-template-rows: 1fr; opacity: 1; }
+.bal-accounts-inner {
+  overflow: hidden; min-height: 0;
+  display: flex; flex-direction: column; gap: 1px; padding-top: 10px;
+}
+.acct { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font-size: 12px; }
+.acct-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.acct-name {
+  flex: 1; text-align: left; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; color: rgba(28, 26, 18, 0.7);
+}
+.acct-bal { font-variant-numeric: tabular-nums; color: var(--ink); }
+
 /* resize handle */
 .widget-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
 .widget-resize::after {
