@@ -2,6 +2,7 @@
 node_modules/
 dist/
 *.local
+*.tsbuildinfo
 
 # ── NEVER COMMIT THESE ──────────────────────────────
 # Secrets: SimpleFIN tokens, API keys, anything sensitive
