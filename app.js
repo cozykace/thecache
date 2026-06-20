@@ -39,6 +39,38 @@ const CAT_META = {
   transfer: { label: "Transfers", color: "#8a8f73" },
   other: { label: "Other", color: "#8c8470" },
 };
+
+// Typical Instacart busy windows (general demand patterns, not your market).
+const INSTACART_WINDOWS = [
+  { days: [0], sh: 11, eh: 16, label: "Sunday rush" },
+  { days: [6], sh: 10, eh: 15, label: "Saturday rush" },
+  { days: [5], sh: 16, eh: 20, label: "Friday dinner" },
+  { days: [1, 2, 3, 4], sh: 16, eh: 19, label: "dinner rush" },
+];
+function nextBusyWindow() {
+  const now = new Date();
+  let best = null;
+  for (let i = 0; i < 8; i++) {
+    const day = new Date(now); day.setDate(now.getDate() + i);
+    INSTACART_WINDOWS.forEach((w) => {
+      if (!w.days.includes(day.getDay())) return;
+      const start = new Date(day); start.setHours(w.sh, 0, 0, 0);
+      const end = new Date(day); end.setHours(w.eh, 0, 0, 0);
+      if (end <= now) return;
+      const active = now >= start && now < end;
+      const key = active ? now.getTime() : start.getTime();
+      if (!best || key < best.key) best = { key, start, end, label: w.label, active };
+    });
+  }
+  return best;
+}
+function hhmm(d) { let h = d.getHours(); const ap = h >= 12 ? "p" : "a"; h = h % 12 || 12; return h + ap; }
+function fmtBusy(b) {
+  if (!b) return "—";
+  if (b.active) return "go now → " + b.label + " til " + hhmm(b.end);
+  return b.start.toLocaleDateString("en-US", { weekday: "short" }) + " " +
+    hhmm(b.start) + "–" + hhmm(b.end) + " · " + b.label;
+}
 const DRAG_IGNORE = ".widget-close,.widget-toggle,.sticker-close,.widget-resize,.sticker-resize";
 
 // ── How each widget type renders ───────────────────────────
@@ -377,10 +409,17 @@ const RENDERERS = {
         '<div class="fc-sub work-sub"></div>' +
       '</div>' +
       '<div class="work-detail"></div>' +
-      '<div class="fc-meta"><span></span><button class="safe-reserve work-rate" type="button">rate ✎</button></div>';
+      '<div class="work-when"></div>' +
+      '<div class="fc-meta">' +
+        '<a class="toggl-link" href="https://track.toggl.com/timer" target="_blank" rel="noopener" title="open Toggl">' +
+          '<span class="toggl-mark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e9408f"/>' +
+          '<path d="M12 7v5l3 2" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>toggl</a>' +
+        '<button class="safe-reserve work-rate" type="button">rate ✎</button>' +
+      '</div>';
     const big = el.querySelector(".big");
     const sub = el.querySelector(".work-sub");
     const detail = el.querySelector(".work-detail");
+    const whenEl = el.querySelector(".work-when");
     const rateBtn = el.querySelector(".work-rate");
     const RATE_KEY = "money.rate", NEED_KEY = "money.need";
     let data = null;
@@ -395,6 +434,7 @@ const RENDERERS = {
       const gap = needOf(spend) - income;
       const rate = rateOf();
       rateBtn.textContent = "rate: " + fmtUSD(rate) + "/hr ✎";
+      whenEl.innerHTML = '<span class="work-when-label">next busy window</span><b>' + fmtBusy(nextBusyWindow()) + "</b>";
       if (gap <= 0) {
         big.textContent = "0h";
         big.style.color = "#3f8f4e";

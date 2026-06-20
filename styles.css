@@ -197,6 +197,13 @@ body {
   align-items: center; justify-content: center;
   font-size: 12px; line-height: 1.7; color: rgba(var(--ink-rgb), 0.6);
 }
+.work-when { flex-shrink: 0; text-align: center; font-size: 11px; margin: 4px 0 6px; color: rgba(var(--ink-rgb), 0.6); }
+.work-when-label { display: block; text-transform: uppercase; letter-spacing: 0.12em; font-size: 9px; color: rgba(var(--ink-rgb), 0.4); margin-bottom: 2px; }
+.work-when b { color: var(--accent); }
+.toggl-link { display: inline-flex; align-items: center; gap: 5px; text-decoration: none; color: rgba(var(--ink-rgb), 0.55); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+.toggl-link:hover { color: var(--ink); }
+.toggl-mark { width: 14px; height: 14px; display: inline-flex; }
+.toggl-mark svg { width: 14px; height: 14px; }
 .fc-line { stroke: var(--ink); }
 .fc-dot { fill: var(--accent); }
 .fc-floor { stroke: rgba(var(--ink-rgb), 0.22); }
