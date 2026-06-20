@@ -52,7 +52,7 @@ const RENDERERS = {
         sub.innerHTML = stamp + ' <span class="bal-caret">▾</span>';
         list.innerHTML = (d.accounts || [])
           .map((a, i) =>
-            '<div class="acct">' +
+            '<div class="acct" style="--i:' + i + '">' +
               '<span class="acct-dot" style="background:' + ACCT_COLORS[i % ACCT_COLORS.length] + '"></span>' +
               '<span class="acct-name">' + escapeHtml(a.name || "Account") + '</span>' +
               '<span class="acct-bal">' + fmtUSD(a.balance || 0) + '</span>' +
