@@ -35,9 +35,18 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
 
 def claim_setup_token(setup_token):
     """Exchange a one-time setup token for a durable access URL."""
-    token = setup_token.strip()
-    token += "=" * (-len(token) % 4)  # fix base64 padding if needed
-    claim_url = base64.b64decode(token).decode("utf-8").strip()
+    token = "".join(setup_token.split())  # drop any spaces / newlines from pasting
+    token += "=" * (-len(token) % 4)      # fix base64 padding if needed
+    try:
+        claim_url = base64.b64decode(token).decode("utf-8").strip()
+    except Exception:
+        print("✗ That doesn't look like a valid setup token.")
+        print("  Copy the WHOLE token (and nothing else) from SimpleFIN's")
+        print("  'New app connection', then run this again.")
+        sys.exit(1)
+    if not claim_url.startswith("http"):
+        print("✗ That token didn't decode to a valid URL — copy the full token and retry.")
+        sys.exit(1)
     req = urllib.request.Request(
         claim_url, data=b"", method="POST", headers={"User-Agent": UA}
     )
@@ -67,10 +76,11 @@ def main():
     args = sys.argv[1:]
 
     if args and args[0] == "setup":
-        if len(args) < 2:
-            print("Usage: python3 sync.py setup YOUR_SETUP_TOKEN")
-            sys.exit(1)
-        access_url = claim_setup_token(args[1])
+        # Prefer an interactive prompt — avoids shell quoting/paste mishaps.
+        token = args[1] if len(args) > 1 else input(
+            "\nPaste your SimpleFIN setup token, then press Enter:\n> "
+        )
+        access_url = claim_setup_token(token)
     else:
         if not os.path.exists(SECRET):
             print("No connection yet. First run:")
