@@ -1,91 +1,119 @@
 // ============================================================
-//  Money — widget board engine. Plain JS, no build step.
+//  Money — widget board + sidebar engine. Plain JS, no build.
 //
-//  A widget is an entry in WIDGETS below. The board draws each
-//  one and lets you drag it by its title bar. Where you drop it
-//  is saved in your browser, so the layout sticks after reload.
+//  • WIDGETS  = the catalog (what can go on the board)
+//  • layout   = which widgets are ON the board + where (saved)
+//  • Sidebar  = library (add/remove widgets) + menu
 //
-//  TO ADD A WIDGET: add an entry to WIDGETS with an id, title,
-//  a default size, and a render(el) function that fills its body.
+//  TO ADD A WIDGET TYPE: add an entry to WIDGETS with an id,
+//  title, default size, and render(el) that fills its body.
 // ============================================================
 
-const STORE_KEY = "money.layout.v1";
+const LAYOUT_KEY = "money.layout.v2";
+const SIDEBAR_KEY = "money.sidebar";
+const NOTE_KEY = "money.note";
 
 // ── Widget catalog ─────────────────────────────────────────
 const WIDGETS = [
   {
     id: "balance",
     title: "Total balance",
-    w: 340,
-    h: 200,
+    w: 320,
+    h: 190,
     render(el) {
       el.innerHTML =
-        '<div>' +
-        '<div class="big">—</div>' +
-        '<div class="sub">no data yet · next brick connects it</div>' +
-        '</div>';
+        '<div><div class="big">—</div>' +
+        '<div class="sub">no data yet</div></div>';
     },
   },
   {
     id: "clock",
     title: "Local time",
-    w: 280,
+    w: 260,
     h: 160,
     render(el) {
       const tick = () => {
         const now = new Date();
         el.innerHTML =
-          '<div>' +
-          '<div class="big">' +
+          '<div><div class="big">' +
           now.toLocaleTimeString("en-US", { hour12: false }) +
-          '</div>' +
-          '<div class="sub">' +
+          '</div><div class="sub">' +
           now.toLocaleDateString("en-US", {
             weekday: "long",
             month: "long",
             day: "numeric",
           }) +
-          '</div>' +
-          '</div>';
+          '</div></div>';
       };
       tick();
       setInterval(tick, 1000);
     },
   },
+  {
+    id: "date",
+    title: "Today",
+    w: 240,
+    h: 150,
+    render(el) {
+      const now = new Date();
+      el.innerHTML =
+        '<div><div class="big">' +
+        now.getDate() +
+        '</div><div class="sub">' +
+        now.toLocaleDateString("en-US", { month: "long" }) +
+        '</div></div>';
+    },
+  },
+  {
+    id: "note",
+    title: "Note",
+    w: 280,
+    h: 200,
+    render(el) {
+      const note = document.createElement("div");
+      note.className = "note-edit";
+      note.contentEditable = "true";
+      note.textContent = localStorage.getItem(NOTE_KEY) || "";
+      note.addEventListener("input", () => {
+        localStorage.setItem(NOTE_KEY, note.textContent);
+      });
+      el.style.placeItems = "stretch";
+      el.appendChild(note);
+    },
+  },
 ];
 
-// ── Layout: where each widget sits (persisted) ─────────────
+const catalog = Object.fromEntries(WIDGETS.map((w) => [w.id, w]));
+
+// ── Layout (presence + positions, persisted) ───────────────
 function defaultLayout() {
-  // first-run: center the cluster, side by side
   const cx = window.innerWidth / 2;
   const cy = window.innerHeight / 2;
   return {
-    balance: { x: Math.round(cx - 354), y: Math.round(cy - 100), w: 340, h: 200 },
-    clock: { x: Math.round(cx + 14), y: Math.round(cy - 80), w: 280, h: 160 },
+    balance: { x: Math.round(cx - 334), y: Math.round(cy - 95), w: 320, h: 190 },
+    clock: { x: Math.round(cx + 14), y: Math.round(cy - 80), w: 260, h: 160 },
   };
 }
-
 function loadLayout() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
-    return Object.assign(defaultLayout(), saved);
+    const saved = localStorage.getItem(LAYOUT_KEY);
+    return saved ? JSON.parse(saved) : defaultLayout();
   } catch (e) {
     return defaultLayout();
   }
 }
-
 function saveLayout() {
-  localStorage.setItem(STORE_KEY, JSON.stringify(layout));
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
 }
 
-// ── Render ─────────────────────────────────────────────────
+// ── State ──────────────────────────────────────────────────
 const board = document.getElementById("board");
-const layout = loadLayout();
+let layout = loadLayout();
+const nodes = {}; // id -> DOM node
 let zTop = 10;
 
-function makeWidget(def) {
-  const pos = layout[def.id] || { x: 40, y: 40, w: def.w, h: def.h };
-
+// ── Build one widget on the board ──────────────────────────
+function makeWidget(def, pos) {
   const node = document.createElement("section");
   node.className = "widget";
   node.style.left = pos.x + "px";
@@ -96,7 +124,9 @@ function makeWidget(def) {
   const bar = document.createElement("header");
   bar.className = "widget-bar";
   bar.innerHTML =
-    '<span class="widget-title">' + def.title + '</span><span class="grip">⠿</span>';
+    '<span class="widget-title">' +
+    def.title +
+    '</span><button class="widget-close" aria-label="Remove">✕</button>';
 
   const body = document.createElement("div");
   body.className = "widget-body";
@@ -104,9 +134,42 @@ function makeWidget(def) {
   node.appendChild(bar);
   node.appendChild(body);
   board.appendChild(node);
+  nodes[def.id] = node;
 
   def.render(body);
+  bar.querySelector(".widget-close").addEventListener("click", () =>
+    removeWidget(def.id)
+  );
   makeDraggable(node, bar, def.id);
+}
+
+// ── Add / remove from the board ────────────────────────────
+function addWidget(id) {
+  if (layout[id]) {
+    // already on board — bring it to front
+    if (nodes[id]) nodes[id].style.zIndex = ++zTop;
+    return;
+  }
+  const def = catalog[id];
+  const n = Object.keys(layout).length;
+  layout[id] = {
+    x: 90 + n * 26,
+    y: 90 + n * 26,
+    w: def.w,
+    h: def.h,
+  };
+  makeWidget(def, layout[id]);
+  saveLayout();
+  renderLibrary();
+}
+function removeWidget(id) {
+  if (nodes[id]) {
+    nodes[id].remove();
+    delete nodes[id];
+  }
+  delete layout[id];
+  saveLayout();
+  renderLibrary();
 }
 
 // ── Drag to place ──────────────────────────────────────────
@@ -114,6 +177,7 @@ function makeDraggable(node, handle, id) {
   let startX = 0, startY = 0, originX = 0, originY = 0, dragging = false;
 
   handle.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".widget-close")) return; // let the ✕ do its job
     dragging = true;
     handle.setPointerCapture(e.pointerId);
     node.style.zIndex = ++zTop;
@@ -128,7 +192,6 @@ function makeDraggable(node, handle, id) {
     if (!dragging) return;
     let nx = originX + (e.clientX - startX);
     let ny = originY + (e.clientY - startY);
-    // keep at least a sliver on screen
     nx = Math.max(60 - node.offsetWidth, Math.min(window.innerWidth - 60, nx));
     ny = Math.max(0, Math.min(window.innerHeight - 40, ny));
     node.style.left = nx + "px";
@@ -151,5 +214,44 @@ function makeDraggable(node, handle, id) {
   handle.addEventListener("pointercancel", end);
 }
 
+// ── Sidebar: widget library ────────────────────────────────
+const library = document.getElementById("library");
+function renderLibrary() {
+  library.innerHTML = "";
+  WIDGETS.forEach((def) => {
+    const on = !!layout[def.id];
+    const item = document.createElement("button");
+    item.className = "lib-item" + (on ? " active" : "");
+    item.innerHTML =
+      '<span class="lib-dot"></span>' +
+      '<span class="lib-label">' + def.title + '</span>' +
+      '<span class="lib-state">' + (on ? "on" : "add") + '</span>';
+    item.addEventListener("click", () =>
+      on ? removeWidget(def.id) : addWidget(def.id)
+    );
+    library.appendChild(item);
+  });
+}
+
+// ── Sidebar: open / close ──────────────────────────────────
+const toggle = document.getElementById("sidebarToggle");
+const closeBtn = document.getElementById("sidebarClose");
+function setSidebar(open) {
+  document.body.classList.toggle("sidebar-open", open);
+  localStorage.setItem(SIDEBAR_KEY, open ? "1" : "0");
+}
+toggle.addEventListener("click", () => setSidebar(true));
+closeBtn.addEventListener("click", () => setSidebar(false));
+
+// ── Menu: reset layout ─────────────────────────────────────
+document.getElementById("resetLayout").addEventListener("click", () => {
+  localStorage.removeItem(LAYOUT_KEY);
+  location.reload();
+});
+
 // ── Boot ───────────────────────────────────────────────────
-WIDGETS.forEach(makeWidget);
+Object.keys(layout).forEach((id) => {
+  if (catalog[id]) makeWidget(catalog[id], layout[id]);
+});
+renderLibrary();
+setSidebar(localStorage.getItem(SIDEBAR_KEY) === "1");

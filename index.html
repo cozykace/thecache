@@ -7,6 +7,28 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <!-- toggle: opens the sidebar -->
+    <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open menu">☰</button>
+
+    <!-- the sliding pane: menu + widget library live here -->
+    <aside id="sidebar" class="sidebar">
+      <header class="sidebar-head">
+        <span class="brand"><span class="brand-dot"></span> MONEY</span>
+        <button id="sidebarClose" class="sidebar-close" aria-label="Close menu">✕</button>
+      </header>
+
+      <section class="sidebar-section">
+        <div class="section-title">Widget Library</div>
+        <div id="library" class="library"><!-- filled by app.js --></div>
+        <div class="section-hint">click to add / remove from the board</div>
+      </section>
+
+      <section class="sidebar-section">
+        <div class="section-title">Menu</div>
+        <button class="menu-item" id="resetLayout">↺ Reset layout</button>
+      </section>
+    </aside>
+
     <!-- the board: widgets are drawn here by app.js -->
     <div id="board" class="board"></div>
 

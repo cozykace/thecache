@@ -1,13 +1,12 @@
 /* ───────────────────────────────────────────────
-   Money — lightweight widget board. Plain CSS.
-   Palette + widget frame live here. Widgets and
-   placement live in app.js.
+   Money — lightweight widget board + sidebar. Plain CSS.
    ─────────────────────────────────────────────── */
 
 :root {
   --paper: #ece6d6;
+  --panel: #e4ddca;       /* sidebar tone, a touch deeper than paper */
   --ink: #1c1a12;
-  --accent: #c9542e;   /* warm accent */
+  --accent: #c9542e;
   --edge: rgba(28, 26, 18, 0.30);
   --edge-soft: rgba(28, 26, 18, 0.14);
 }
@@ -22,16 +21,13 @@ body {
   background-size: 14px 14px;
   color: var(--ink);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  overflow: hidden; /* board owns the screen */
+  overflow: hidden;
 }
 
-/* the board fills the screen; widgets are placed absolutely on it */
-.board {
-  position: fixed;
-  inset: 0;
-}
+/* ── board ──────────────────────────────────────── */
+.board { position: fixed; inset: 0; }
 
-/* ── a widget ───────────────────────────────────── */
+/* ── widget ─────────────────────────────────────── */
 .widget {
   position: absolute;
   display: flex;
@@ -40,48 +36,49 @@ body {
   border: 1px solid var(--edge);
   border-radius: 14px;
   overflow: hidden;
-  transition: box-shadow 0.18s ease, transform 0.04s ease;
+  transition: box-shadow 0.18s ease;
 }
-.widget.dragging {
-  box-shadow: 0 14px 40px -12px rgba(28, 26, 18, 0.35);
-}
+.widget.dragging { box-shadow: 0 14px 40px -12px rgba(28, 26, 18, 0.35); }
 
-/* draggable title bar */
 .widget-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
   border-bottom: 1px solid var(--edge-soft);
   cursor: grab;
   user-select: none;
-  touch-action: none; /* let pointer events drive the drag */
+  touch-action: none;
 }
 .widget-bar:active { cursor: grabbing; }
-
 .widget-title {
   text-transform: uppercase;
   letter-spacing: 0.16em;
   font-size: 10px;
   color: rgba(28, 26, 18, 0.55);
 }
-.grip { color: rgba(28, 26, 18, 0.3); font-size: 12px; }
+.widget-close {
+  border: none;
+  background: none;
+  color: rgba(28, 26, 18, 0.35);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+.widget-close:hover { color: var(--accent); background: rgba(28, 26, 18, 0.06); }
 
-/* widget content area */
 .widget-body {
   flex: 1;
   display: grid;
   place-items: center;
   text-align: center;
   padding: 12px;
+  overflow: auto;
 }
-
-.big {
-  font-size: 56px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1;
-}
+.big { font-size: 52px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
 .sub {
   text-transform: uppercase;
   letter-spacing: 0.16em;
@@ -89,12 +86,147 @@ body {
   color: rgba(28, 26, 18, 0.45);
   margin-top: 10px;
 }
+.note-edit {
+  width: 100%;
+  height: 100%;
+  outline: none;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(28, 26, 18, 0.8);
+}
+.note-edit:empty::before {
+  content: "write a note…";
+  color: rgba(28, 26, 18, 0.3);
+}
 
+/* ── sidebar toggle ─────────────────────────────── */
+.sidebar-toggle {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 60;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 15px;
+  cursor: pointer;
+  transition: opacity 0.2s ease, background 0.15s ease;
+}
+.sidebar-toggle:hover { background: var(--panel); }
+body.sidebar-open .sidebar-toggle { opacity: 0; pointer-events: none; }
+
+/* ── sidebar pane ───────────────────────────────── */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 280px;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--edge);
+  transform: translateX(-100%);
+  transition: transform 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+}
+body.sidebar-open .sidebar { transform: none; }
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--edge-soft);
+}
+.brand { font-size: 13px; letter-spacing: 0.16em; font-weight: 600; }
+.brand-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.sidebar-close {
+  border: none; background: none; cursor: pointer;
+  color: rgba(28, 26, 18, 0.45); font-size: 13px; padding: 4px 6px;
+  border-radius: 6px;
+}
+.sidebar-close:hover { color: var(--accent); background: rgba(28, 26, 18, 0.06); }
+
+.sidebar-section { padding: 16px; border-bottom: 1px solid var(--edge-soft); }
+.section-title {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 10px;
+  color: rgba(28, 26, 18, 0.45);
+  margin-bottom: 10px;
+}
+.section-hint {
+  font-size: 10px;
+  color: rgba(28, 26, 18, 0.35);
+  margin-top: 10px;
+  font-style: italic;
+}
+
+/* library items */
+.library { display: flex; flex-direction: column; gap: 6px; }
+.lib-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  color: var(--ink);
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.lib-item:hover { background: rgba(255, 255, 255, 0.4); }
+.lib-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  border: 1px solid var(--edge);
+  flex-shrink: 0;
+}
+.lib-item.active { border-color: var(--edge); }
+.lib-item.active .lib-dot { background: var(--accent); border-color: var(--accent); }
+.lib-label { flex: 1; }
+.lib-state {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 9px;
+  color: rgba(28, 26, 18, 0.4);
+}
+
+/* menu items */
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.menu-item:hover { background: rgba(255, 255, 255, 0.4); }
+
+/* ── footer ─────────────────────────────────────── */
 .foot {
   position: fixed;
   bottom: 16px;
-  left: 0;
-  right: 0;
+  left: 0; right: 0;
   text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.18em;
