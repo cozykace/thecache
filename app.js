@@ -13,7 +13,7 @@ const LAYOUT_KEY = "money.layout.v2";
 const SIDEBAR_KEY = "money.sidebar";
 const NOTE_KEY = "money.note";
 const MIN_W = 90, MIN_H = 70;
-const DRAG_IGNORE = ".widget-close,.sticker-close,.widget-resize,.sticker-resize";
+const DRAG_IGNORE = ".widget-close,.widget-toggle,.sticker-close,.widget-resize,.sticker-resize";
 
 // ── How each widget type renders ───────────────────────────
 const RENDERERS = {
@@ -115,7 +115,7 @@ function drawIcons() {
 // ── Build a framed widget ──────────────────────────────────
 function makeWidget(id, entry) {
   const node = document.createElement("section");
-  node.className = "widget";
+  node.className = "widget" + (entry.bare ? " bare" : "");
   node.dataset.id = id;
   node.style.left = entry.x + "px";
   node.style.top = entry.y + "px";
@@ -129,7 +129,10 @@ function makeWidget(id, entry) {
     '<span class="bar-ico">' + (entry.barIcon ? '<i data-lucide="' + entry.barIcon + '"></i>' : "") + "</span>" +
     '<span class="widget-title">' + titleFor(entry) + "</span>" +
     "</span>" +
-    '<button class="widget-close" aria-label="Remove">✕</button>';
+    '<span class="bar-right">' +
+    '<button class="widget-toggle" title="Hide / show frame" aria-label="Toggle frame"><span class="toggle-dot"></span></button>' +
+    '<button class="widget-close" aria-label="Remove">✕</button>' +
+    "</span>";
 
   const body = document.createElement("div");
   body.className = "widget-body";
@@ -145,6 +148,11 @@ function makeWidget(id, entry) {
   RENDERERS[entry.type](body, entry);
   drawIcons();
   bar.querySelector(".widget-close").addEventListener("click", () => removeWidget(id));
+  bar.querySelector(".widget-toggle").addEventListener("click", () => {
+    entry.bare = !entry.bare;
+    node.classList.toggle("bare", entry.bare);
+    saveLayout();
+  });
   makeDraggable(node, bar, id);
   makeResizable(node, grip, id);
 }
