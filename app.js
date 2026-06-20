@@ -119,143 +119,104 @@ const RENDERERS = {
     el.appendChild(note);
   },
   safe(el) {
-    // Safe-to-spend as a tiny living planet: the number sits in its core,
-    // and your financial health is how lush vs barren the planet is.
-    el.classList.add("is-planet");
+    // Safe-to-spend + a clean forecast: balance projected forward at your
+    // average daily spend, with the date you hit your safety floor.
+    el.classList.add("is-forecast");
     el.innerHTML =
-      '<div class="planet-wrap"><svg viewBox="0 0 200 210" preserveAspectRatio="xMidYMid meet">' +
-        '<g class="plants"></g>' +
-        '<g class="body">' +
-          '<circle cx="100" cy="132" r="52" fill="rgba(28,26,18,0.03)" stroke="#1c1a12" stroke-width="1.4"/>' +
-          '<path d="M58 148 Q100 166 142 148" fill="none" stroke="rgba(28,26,18,0.22)" stroke-width="1"/>' +
-          '<path d="M72 120 Q84 114 96 120" fill="none" stroke="rgba(28,26,18,0.18)" stroke-width="1"/>' +
-        '</g>' +
-        '<text class="p-amount" x="100" y="136" text-anchor="middle">…</text>' +
-        '<text class="p-days" x="100" y="153" text-anchor="middle"></text>' +
+      '<div class="fc-head">' +
+        '<div class="fc-label">safe to spend</div>' +
+        '<div class="big">…</div>' +
+        '<div class="fc-sub"></div>' +
+      '</div>' +
+      '<div class="fc-chart"><svg viewBox="0 0 300 110" preserveAspectRatio="xMidYMid meet">' +
+        '<defs><linearGradient id="fcGrad" x1="0" y1="0" x2="0" y2="1">' +
+          '<stop offset="0%" stop-color="#c9542e" stop-opacity="0.16"/>' +
+          '<stop offset="100%" stop-color="#c9542e" stop-opacity="0"/>' +
+        '</linearGradient></defs>' +
+        '<path class="fc-area" fill="url(#fcGrad)" d="" />' +
+        '<line class="fc-floor" x1="6" x2="294" stroke="rgba(28,26,18,0.22)" stroke-width="1" stroke-dasharray="3 4" />' +
+        '<path class="fc-line" fill="none" stroke="#1c1a12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="" />' +
+        '<circle class="fc-dot" r="3.5" fill="#c9542e" style="display:none" />' +
       '</svg></div>' +
-      '<div class="planet-controls">' +
-        '<input type="range" class="spend-slider" min="0" value="0" max="100" step="1" aria-label="Test a spend" />' +
-        '<div class="planet-meta">' +
-          '<span class="test-label">drag to test a spend</span>' +
-          '<button class="safe-reserve"></button>' +
-        '</div>' +
-      '</div>';
+      '<div class="fc-meta"><span class="fc-runway"></span><button class="safe-reserve"></button></div>';
 
-    const plants = el.querySelector(".plants");
-    const amountT = el.querySelector(".p-amount");
-    const daysT = el.querySelector(".p-days");
-    const slider = el.querySelector(".spend-slider");
-    const testLabel = el.querySelector(".test-label");
+    const big = el.querySelector(".big");
+    const sub = el.querySelector(".fc-sub");
+    const area = el.querySelector(".fc-area");
+    const line = el.querySelector(".fc-line");
+    const floor = el.querySelector(".fc-floor");
+    const dot = el.querySelector(".fc-dot");
+    const runwayEl = el.querySelector(".fc-runway");
     const resBtn = el.querySelector(".safe-reserve");
     let data = null;
-
     const r1 = (n) => Math.round(n * 10) / 10;
     const reserve = () => parseFloat(localStorage.getItem(RESERVE_KEY) || "0") || 0;
-    const mix = (a, b, t) => {
-      const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
-      const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
-      return "rgb(" + pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(",") + ")";
-    };
 
-    function plant(a, h, color, idx) {
-      const rad = (a * Math.PI) / 180, ox = Math.sin(rad), oy = -Math.cos(rad);
-      const R = 52, cx = 100, cy = 132;
-      const bx = cx + R * ox, by = cy + R * oy;
-      const droop = 1 - h, len = 12 + h * 30;
-      const tx = bx + ox * len * (1 - 0.25 * droop);
-      const ty = by + oy * len * (1 - 0.25 * droop) + droop * 18;
-      const sway = (idx % 2 ? 1 : -1) * 7 * (1 - 0.4 * droop);
-      const mx = (bx + tx) / 2 - oy * sway, my = (by + ty) / 2 + ox * sway;
-      let s = '<g class="plant" style="--d:' + idx + '">';
-      s += '<path d="M' + r1(bx) + " " + r1(by) + " Q " + r1(mx) + " " + r1(my) +
-        " " + r1(tx) + " " + r1(ty) + '" fill="none" stroke="' + color +
-        '" stroke-width="1.5" stroke-linecap="round"/>';
-      if (h > 0.55) {
-        const fc = idx % 2 ? "#bf6ba5" : "#d6920f";
-        for (let p = 0; p < 5; p++) {
-          const pa = (p * 72 * Math.PI) / 180;
-          s += '<circle cx="' + r1(tx + Math.cos(pa) * 4.4) + '" cy="' + r1(ty + Math.sin(pa) * 4.4) +
-            '" r="1.8" fill="' + fc + '" opacity="0.9"/>';
-        }
-        s += '<circle cx="' + r1(tx) + '" cy="' + r1(ty) + '" r="2" fill="#1c1a12"/>';
-      } else {
-        s += '<circle cx="' + r1(tx) + '" cy="' + r1(ty) + '" r="2.2" fill="' + color + '"/>';
-      }
-      return s + "</g>";
-    }
+    function draw() {
+      const W = 300, H = 110, padL = 6, padR = 6, padT = 10, padB = 12;
+      const cash = data.cash != null ? data.cash : (data.total || 0);
+      const res = reserve();
+      const burn = data.burn_per_day || 0;
+      const safe = cash - res;
 
-    function drawPlants(h) {
-      if (h <= 0) {
-        plants.innerHTML =
-          '<path d="M100 80 q -7 -11 -2 -20" fill="none" stroke="#9a9079" stroke-width="1.3" stroke-linecap="round"/>' +
-          '<path d="M97 64 l -6 -4" stroke="#9a9079" stroke-width="1.2" stroke-linecap="round"/>';
+      big.textContent = fmtUSD(safe);
+      big.style.color = safe <= 0 ? "#c9542e" : "var(--ink)";
+      sub.textContent = burn > 0 ? fmtUSD(burn) + " / day avg spend" : "avg spend: not enough history yet";
+
+      const top = Math.max(cash, res + 1);
+      const span = Math.max(1, top - res);
+      const yOf = (bal) => padT + (H - padT - padB) * (1 - (bal - res) / span);
+      const floorY = yOf(res);
+      floor.setAttribute("y1", r1(floorY));
+      floor.setAttribute("y2", r1(floorY));
+      resBtn.textContent = "keep safe: " + fmtUSD(res);
+
+      if (burn <= 0 || safe <= 0) {
+        const y = yOf(Math.max(cash, res));
+        line.setAttribute("d", "M" + padL + " " + r1(y) + " L" + (W - padR) + " " + r1(y));
+        area.setAttribute("d", "");
+        dot.style.display = "none";
+        runwayEl.textContent = safe <= 0 ? "you're over your safe line" : "need more spending history";
         return;
       }
-      const color = mix("9a9079", "3f8f4e", h);
-      const n = Math.max(1, Math.round(h * 5));
-      const spread = 58;
-      let s = "";
-      for (let i = 0; i < n; i++) {
-        const a = n === 1 ? 0 : -spread + 2 * spread * (i / (n - 1));
-        s += plant(a, h, color, i);
-      }
-      plants.innerHTML = s;
+
+      const runway = safe / burn; // days until you reach your safety floor
+      const horizon = Math.min(180, Math.max(14, Math.ceil(runway * 1.4)));
+      const xOf = (d) => padL + (W - padL - padR) * (d / horizon);
+      const sx = xOf(0), sy = yOf(cash);
+      const cx = xOf(runway), cy = floorY;
+
+      line.setAttribute("d", "M" + r1(sx) + " " + r1(sy) + " L" + r1(cx) + " " + r1(cy));
+      area.setAttribute("d",
+        "M" + r1(sx) + " " + r1(sy) + " L" + r1(cx) + " " + r1(cy) + " L" + r1(sx) + " " + r1(floorY) + " Z");
+      dot.style.display = "";
+      dot.setAttribute("cx", r1(cx));
+      dot.setAttribute("cy", r1(cy));
+
+      const dry = new Date(Date.now() + runway * 86400000);
+      runwayEl.textContent = Math.floor(runway) + " days left · til " +
+        dry.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
 
-    function healthFor(safe, burn) {
-      if (safe <= 0) return 0;
-      const days = burn > 0 ? safe / burn : 999;
-      return Math.max(0.06, Math.min(1, days / 30));
-    }
-
-    function show(test) {
-      const cash = data.cash != null ? data.cash : (data.total || 0);
-      const burn = data.burn_per_day || 0;
-      const safe = cash - reserve() - (test || 0);
-      const days = burn > 0 ? Math.floor(safe / burn) : null;
-
-      amountT.textContent = fmtUSD(safe);
-      amountT.setAttribute("fill",
-        safe <= 0 ? "#c9542e" : (days !== null && days < 14) ? "#d6920f" : "#3f8f4e");
-      daysT.textContent = safe <= 0 ? "over your line" : (burn > 0 ? days + " days left" : "");
-      drawPlants(healthFor(safe, burn));
-
-      testLabel.textContent = test > 0
-        ? "spend " + fmtUSD(test) + (days !== null ? " → " + days + " days" : "")
-        : "drag to test a spend";
-      resBtn.textContent = "keep safe: " + fmtUSD(reserve());
-    }
-
-    function setupSlider() {
-      const cash = data ? (data.cash != null ? data.cash : (data.total || 0)) : 0;
-      const base = cash - reserve();
-      const max = Math.max(100, Math.round((base > 0 ? base : 200) * 1.3));
-      slider.max = String(max);
-      slider.step = String(Math.max(1, Math.round(max / 120)));
-    }
-
-    slider.addEventListener("input", () => show(parseFloat(slider.value) || 0));
     resBtn.addEventListener("click", () => {
       const v = prompt("Keep how much untouchable (savings, rent)?", localStorage.getItem(RESERVE_KEY) || "0");
       if (v !== null) {
         localStorage.setItem(RESERVE_KEY, String(parseFloat(v.replace(/[^0-9.]/g, "")) || 0));
-        slider.value = "0";
-        setupSlider();
-        show(0);
+        if (data) draw();
       }
     });
 
     fetch("data/balances.json?t=" + Date.now())
       .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
-      .then((d) => { data = d; setupSlider(); show(0); })
-      .catch(() => { amountT.textContent = "—"; daysT.textContent = "no data · run sync"; });
+      .then((d) => { data = d; draw(); })
+      .catch(() => { big.textContent = "—"; runwayEl.textContent = "no data · run sync"; });
   },
 };
 
 // ── Single-instance widgets (the Widget Library) ───────────
 const LIBRARY = [
   { type: "balance", title: "Total balance", w: 320, h: 190 },
-  { type: "safe", title: "Safe to spend", w: 280, h: 320 },
+  { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "clock", title: "Local time", w: 260, h: 160 },
   { type: "date", title: "Today", w: 220, h: 150 },
   { type: "note", title: "Note", w: 280, h: 200 },
