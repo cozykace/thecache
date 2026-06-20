@@ -27,13 +27,20 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SECRET = os.path.join(HERE, ".simplefin")            # access URL (credential)
 OUT = os.path.join(HERE, "data", "balances.json")    # what the dashboard reads
 
+# Some servers reject the default "Python-urllib" agent with a 403, so we
+# identify as a normal client.
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+      "AppleWebKit/537.36 (KHTML, like Gecko) money-sync/1.0")
+
 
 def claim_setup_token(setup_token):
     """Exchange a one-time setup token for a durable access URL."""
     token = setup_token.strip()
     token += "=" * (-len(token) % 4)  # fix base64 padding if needed
     claim_url = base64.b64decode(token).decode("utf-8").strip()
-    req = urllib.request.Request(claim_url, data=b"", method="POST")
+    req = urllib.request.Request(
+        claim_url, data=b"", method="POST", headers={"User-Agent": UA}
+    )
     with urllib.request.urlopen(req, timeout=30) as r:
         access_url = r.read().decode("utf-8").strip()
     with open(SECRET, "w") as f:
@@ -49,7 +56,7 @@ def fetch_accounts(access_url):
     base = f"{p.scheme}://{p.hostname}{p.path}"
     req = urllib.request.Request(
         base + "/accounts",
-        headers={"Authorization": "Basic " + auth},
+        headers={"Authorization": "Basic " + auth, "User-Agent": UA},
     )
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read().decode("utf-8"))
