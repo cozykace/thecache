@@ -23,12 +23,10 @@ body {
   color: var(--ink);
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   overflow: hidden;
-  /* custom hairline arrow cursor (edit the SVG path to change the shape) */
-  cursor: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20viewBox='0%200%2024%2024'%3E%3Cpath%20d='M3%202L3%2019L8%2014L11%2021L14%2020L11%2013L18%2013Z'%20fill='%23ece6d6'%20stroke='%231c1a12'%20stroke-width='1.3'%20stroke-linejoin='round'/%3E%3C/svg%3E") 3 2, auto;
 }
 
-/* keep a text caret where you actually type */
-.note-edit, .icon-search { cursor: text; }
+/* hide the native cursor everywhere — our JS cursor is the only cursor */
+*, *::before, *::after { cursor: none !important; }
 
 /* ── board ──────────────────────────────────────── */
 .board { position: fixed; inset: 0; }
@@ -250,3 +248,32 @@ body.sidebar-open .sidebar { transform: none; }
   text-transform: uppercase; letter-spacing: 0.18em; font-size: 10px;
   color: rgba(28, 26, 18, 0.3); pointer-events: none;
 }
+
+/* ── designed cursor ────────────────────────────── */
+.cursor-dot {
+  position: fixed; left: 0; top: 0; z-index: 401; pointer-events: none;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--ink); transform: translate(-50%, -50%);
+}
+.cursor-aura { position: fixed; left: 0; top: 0; z-index: 400; pointer-events: none; will-change: transform; }
+.cursor-ring {
+  position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid rgba(28, 26, 18, 0.45);
+  transition: width 0.18s ease, height 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+}
+.cursor-aura.hot .cursor-ring { width: 38px; height: 38px; border-color: var(--accent); }
+.cursor-aura.down .cursor-ring { width: 16px; height: 16px; border-color: var(--accent); }
+.cursor-aura.holding .cursor-ring {
+  width: 12px; height: 12px; border-color: var(--accent);
+  animation: cursorPulse 0.7s ease-in-out infinite;
+}
+@keyframes cursorPulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.5); opacity: 0.5; }
+}
+.cursor-ripple { position: fixed; z-index: 399; pointer-events: none; border-radius: 50%; transform: translate(-50%, -50%); }
+.cursor-ripple.click { border: 1.5px solid var(--accent); animation: rippleClick 0.5s ease-out forwards; }
+@keyframes rippleClick { from { width: 8px; height: 8px; opacity: 0.9; } to { width: 56px; height: 56px; opacity: 0; } }
+.cursor-ripple.hold { border: 2px solid var(--ink); animation: rippleHold 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+@keyframes rippleHold { 0% { width: 60px; height: 60px; opacity: 0; } 30% { opacity: 0.85; } 100% { width: 8px; height: 8px; opacity: 0; } }
