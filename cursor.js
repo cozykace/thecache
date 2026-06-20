@@ -35,9 +35,9 @@
     const speed = Math.min(Math.hypot(dx, dy), 36);
     const k = speed / 36;
     const angle = (dx || dy) ? Math.atan2(dy, dx) * 180 / Math.PI : 0;
-    // pressed → squish flat; moving → stretch along travel
-    const tsx = pressed ? 1.3 : 1 + k * 0.45;
-    const tsy = pressed ? 0.68 : 1 - k * 0.28;
+    // pressed → gentle squish; moving → subtle stretch along travel
+    const tsx = pressed ? 1.12 : 1 + k * 0.18;
+    const tsy = pressed ? 0.9 : 1 - k * 0.12;
     sx += (tsx - sx) * 0.3;
     sy += (tsy - sy) * 0.3;
     ball.style.transform =

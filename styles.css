@@ -252,21 +252,20 @@ body.sidebar-open .sidebar { transform: none; }
 /* ── designed cursor: 3D jelly ball ─────────────── */
 .cursor-ball {
   position: fixed; left: 0; top: 0; z-index: 401; pointer-events: none;
-  width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+  width: 24px; height: 24px; margin: -12px 0 0 -12px;
   transform-origin: center;
-  background: radial-gradient(circle at 34% 30%, #6a6a6a 0%, #1c1c1c 48%, #000 100%);
-  box-shadow:
-    0 9px 16px -5px rgba(0, 0, 0, 0.5),
-    inset -2px -3px 6px rgba(0, 0, 0, 0.55),
-    inset 3px 4px 6px rgba(255, 255, 255, 0.22);
+  /* mostly black, just a whisper of shading */
+  background: radial-gradient(circle at 42% 38%, #2a2a2a, #060606 62%);
+  /* imperfect, gestural blob — never a perfect circle */
+  border-radius: 47% 53% 51% 49% / 52% 48% 51% 49%;
+  box-shadow: 0 3px 11px rgba(0, 0, 0, 0.18);
+  transition: border-radius 0.3s ease, box-shadow 0.2s ease;
   will-change: transform;
 }
-/* pressed: contact shadow tightens (ball pushes down) */
+/* pressed: morphs into a slightly different blob */
 .cursor-ball.press {
-  box-shadow:
-    0 4px 8px -3px rgba(0, 0, 0, 0.45),
-    inset -2px -3px 6px rgba(0, 0, 0, 0.55),
-    inset 3px 4px 6px rgba(255, 255, 255, 0.22);
+  border-radius: 42% 58% 54% 46% / 56% 44% 53% 47%;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.16);
 }
 
 /* jelly: buttons squish under the ball, then spring back */
