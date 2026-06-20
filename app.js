@@ -313,6 +313,61 @@ const RENDERERS = {
       })
       .catch(() => { avg.textContent = "—"; sub.textContent = "no data · run sync"; });
   },
+  gap(el) {
+    el.classList.add("is-breakdown");
+    el.innerHTML =
+      '<div class="bd-head">' +
+        '<div class="bd-top"><span class="fc-label">the gap</span></div>' +
+        '<div class="big bd-avg">…</div>' +
+        '<div class="fc-sub gap-sub"></div>' +
+      '</div>' +
+      '<div class="bd-list"></div>' +
+      '<button class="bd-fix gap-need" type="button"></button>';
+    const num = el.querySelector(".bd-avg");
+    const sub = el.querySelector(".gap-sub");
+    const bars = el.querySelector(".bd-list");
+    const needBtn = el.querySelector(".gap-need");
+    const NEED_KEY = "money.need";
+    let data = null;
+
+    function needOf(spend) {
+      const s = localStorage.getItem(NEED_KEY);
+      return s !== null ? (parseFloat(s) || 0) : Math.round(spend);
+    }
+    function row(label, val, color, max) {
+      return '<div class="bd-row"><span class="bd-cat">' + label +
+        '</span><span class="bd-track"><span class="bd-fill" style="background:' + color +
+        ';width:0" data-w="' + Math.max(4, (val / max) * 100) + '"></span></span>' +
+        '<span class="bd-amt">' + fmtUSD(val) + '</span></div>';
+    }
+    function render() {
+      const income = (data.income && data.income.per_month) || 0;
+      const spend = (data.spending && data.spending.per_month) || 0;
+      const need = needOf(spend);
+      const g = need - income;
+      num.textContent = fmtUSD(Math.abs(g));
+      num.style.color = g > 0 ? "#c9542e" : "#3f8f4e";
+      sub.textContent = g > 0 ? "to make per month to break even" : "you're ahead each month 🎉";
+      const max = Math.max(income, need, 1);
+      bars.innerHTML = row("Make", income, "#3f8f4e", max) + row("Need", need, "#c9542e", max);
+      const fills = bars.querySelectorAll(".bd-fill");
+      requestAnimationFrame(() => fills.forEach((f) => { f.style.width = f.dataset.w + "%"; }));
+      needBtn.textContent = "need: " + fmtUSD(need) + " /mo ✎";
+    }
+    needBtn.addEventListener("click", () => {
+      const cur = localStorage.getItem(NEED_KEY) ||
+        (data && data.spending ? String(Math.round(data.spending.per_month)) : "");
+      const v = prompt("How much do you need per month? (rent + bills + living)", cur);
+      if (v !== null) {
+        localStorage.setItem(NEED_KEY, String(parseFloat(v.replace(/[^0-9.]/g, "")) || 0));
+        if (data) render();
+      }
+    });
+    fetch("data/balances.json?t=" + Date.now())
+      .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
+      .then((d) => { data = d; render(); })
+      .catch(() => { num.textContent = "—"; sub.textContent = "no data · run sync"; });
+  },
 };
 
 // ── In-app category editor (talks to the local backend) ────
@@ -377,6 +432,7 @@ function openCategorizer(onDone) {
 const LIBRARY = [
   { type: "balance", title: "Total balance", w: 320, h: 190 },
   { type: "income", title: "What makes money", w: 300, h: 240 },
+  { type: "gap", title: "The gap", w: 300, h: 230 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
   { type: "clock", title: "Local time", w: 260, h: 160 },
