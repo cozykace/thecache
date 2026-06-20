@@ -368,6 +368,61 @@ const RENDERERS = {
       .then((d) => { data = d; render(); })
       .catch(() => { num.textContent = "—"; sub.textContent = "no data · run sync"; });
   },
+  work(el) {
+    el.classList.add("is-forecast");
+    el.innerHTML =
+      '<div class="fc-head">' +
+        '<div class="fc-label">work to close the gap</div>' +
+        '<div class="big">…</div>' +
+        '<div class="fc-sub work-sub"></div>' +
+      '</div>' +
+      '<div class="work-detail"></div>' +
+      '<div class="fc-meta"><span></span><button class="safe-reserve work-rate" type="button">rate ✎</button></div>';
+    const big = el.querySelector(".big");
+    const sub = el.querySelector(".work-sub");
+    const detail = el.querySelector(".work-detail");
+    const rateBtn = el.querySelector(".work-rate");
+    const RATE_KEY = "money.rate", NEED_KEY = "money.need";
+    let data = null;
+    const rateOf = () => parseFloat(localStorage.getItem(RATE_KEY)) || 25;
+    const needOf = (spend) => {
+      const s = localStorage.getItem(NEED_KEY);
+      return s !== null ? (parseFloat(s) || 0) : Math.round(spend);
+    };
+    function render() {
+      const income = (data.income && data.income.per_month) || 0;
+      const spend = (data.spending && data.spending.per_month) || 0;
+      const gap = needOf(spend) - income;
+      const rate = rateOf();
+      rateBtn.textContent = "rate: " + fmtUSD(rate) + "/hr ✎";
+      if (gap <= 0) {
+        big.textContent = "0h";
+        big.style.color = "#3f8f4e";
+        sub.textContent = "you're covered — no extra work needed 🎉";
+        detail.innerHTML = "";
+        return;
+      }
+      const hoursMo = gap / rate;
+      const hoursWk = hoursMo / 4.33;
+      big.textContent = Math.round(hoursWk) + "h / wk";
+      big.style.color = "var(--ink)";
+      sub.textContent = "≈ " + Math.round(hoursMo) + " hours this month";
+      const shifts = Math.max(1, Math.round(hoursWk / 4));
+      detail.innerHTML = "to make <b>" + fmtUSD(gap) + "</b> on Instacart<br>" +
+        "≈ " + shifts + " shift" + (shifts > 1 ? "s" : "") + " of ~" + Math.round(hoursWk / shifts) + "h a week";
+    }
+    rateBtn.addEventListener("click", () => {
+      const v = prompt("Your Instacart $/hour (after gas/expenses)?", String(rateOf()));
+      if (v !== null) {
+        localStorage.setItem(RATE_KEY, String(parseFloat(v.replace(/[^0-9.]/g, "")) || 0));
+        if (data) render();
+      }
+    });
+    fetch("data/balances.json?t=" + Date.now())
+      .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
+      .then((d) => { data = d; render(); })
+      .catch(() => { big.textContent = "—"; sub.textContent = "no data · run sync"; });
+  },
 };
 
 // ── In-app category editor (talks to the local backend) ────
@@ -433,6 +488,7 @@ const LIBRARY = [
   { type: "balance", title: "Total balance", w: 320, h: 190 },
   { type: "income", title: "What makes money", w: 300, h: 240 },
   { type: "gap", title: "The gap", w: 300, h: 230 },
+  { type: "work", title: "Work planner", w: 300, h: 210 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
   { type: "clock", title: "Local time", w: 260, h: 160 },
