@@ -564,20 +564,59 @@ function setSidebar(open) {
 document.getElementById("sidebarToggle").addEventListener("click", () => setSidebar(true));
 document.getElementById("sidebarClose").addEventListener("click", () => setSidebar(false));
 
-// ── Theme (light / dark) ───────────────────────────────────
+// ── Theme (color profiles) ─────────────────────────────────
 const THEME_KEY = "money.theme";
+const THEMES = [
+  { id: "light", label: "Paper", bg: "#ece6d6", accent: "#c9542e" },
+  { id: "dark", label: "Ink", bg: "#14130e", accent: "#e0734a" },
+  { id: "terminal", label: "Phosphor", bg: "#0c0f0a", accent: "#8fe388" },
+  { id: "blueprint", label: "Blueprint", bg: "#0e1830", accent: "#6aa6ff" },
+  { id: "mist", label: "Mist", bg: "#e8ecf0", accent: "#4a6da7" },
+];
 const themeBtn = document.getElementById("themeToggle");
-function applyTheme(t) {
-  document.documentElement.setAttribute("data-theme", t);
-  localStorage.setItem(THEME_KEY, t);
-  themeBtn.innerHTML = '<i data-lucide="' + (t === "dark" ? "sun" : "moon") + '"></i>';
+
+function applyTheme(id) {
+  if (!THEMES.some((t) => t.id === id)) id = "light";
+  document.documentElement.setAttribute("data-theme", id);
+  localStorage.setItem(THEME_KEY, id);
+  themeBtn.innerHTML = '<i data-lucide="palette"></i>';
   drawIcons();
+  document.querySelectorAll(".theme-swatch").forEach((s) =>
+    s.classList.toggle("active", s.dataset.id === id));
 }
-themeBtn.addEventListener("click", () => {
-  const dark = document.documentElement.getAttribute("data-theme") === "dark";
-  applyTheme(dark ? "light" : "dark");
+function closeThemePop() {
+  const p = document.querySelector(".theme-pop");
+  const b = document.getElementById("themeBackdrop");
+  if (p) p.remove();
+  if (b) b.remove();
+}
+function openThemePop() {
+  const cur = document.documentElement.getAttribute("data-theme") || "light";
+  const back = document.createElement("div");
+  back.className = "theme-backdrop";
+  back.id = "themeBackdrop";
+  back.addEventListener("pointerdown", closeThemePop);
+  const pop = document.createElement("div");
+  pop.className = "theme-pop";
+  THEMES.forEach((t) => {
+    const sw = document.createElement("button");
+    sw.className = "theme-swatch" + (t.id === cur ? " active" : "");
+    sw.dataset.id = t.id;
+    sw.title = t.label;
+    sw.style.background = t.bg;
+    sw.innerHTML = '<span class="dot" style="background:' + t.accent + '"></span>';
+    sw.addEventListener("click", () => { applyTheme(t.id); closeThemePop(); });
+    pop.appendChild(sw);
+  });
+  document.body.appendChild(back);
+  document.body.appendChild(pop);
+}
+themeBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (document.querySelector(".theme-pop")) closeThemePop();
+  else openThemePop();
 });
-applyTheme(localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light");
+applyTheme(localStorage.getItem(THEME_KEY) || "light");
 
 // ── Menu: reset ────────────────────────────────────────────
 document.getElementById("resetLayout").addEventListener("click", () => {
