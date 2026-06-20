@@ -3,6 +3,7 @@
 .env
 .env.*
 *.secret
+.simplefin
 
 # Your actual financial data — stays on YOUR machine only
 data/

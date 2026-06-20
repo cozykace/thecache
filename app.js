@@ -13,12 +13,32 @@ const LAYOUT_KEY = "money.layout.v2";
 const SIDEBAR_KEY = "money.sidebar";
 const NOTE_KEY = "money.note";
 const MIN_W = 90, MIN_H = 70;
+
+const fmtUSD = (n) =>
+  n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const DRAG_IGNORE = ".widget-close,.widget-toggle,.sticker-close,.widget-resize,.sticker-resize";
 
 // ── How each widget type renders ───────────────────────────
 const RENDERERS = {
   balance(el) {
-    el.innerHTML = '<div><div class="big">—</div><div class="sub">no data yet</div></div>';
+    el.innerHTML = '<div><div class="big">…</div><div class="sub">syncing…</div></div>';
+    const big = el.querySelector(".big");
+    const sub = el.querySelector(".sub");
+    // read the local file written by sync.py (cache-busted so refresh is instant)
+    fetch("data/balances.json?t=" + Date.now())
+      .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
+      .then((d) => {
+        big.textContent = fmtUSD(d.total || 0);
+        const when = d.updated ? new Date(d.updated) : null;
+        sub.textContent = when
+          ? "as of " + when.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
+            " " + when.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+          : "synced";
+      })
+      .catch(() => {
+        big.textContent = "—";
+        sub.textContent = "no data · run sync";
+      });
   },
   clock(el) {
     const tick = () => {
