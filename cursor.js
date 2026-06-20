@@ -1,85 +1,62 @@
 // ============================================================
-//  Money — designed cursor (nourishing edition).
-//  Our cursor is the ONLY cursor (native hidden in CSS).
-//
-//  • dot   = precise point, softly squishes on press
-//  • ring  = trails the pointer, breathes when idle, and
-//            gently leans toward whatever you hover (soft magnet)
-//  • glow  = a warm, blurred afterglow that lags further behind
-//  • click = a soft warm bloom; hold-release gathers inward
+//  Money — designed cursor: a 3D jelly ball.
+//  One black sphere is the only cursor (native is hidden in CSS).
+//  It trails with a little lag, stretches in its direction of
+//  motion, squishes when pressed, and dents buttons inward like
+//  jelly when it pushes on them.
 // ============================================================
 (() => {
-  const HOLD_MS = 180;
-  const HOT = "a,button,input,textarea,[contenteditable],.widget-bar," +
-    ".sticker,.widget-resize,.sticker-resize,.icon-cell,.lib-item,.menu-item";
+  const PRESSABLE = "button";
 
-  const aura = document.createElement("div");
-  aura.className = "cursor-aura";
-  aura.innerHTML = '<span class="cursor-ring"></span>';
-  const glow = document.createElement("div");
-  glow.className = "cursor-glow";
-  const dot = document.createElement("div");
-  dot.className = "cursor-dot";
-  document.body.appendChild(glow);
-  document.body.appendChild(aura);
-  document.body.appendChild(dot);
+  const ball = document.createElement("div");
+  ball.className = "cursor-ball";
+  document.body.appendChild(ball);
 
   let px = innerWidth / 2, py = innerHeight / 2;   // raw pointer
-  let cx = px, cy = py;                            // ring (eased + magnet)
-  let gx = px, gy = py;                            // glow (slower)
-  let hotEl = null;
+  let cx = px, cy = py, lastX = px, lastY = py;    // ball position (eased)
+  let sx = 1, sy = 1;                              // squish (eased)
+  let pressed = false, hoverEl = null, pressEl = null;
 
   addEventListener("pointermove", (e) => {
     px = e.clientX; py = e.clientY;
-    dot.style.left = px + "px";
-    dot.style.top = py + "px";
-    hotEl = e.target && e.target.closest ? e.target.closest(HOT) : null;
-    aura.classList.toggle("hot", !!hotEl);
+    const hov = e.target && e.target.closest ? e.target.closest(PRESSABLE) : null;
+    if (hov !== hoverEl) {
+      if (hoverEl) hoverEl.classList.remove("jelly-hover");
+      if (hov) hov.classList.add("jelly-hover");
+      hoverEl = hov;
+    }
   }, { passive: true });
 
   (function loop() {
-    // soft magnet: lean the ring's target toward a hovered element's center
-    let txp = px, typ = py;
-    if (hotEl && hotEl.isConnected) {
-      const r = hotEl.getBoundingClientRect();
-      txp = px + (r.left + r.width / 2 - px) * 0.22;
-      typ = py + (r.top + r.height / 2 - py) * 0.22;
-    }
-    cx += (txp - cx) * 0.2;
-    cy += (typ - cy) * 0.2;
-    gx += (px - gx) * 0.1;
-    gy += (py - gy) * 0.1;
-    aura.style.transform = "translate(" + cx + "px," + cy + "px)";
-    glow.style.transform = "translate(" + gx + "px," + gy + "px)";
+    cx += (px - cx) * 0.22;
+    cy += (py - cy) * 0.22;
+    const dx = cx - lastX, dy = cy - lastY;
+    lastX = cx; lastY = cy;
+    const speed = Math.min(Math.hypot(dx, dy), 36);
+    const k = speed / 36;
+    const angle = (dx || dy) ? Math.atan2(dy, dx) * 180 / Math.PI : 0;
+    // pressed → squish flat; moving → stretch along travel
+    const tsx = pressed ? 1.3 : 1 + k * 0.45;
+    const tsy = pressed ? 0.68 : 1 - k * 0.28;
+    sx += (tsx - sx) * 0.3;
+    sy += (tsy - sy) * 0.3;
+    ball.style.transform =
+      "translate(" + cx + "px," + cy + "px) rotate(" + (pressed ? 0 : angle) +
+      "deg) scale(" + sx.toFixed(3) + "," + sy.toFixed(3) + ")";
     requestAnimationFrame(loop);
   })();
 
-  function bloom(x, y, kind) {
-    const b = document.createElement("div");
-    b.className = "cursor-ripple " + kind;
-    b.style.left = x + "px";
-    b.style.top = y + "px";
-    document.body.appendChild(b);
-    b.addEventListener("animationend", () => b.remove());
-  }
-
-  let downAt = 0, holdTimer = null;
-  addEventListener("pointerdown", () => {
-    downAt = performance.now();
-    dot.classList.add("press");
-    aura.classList.add("down");
-    holdTimer = setTimeout(() => aura.classList.add("holding"), HOLD_MS);
+  addEventListener("pointerdown", (e) => {
+    pressed = true;
+    ball.classList.add("press");
+    pressEl = e.target && e.target.closest ? e.target.closest(PRESSABLE) : null;
+    if (pressEl) pressEl.classList.add("jelly-down");
   });
-  addEventListener("pointerup", (e) => {
-    clearTimeout(holdTimer);
-    const held = performance.now() - downAt >= HOLD_MS;
-    dot.classList.remove("press");
-    aura.classList.remove("down", "holding");
-    bloom(e.clientX, e.clientY, held ? "hold" : "click");
-  });
-  addEventListener("pointercancel", () => {
-    clearTimeout(holdTimer);
-    dot.classList.remove("press");
-    aura.classList.remove("down", "holding");
-  });
+  const release = () => {
+    pressed = false;
+    ball.classList.remove("press");
+    if (pressEl) { pressEl.classList.remove("jelly-down"); pressEl = null; }
+  };
+  addEventListener("pointerup", release);
+  addEventListener("pointercancel", release);
 })();

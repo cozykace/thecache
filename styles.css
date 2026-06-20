@@ -229,7 +229,7 @@ body.sidebar-open .sidebar { transform: none; }
   background: rgba(255, 255, 255, 0.16); cursor: grab; color: var(--ink);
   touch-action: none; transition: background 0.12s ease, transform 0.08s ease;
 }
-.icon-cell:hover { background: rgba(255, 255, 255, 0.5); transform: translateY(-1px); }
+.icon-cell:hover { background: rgba(255, 255, 255, 0.5); }
 .icon-cell:active { cursor: grabbing; }
 .icon-cell svg { width: 18px; height: 18px; stroke-width: 1.5; pointer-events: none; }
 .icon-cell.hidden { display: none; }
@@ -249,72 +249,30 @@ body.sidebar-open .sidebar { transform: none; }
   color: rgba(28, 26, 18, 0.3); pointer-events: none;
 }
 
-/* ── designed cursor (nourishing) ───────────────── */
-.cursor-dot {
+/* ── designed cursor: 3D jelly ball ─────────────── */
+.cursor-ball {
   position: fixed; left: 0; top: 0; z-index: 401; pointer-events: none;
-  width: 5px; height: 5px; border-radius: 50%;
-  background: var(--ink); transform: translate(-50%, -50%);
-  box-shadow: 0 0 7px rgba(201, 84, 46, 0.45);
-  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+  transform-origin: center;
+  background: radial-gradient(circle at 34% 30%, #6a6a6a 0%, #1c1c1c 48%, #000 100%);
+  box-shadow:
+    0 9px 16px -5px rgba(0, 0, 0, 0.5),
+    inset -2px -3px 6px rgba(0, 0, 0, 0.55),
+    inset 3px 4px 6px rgba(255, 255, 255, 0.22);
+  will-change: transform;
 }
-.cursor-dot.press { transform: translate(-50%, -50%) scale(0.55); }
-
-/* warm blurred afterglow trailing further behind */
-.cursor-glow {
-  position: fixed; left: 0; top: 0; z-index: 398; pointer-events: none;
-  width: 46px; height: 46px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(201, 84, 46, 0.12), rgba(201, 84, 46, 0));
-  transform: translate(-50%, -50%); margin: -23px 0 0 -23px;
-  filter: blur(3px); will-change: transform;
-}
-
-.cursor-aura { position: fixed; left: 0; top: 0; z-index: 400; pointer-events: none; will-change: transform; }
-.cursor-ring {
-  position: absolute; left: 0; top: 0; border-radius: 50%;
-  width: 26px; height: 26px;
-  border: 1px solid rgba(28, 26, 18, 0.4);
-  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), height 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
-  animation: ringBreathe 4.5s ease-in-out infinite;
-}
-/* idle breathing — gentle, alive, calm */
-@keyframes ringBreathe {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); }
-  50% { transform: translate(-50%, -50%) scale(1.08); }
-}
-.cursor-aura.hot .cursor-ring { width: 40px; height: 40px; border-color: var(--accent); }
-.cursor-aura.down .cursor-ring { width: 18px; height: 18px; border-color: var(--accent); }
-.cursor-aura.holding .cursor-ring {
-  width: 13px; height: 13px; border-color: var(--accent);
-  animation: ringHold 1.6s ease-in-out infinite;
-}
-@keyframes ringHold {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  50% { transform: translate(-50%, -50%) scale(1.45); opacity: 0.55; }
+/* pressed: contact shadow tightens (ball pushes down) */
+.cursor-ball.press {
+  box-shadow:
+    0 4px 8px -3px rgba(0, 0, 0, 0.45),
+    inset -2px -3px 6px rgba(0, 0, 0, 0.55),
+    inset 3px 4px 6px rgba(255, 255, 255, 0.22);
 }
 
-/* soft warm bloom on click; gentle inward gather on hold-release */
-.cursor-ripple { position: fixed; z-index: 399; pointer-events: none; border-radius: 50%; transform: translate(-50%, -50%); }
-.cursor-ripple.click {
-  background: radial-gradient(circle, rgba(201, 84, 46, 0.32), rgba(201, 84, 46, 0) 70%);
-  animation: bloomClick 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+/* jelly: buttons squish under the ball, then spring back */
+.lib-item, .menu-item, .icon-cell, .widget-close, .widget-toggle,
+.sticker-close, .sidebar-toggle, .sidebar-close {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.14s ease, color 0.14s ease;
 }
-@keyframes bloomClick {
-  0% { width: 10px; height: 10px; opacity: 0; }
-  25% { opacity: 0.9; }
-  100% { width: 74px; height: 74px; opacity: 0; }
-}
-.cursor-ripple.hold {
-  background: radial-gradient(circle, rgba(201, 84, 46, 0) 52%, rgba(201, 84, 46, 0.3) 68%, rgba(201, 84, 46, 0) 84%);
-  animation: gatherHold 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-@keyframes gatherHold {
-  0% { width: 84px; height: 84px; opacity: 0; }
-  30% { opacity: 0.85; }
-  100% { width: 10px; height: 10px; opacity: 0; }
-}
-
-/* gentle, warm hover lifts */
-.widget:not(.bare):hover { box-shadow: 0 10px 30px -16px rgba(28, 26, 18, 0.4); }
-.lib-item, .menu-item, .icon-cell { transition: background 0.14s ease, transform 0.16s cubic-bezier(0.16, 1, 0.3, 1); }
-.lib-item:hover, .menu-item:hover { transform: translateY(-1px); }
-.icon-cell:hover { transform: translateY(-2px); }
+.jelly-hover { transform: scale(0.97); }
+.jelly-down { transform: scale(0.9); }
