@@ -66,9 +66,12 @@ def _read(path, default):
 
 
 def _write(path, obj):
+    # atomic: write a temp file then rename, so readers never see a half file
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(obj, f, indent=2)
+    os.replace(tmp, path)
     try:
         os.chmod(path, 0o600)
     except OSError:
@@ -148,6 +151,25 @@ def other_merchants(txns, overrides, limit=14):
             key = _clean(t.get("description", "")) or "unknown"
             agg[key] = agg.get(key, 0.0) + (-amt)
     rows = [{"merchant": k.title(), "key": k, "amount": round(v, 2)} for k, v in agg.items()]
+    rows.sort(key=lambda m: -m["amount"])
+    return rows[:limit]
+
+
+def top_merchants(txns, overrides, limit=24):
+    """All spending grouped by cleaned merchant, biggest first, with each
+    one's CURRENT category — so you can review and reassign any of them."""
+    agg = {}
+    for t in txns:
+        amt = t.get("amount", 0)
+        if amt < 0:
+            key = _clean(t.get("description", "")) or "unknown"
+            if key not in agg:
+                agg[key] = {"merchant": key.title(), "key": key, "amount": 0.0,
+                            "category": categorize(t.get("description", ""), overrides)}
+            agg[key]["amount"] += -amt
+    rows = list(agg.values())
+    for r in rows:
+        r["amount"] = round(r["amount"], 2)
     rows.sort(key=lambda m: -m["amount"])
     return rows[:limit]
 

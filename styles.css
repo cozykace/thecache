@@ -70,6 +70,7 @@ body {
   container-type: size;
 }
 .widget.dragging { box-shadow: 0 14px 40px -12px rgba(var(--ink-rgb), 0.35); }
+.widget.tidying, .sticker.tidying { transition: left 0.45s cubic-bezier(0.16, 1, 0.3, 1), top 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* bare mode — strip border, background, shadow down to just content */
 .widget.bare { background: transparent; border-color: transparent; }

@@ -47,6 +47,9 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/other-merchants":
             return self._json(200, {"merchants": store.other_merchants(
                 store.load_transactions(), store.load_overrides())})
+        if path == "/api/merchants":
+            return self._json(200, {"merchants": store.top_merchants(
+                store.load_transactions(), store.load_overrides())})
         if self._blocked():
             return self._json(404, {"error": "not found"})
         return super().do_GET()

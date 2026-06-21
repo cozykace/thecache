@@ -553,6 +553,11 @@ function closeCategorizer(onDone) {
   if (b) b.remove();
   if (typeof onDone === "function") onDone();
 }
+function catOptions(cur) {
+  return Object.keys(CAT_META)
+    .map((k) => '<option value="' + k + '"' + (k === cur ? " selected" : "") + ">" + CAT_META[k].label + "</option>")
+    .join("");
+}
 function openCategorizer(onDone) {
   closeCategorizer();
   const back = document.createElement("div");
@@ -563,38 +568,32 @@ function openCategorizer(onDone) {
   const modal = document.createElement("div");
   modal.className = "cat-modal";
   modal.innerHTML =
-    '<div class="cat-head"><span>Fix categories</span><button class="cat-close" aria-label="Close">✕</button></div>' +
-    '<div class="cat-hint">your biggest uncategorized charges — pick a category and it sticks</div>' +
+    '<div class="cat-head"><span>Categorize</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    "<div class=\"cat-hint\">your biggest charges — set each one's category and it sticks</div>" +
     '<div class="cat-list">loading…</div>';
   document.body.appendChild(back);
   document.body.appendChild(modal);
   modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer(onDone));
 
   const listEl = modal.querySelector(".cat-list");
-  const opts = Object.keys(CAT_META)
-    .filter((k) => k !== "other" && k !== "transfer")
-    .map((k) => '<option value="' + k + '">' + CAT_META[k].label + '</option>')
-    .join("");
-
-  fetch("/api/other-merchants")
+  fetch("/api/merchants")
     .then((r) => r.json())
     .then((d) => {
       const ms = d.merchants || [];
-      if (!ms.length) { listEl.innerHTML = '<div class="cat-empty">nothing left uncategorized 🎉</div>'; return; }
+      if (!ms.length) { listEl.innerHTML = '<div class="cat-empty">no transactions yet — sync first</div>'; return; }
       listEl.innerHTML = ms.map((m) =>
         '<div class="cat-row">' +
           '<span class="cat-merch" title="' + escapeHtml(m.merchant) + '">' + escapeHtml(m.merchant) + '</span>' +
           '<span class="cat-amt">' + fmtUSD(m.amount) + '</span>' +
-          '<select class="cat-select"><option value="">—</option>' + opts + '</select>' +
+          '<select class="cat-select">' + catOptions(m.category) + '</select>' +
         '</div>').join("");
       listEl.querySelectorAll(".cat-row").forEach((row, i) => {
         row.querySelector(".cat-select").addEventListener("change", (e) => {
-          if (!e.target.value) return;
           fetch("/api/categorize", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ merchant: ms[i].key, category: e.target.value }),
-          }).then(() => row.classList.add("done"));
+          }).then(() => { row.classList.add("done"); setTimeout(() => row.classList.remove("done"), 500); });
         });
       });
     })
@@ -1157,6 +1156,28 @@ document.getElementById("resetLayout").addEventListener("click", () => {
   localStorage.removeItem(LAYOUT_KEY);
   location.reload();
 });
+
+// tidy: snap everything into a clean left-to-right grid
+function tidyLayout() {
+  const pad = 16, startX = 32, startY = 86;
+  const maxRight = window.innerWidth - 24;
+  let x = startX, y = startY, rowH = 0;
+  Object.keys(layout).forEach((id) => {
+    const node = nodes[id];
+    if (!node) return;
+    const w = node.offsetWidth, h = node.offsetHeight;
+    if (x + w > maxRight && x > startX) { x = startX; y += rowH + pad; rowH = 0; }
+    node.classList.add("tidying");
+    node.style.left = x + "px";
+    node.style.top = y + "px";
+    layout[id].x = x; layout[id].y = y;
+    x += w + pad;
+    rowH = Math.max(rowH, h);
+  });
+  saveLayout();
+  setTimeout(() => Object.values(nodes).forEach((n) => n.classList.remove("tidying")), 480);
+}
+document.getElementById("tidyLayout").addEventListener("click", () => { tidyLayout(); setSidebar(false); });
 
 // ── Boot ───────────────────────────────────────────────────
 Object.keys(layout).forEach((id) => makeAny(id, layout[id]));
