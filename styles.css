@@ -517,42 +517,26 @@ a.src-link:hover .src-bankname { color: var(--accent); }
 
 /* ── jogger: goofy jointed cowboy hovering above the pills ── */
 .jogger {
-  position: fixed; bottom: 50px; right: 60px; z-index: 54;
-  width: 40px; height: 54px; pointer-events: none; color: var(--ink); opacity: 0.85;
+  position: fixed; bottom: 50px; right: 52px; z-index: 54;
+  width: 52px; height: 40px; pointer-events: none; color: var(--ink); opacity: 0.9;
   animation: jog-hover 3.6s ease-in-out infinite;
 }
 .jogger svg { width: 100%; height: 100%; overflow: visible; }
-.jog-body { transform-box: view-box; transform-origin: 22px 30px; animation: jog-bob 0.5s ease-in-out infinite; }
-.seg, .torso { fill: currentColor; }
-/* suffering goat head */
-.goat-fill { fill: var(--paper); stroke: currentColor; stroke-width: 1.3; }
-.goat-line { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-.goat-eye { fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; }
-.goat-ink, .goat-ink-fill { fill: currentColor; }
+.jog-body { transform-box: view-box; transform-origin: 28px 20px; animation: goat-bob 0.7s ease-in-out infinite; }
+.goat-solid { fill: currentColor; }
+.goat-neck { fill: none; stroke: currentColor; stroke-width: 5.5; stroke-linecap: round; }
+.goat-horn { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.goat-eye { fill: none; stroke: var(--paper); stroke-width: 1; stroke-linecap: round; }
+.goat-cut { fill: var(--paper); }
 .goat-sweat { fill: #7fb0e8; }
-/* each segment pivots at its joint, in viewBox coordinates */
-.thigh { transform-box: view-box; transform-origin: 22px 32px; }
-.shin  { transform-box: view-box; transform-origin: 22px 41px; }
-.uarm  { transform-box: view-box; transform-origin: 22px 18px; }
-.farm  { transform-box: view-box; transform-origin: 22px 24px; }
-.tA { animation: thighA 1s ease-in-out infinite; }
-.tB { animation: thighB 1s ease-in-out infinite; }
-.sA { animation: shinA 1s ease-in-out infinite; }
-.sB { animation: shinB 1s ease-in-out infinite; }
-.aA { animation: uarmA 1s ease-in-out infinite; }
-.aB { animation: uarmB 1s ease-in-out infinite; }
-.fA { animation: farmA 1s ease-in-out infinite; }
-.fB { animation: farmB 1s ease-in-out infinite; }
+.gFront, .gBack { transform-box: fill-box; transform-origin: 50% 0%; }
+.gFront { animation: goat-front 0.7s ease-in-out infinite; }
+.gBack { animation: goat-back 0.7s ease-in-out infinite; }
+.goatfar { animation-delay: -0.13s; opacity: 0.7; }
 @keyframes jog-hover { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-@keyframes jog-bob { 0% { transform: translateY(0) rotate(-2.5deg); } 50% { transform: translateY(-3.5px) rotate(2.5deg); } 100% { transform: translateY(0) rotate(-2.5deg); } }
-@keyframes thighA { 0%, 100% { transform: rotate(-40deg); } 50% { transform: rotate(45deg); } }
-@keyframes thighB { 0%, 100% { transform: rotate(45deg); } 50% { transform: rotate(-40deg); } }
-@keyframes shinA  { 0%, 100% { transform: rotate(80deg); } 50% { transform: rotate(6deg); } }
-@keyframes shinB  { 0%, 100% { transform: rotate(6deg); } 50% { transform: rotate(80deg); } }
-@keyframes uarmA  { 0%, 100% { transform: rotate(42deg); } 50% { transform: rotate(-42deg); } }
-@keyframes uarmB  { 0%, 100% { transform: rotate(-42deg); } 50% { transform: rotate(42deg); } }
-@keyframes farmA  { 0%, 100% { transform: rotate(-100deg); } 50% { transform: rotate(-55deg); } }
-@keyframes farmB  { 0%, 100% { transform: rotate(-55deg); } 50% { transform: rotate(-100deg); } }
+@keyframes goat-bob { 0%, 100% { transform: translateY(0) rotate(-1.5deg); } 50% { transform: translateY(-2.5px) rotate(1.5deg); } }
+@keyframes goat-front { 0%, 100% { transform: rotate(24deg); } 50% { transform: rotate(-28deg); } }
+@keyframes goat-back { 0%, 100% { transform: rotate(-28deg); } 50% { transform: rotate(24deg); } }
 .src-title { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.45); margin-bottom: 10px; }
 .src-bank { display: flex; gap: 9px; align-items: flex-start; padding: 6px 0; }
 .src-bankdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-top: 4px; flex-shrink: 0; }

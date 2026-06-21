@@ -63,38 +63,37 @@
 
     <!-- a little jogger hovering above the status pills -->
     <div class="jogger" aria-hidden="true">
-      <svg viewBox="0 0 44 60">
+      <svg viewBox="0 0 58 44">
         <g class="jog-body">
-          <!-- back leg (thigh → shin) -->
-          <g class="thigh tB"><rect class="seg" x="21" y="32" width="2" height="9.4" rx="1" />
-            <g class="shin sB"><rect class="seg" x="21.1" y="41" width="1.8" height="9.4" rx="0.9" /></g></g>
-          <!-- back arm (upper → forearm) -->
-          <g class="uarm aB"><rect class="seg" x="21.2" y="18" width="1.7" height="6.4" rx="0.85" />
-            <g class="farm fB"><rect class="seg" x="21.2" y="24" width="1.6" height="6.2" rx="0.8" /></g></g>
-          <!-- torso -->
-          <rect class="torso" x="21" y="15" width="2" height="17" rx="1" />
-          <!-- suffering goat head -->
-          <g class="goat-head">
-            <path class="goat-line" d="M19.6 7 C17.8 5.2 17.4 3.4 18.6 2" />
-            <path class="goat-line" d="M24.4 7 C23.2 4.8 23.2 3.2 24 1.9" />
-            <ellipse class="goat-fill" cx="16.6" cy="10.2" rx="2.6" ry="1.1" transform="rotate(38 16.6 10.2)" />
-            <ellipse class="goat-fill" cx="27.4" cy="10.2" rx="2.6" ry="1.1" transform="rotate(-38 27.4 10.2)" />
-            <ellipse class="goat-fill" cx="22" cy="10" rx="4.4" ry="4.1" />
-            <ellipse class="goat-fill" cx="22" cy="12.8" rx="2.7" ry="2" />
-            <circle class="goat-ink" cx="21" cy="12.9" r="0.4" />
-            <circle class="goat-ink" cx="23" cy="12.9" r="0.4" />
-            <path class="goat-eye" d="M19.4 8.7 l1.6 1.6 M21 8.7 l-1.6 1.6" />
-            <path class="goat-eye" d="M23 8.7 l1.6 1.6 M24.6 8.7 l-1.6 1.6" />
-            <ellipse class="goat-ink" cx="22" cy="13.6" rx="0.9" ry="0.6" />
-            <path class="goat-ink-fill" d="M20.7 14.4 L22 18 L23.3 14.4 Z" />
-            <path class="goat-sweat" d="M28.4 4.2 q1 1.4 0 2.3 q-1 -0.9 0 -2.3 z" />
-          </g>
-          <!-- front arm -->
-          <g class="uarm aA"><rect class="seg" x="21.2" y="18" width="1.7" height="6.4" rx="0.85" />
-            <g class="farm fA"><rect class="seg" x="21.2" y="24" width="1.6" height="6.2" rx="0.8" /></g></g>
-          <!-- front leg -->
-          <g class="thigh tA"><rect class="seg" x="21" y="32" width="2" height="9.4" rx="1" />
-            <g class="shin sA"><rect class="seg" x="21.1" y="41" width="1.8" height="9.4" rx="0.9" /></g></g>
+          <!-- far legs (behind body) -->
+          <rect class="goat-solid gFront goatfar" x="36.6" y="25" width="2" height="14" rx="1" />
+          <rect class="goat-solid gBack goatfar" x="17" y="25" width="2" height="14" rx="1" />
+          <!-- neck -->
+          <path class="goat-neck" d="M40 18 L46.5 11" />
+          <!-- body -->
+          <ellipse class="goat-solid" cx="28" cy="20" rx="15" ry="7.5" />
+          <!-- tail -->
+          <path class="goat-solid" d="M13.6 16 l-3.6 -3 l1.1 4.6 z" />
+          <!-- near legs (in front of body) -->
+          <rect class="goat-solid gFront" x="39.6" y="25" width="2.3" height="14.6" rx="1.1" />
+          <rect class="goat-solid gBack" x="20" y="25" width="2.3" height="14.6" rx="1.1" />
+          <!-- horns -->
+          <path class="goat-horn" d="M46 7.5 C43 3.8 39.5 4.6 38.5 8.2" />
+          <path class="goat-horn" d="M47.3 7.8 C44.5 4 41.3 5 40.4 8.6" />
+          <!-- ear -->
+          <ellipse class="goat-solid" cx="44.3" cy="12" rx="2.5" ry="1.1" transform="rotate(42 44.3 12)" />
+          <!-- head + muzzle -->
+          <ellipse class="goat-solid" cx="48.5" cy="10.6" rx="4.3" ry="3.7" />
+          <ellipse class="goat-solid" cx="51.4" cy="12.6" rx="2.5" ry="2" />
+          <!-- goatee -->
+          <path class="goat-solid" d="M50.3 14 L51 17.4 L51.9 14 Z" />
+          <!-- suffering X eye -->
+          <path class="goat-eye" d="M47 9 l1.7 1.7 M48.7 9 l-1.7 1.7" />
+          <!-- open mouth + nostril (cutouts) -->
+          <ellipse class="goat-cut" cx="51.6" cy="13.6" rx="0.8" ry="0.55" />
+          <circle class="goat-cut" cx="52.7" cy="12.4" r="0.35" />
+          <!-- sweat of exertion -->
+          <path class="goat-sweat" d="M52.6 3.8 q1 1.4 0 2.3 q-1 -0.9 0 -2.3 z" />
         </g>
       </svg>
     </div>
