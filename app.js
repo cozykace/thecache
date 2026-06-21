@@ -23,6 +23,15 @@ const ACCT_COLORS = ["#c9542e", "#2e7dc9", "#3f8f4e", "#6a4bc4", "#d6920f", "#1f
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// Spring entrance via Motion One — degrades to nothing if the lib isn't loaded.
+function springIn(node) {
+  if (!node || !window.Motion || typeof window.Motion.animate !== "function") return;
+  try {
+    window.Motion.animate(node, { opacity: [0, 1], scale: [0.8, 1] },
+      { type: "spring", stiffness: 460, damping: 24 });
+  } catch (e) {}
+}
+
 // spending category labels + colors
 const CAT_META = {
   housing: { label: "Housing", color: "#c9542e" },
@@ -751,6 +760,7 @@ function addSingleton(type) {
   const n = Object.keys(layout).length;
   layout[type] = { type, x: 90 + n * 26, y: 90 + n * 26, w: def.w, h: def.h };
   makeWidget(type, layout[type]);
+  springIn(nodes[type]);
   saveLayout();
   renderLibrary();
 }
@@ -758,6 +768,7 @@ function placeSticker(name, x, y) {
   const id = "sticker-" + name + "-" + stickerSeq++;
   layout[id] = { type: "sticker", icon: name, x: Math.round(x), y: Math.round(y), w: 110, h: 110 };
   makeSticker(id, layout[id]);
+  springIn(nodes[id]);
   saveLayout();
 }
 function applyIconToWidget(id, name) {

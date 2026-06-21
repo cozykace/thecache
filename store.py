@@ -102,6 +102,17 @@ def _clean(desc):
     return re.sub(r"\s+", " ", d).strip()
 
 
+# positive amounts matching these are NOT real income (fee reversals, interest,
+# refunds, card-payment reversals) — they were inflating the income number
+NOT_INCOME = ("fee", "waiv", "interest", "refund", "reversal", "adjustment",
+              "rebate", "redemption", "mobile pymt", "mobile payment", "returned")
+
+
+def is_income(desc):
+    d = (desc or "").lower()
+    return not any(k in d for k in NOT_INCOME)
+
+
 def categorize(desc, overrides=None):
     d = (desc or "").lower()
     if overrides:
@@ -215,7 +226,7 @@ def build_snapshot(accounts, window_days=30, now=None, fetch_days=None):
                     recent += spend
                 else:
                     older += spend
-            elif amt > 0 and categorize(desc, overrides) != "transfer":
+            elif amt > 0 and categorize(desc, overrides) != "transfer" and is_income(desc):
                 income_total += amt
                 ikey = _clean(desc) or "income"
                 inc[ikey] = inc.get(ikey, 0.0) + amt
