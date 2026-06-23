@@ -28,8 +28,8 @@
   }, { passive: true });
 
   (function loop() {
-    cx += (px - cx) * 0.55;
-    cy += (py - cy) * 0.55;
+    cx += (px - cx) * 0.8;
+    cy += (py - cy) * 0.8;
     const dx = cx - lastX, dy = cy - lastY;
     lastX = cx; lastY = cy;
     const speed = Math.min(Math.hypot(dx, dy), 36);

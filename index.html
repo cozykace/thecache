@@ -4,12 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Money</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
     <!-- apply saved theme before paint to avoid a flash -->
     <script>
       try {
         var t = localStorage.getItem("money.theme");
         if (t) document.documentElement.setAttribute("data-theme", t);
+        var bg = localStorage.getItem("money.bg");
+        if (bg) document.documentElement.setAttribute("data-bg", bg);
       } catch (e) {}
     </script>
   </head>
@@ -19,15 +24,18 @@
 
     <!-- theme toggle: light / dark -->
     <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode"></button>
+    <!-- backgrounds picker -->
+    <button id="bgToggle" class="theme-toggle bg-toggle" aria-label="Backgrounds"><i data-lucide="sparkles"></i></button>
 
     <!-- the sliding pane: menu + libraries live here -->
     <aside id="sidebar" class="sidebar">
       <header class="sidebar-head">
-        <span class="brand"><span class="brand-dot"></span> MONEY</span>
+        <span class="brand"><span class="brand-dot"></span><span class="brand-text">SUFFERING GOAT</span></span>
         <button id="sidebarClose" class="sidebar-close" aria-label="Close menu">✕</button>
       </header>
 
       <div class="sidebar-scroll">
+        <div class="sidebar-greeting" id="greeting" style="display:none"></div>
         <section class="sidebar-section">
           <div class="section-title">Widget Library</div>
           <div id="library" class="library"></div>
@@ -48,61 +56,46 @@
 
         <section class="sidebar-section">
           <div class="section-title">Menu</div>
+          <button class="menu-item" id="openSettings">⚙ Settings</button>
+          <button class="menu-item" id="manageCats">▦ Manage categories</button>
+          <button class="menu-item" id="reportBug">⚑ Report a bug</button>
+          <button class="menu-item" id="importStatement">↓ Import statement (CSV)</button>
           <button class="menu-item" id="tidyLayout">↹ Tidy layout</button>
           <button class="menu-item" id="resetLayout">↺ Reset layout</button>
         </section>
+
+        <section class="sidebar-section">
+          <div class="section-title">Dock</div>
+          <div id="dockMenu" class="library"></div>
+          <div class="section-hint">show / hide dock items · drag them in the dock to reorder</div>
+        </section>
       </div>
+      <div class="sidebar-version">suffering goat · v2.0 — the engine</div>
     </aside>
 
-    <!-- the board: widgets are drawn here -->
-    <div id="board" class="board"></div>
+    <!-- the board: a scroll viewport holding a scalable canvas of widgets -->
+    <div id="board" class="board"><div id="boardCanvas" class="board-canvas"></div></div>
 
-    <footer class="foot">money · v1.2 — the math</footer>
+    <!-- zoom the sandbox -->
+    <div class="zoom-control">
+      <button id="zoomOut" aria-label="Zoom out">−</button>
+      <button id="zoomReset" aria-label="Reset zoom">100%</button>
+      <button id="zoomIn" aria-label="Zoom in">+</button>
+    </div>
 
     <!-- data-sources slide-out -->
     <div class="sources-panel" id="sourcesPanel"></div>
 
-    <!-- a little jogger hovering above the status pills -->
-    <div class="jogger" aria-hidden="true">
-      <svg viewBox="0 0 58 44">
-        <g class="jog-body">
-          <!-- far legs (behind body) -->
-          <rect class="goat-solid gFront goatfar" x="36.6" y="25" width="2" height="14" rx="1" />
-          <rect class="goat-solid gBack goatfar" x="17" y="25" width="2" height="14" rx="1" />
-          <!-- neck -->
-          <path class="goat-neck" d="M40 18 L46.5 11" />
-          <!-- body -->
-          <ellipse class="goat-solid" cx="28" cy="20" rx="15" ry="7.5" />
-          <!-- tail -->
-          <path class="goat-solid" d="M13.6 16 l-3.6 -3 l1.1 4.6 z" />
-          <!-- near legs (in front of body) -->
-          <rect class="goat-solid gFront" x="39.6" y="25" width="2.3" height="14.6" rx="1.1" />
-          <rect class="goat-solid gBack" x="20" y="25" width="2.3" height="14.6" rx="1.1" />
-          <!-- horns -->
-          <path class="goat-horn" d="M46 7.5 C43 3.8 39.5 4.6 38.5 8.2" />
-          <path class="goat-horn" d="M47.3 7.8 C44.5 4 41.3 5 40.4 8.6" />
-          <!-- ear -->
-          <ellipse class="goat-solid" cx="44.3" cy="12" rx="2.5" ry="1.1" transform="rotate(42 44.3 12)" />
-          <!-- head + muzzle -->
-          <ellipse class="goat-solid" cx="48.5" cy="10.6" rx="4.3" ry="3.7" />
-          <ellipse class="goat-solid" cx="51.4" cy="12.6" rx="2.5" ry="2" />
-          <!-- goatee -->
-          <path class="goat-solid" d="M50.3 14 L51 17.4 L51.9 14 Z" />
-          <!-- suffering X eye -->
-          <path class="goat-eye" d="M47 9 l1.7 1.7 M48.7 9 l-1.7 1.7" />
-          <!-- open mouth + nostril (cutouts) -->
-          <ellipse class="goat-cut" cx="51.6" cy="13.6" rx="0.8" ry="0.55" />
-          <circle class="goat-cut" cx="52.7" cy="12.4" r="0.35" />
-          <!-- sweat of exertion -->
-          <path class="goat-sweat" d="M52.6 3.8 q1 1.4 0 2.3 q-1 -0.9 0 -2.3 z" />
-        </g>
-      </svg>
-    </div>
+    <!-- status / next-actions slide-out -->
+    <div class="sources-panel status-panel" id="statusPanel"></div>
 
     <!-- bottom-right status: data sources + sync health -->
     <div class="status-bar">
+      <button id="statusBtn" class="status-pill status-main" title="status & next actions"><span class="status-dot"></span><span class="status-text">…</span></button>
       <button id="soundtrack" class="status-pill" title="soundtrack on / off"><span class="snd-note">♪</span></button>
+      <button id="roadmapBtn" class="status-pill" title="roadmap / backlog"><i data-lucide="map"></i>&nbsp;roadmap</button>
       <button id="sourcesBtn" class="status-pill" title="data sources"><span class="src-count">…</span>&nbsp;sources</button>
+      <button id="serverBtn" class="status-pill server-pill" title="local backend status"><span class="goat-head" aria-hidden="true"></span><span class="server-text">…</span></button>
       <button id="syncHealth" class="status-pill" title="click to sync now"><span class="sync-dot"></span><span class="sync-text">…</span></button>
     </div>
 

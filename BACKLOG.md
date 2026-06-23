@@ -1,0 +1,93 @@
+# Money — backlog
+
+Running list of your requests and ideas. Anything you toss out, I add here; I'll surface relevant items when they come up, and check them off as we ship. You can read/edit this file too.
+
+_Last updated: 2026-06-20_
+
+## The accuracy engine (fix-in-UI, no AI; all ripples via the Store)
+- [x] **Category Manager** (Menu → Manage categories) — lists every category + # of transactions; rename (server-stored label, ripples to every widget); delete → fold/merge into another category (batch); click a category → recategorize its merchants one-by-one; + new category. Backend: catmeta.json registry (labels+remap), categorize() applies remap (2026-06-22)
+- [x] **Recurrence detection** — detect_recurring() scans the whole ledger (all accounts incl. cards) for ~monthly clustered charges; Subscriptions widget now shows a "detected · not tracked" section with one-click "+ track" (found 16 untracked recurring) (2026-06-22)
+- [x] **Review inbox** (status pill → Review panel) — triage: possible duplicates (remove one), recurring-not-tracked (+ track), uncategorized (inline category select), untagged deposits (tag); every fix ripples via the Store. Pill updates cheaply from Store data; full list fetched on open. Added /api/issues, /api/categories, /api/recurring, /api/category, /api/delete-txn (2026-06-22)
+- [ ] **Toggl auto-pull + work widget** — Toggl is NOT auto-synced today (manual/AI-only, toggl.json stale); add a scheduled pull (needs API token) + a widget showing hours and $ worked
+- [ ] **Connect/CSV all cards** — connected cards already capture real purchases; for unconnected cards (Petal) the only fix for purchase visibility is connect-or-CSV (detail isn't in the checking batch payment)
+- [ ] **Schedule the syncs** — daily auto-sync (+ toggl + recurrence) so accuracy holds without running AI
+
+## Features
+- [ ] Link income sources to Toggl clients (uses the Toggl integration) — phase 2 of the status pip
+- [ ] Money-flow node map — income → accounts → spending, with flow arrows (designed, not built)
+- [ ] Magnet snap for stickers / icon-nodes (or a global grid)
+- [ ] Audio bell on every turn-end (Stop hook) — optional, currently off
+
+## Smarter / more robust
+- [ ] True recurrence detection for subscriptions (scan 90-day ledger for ~monthly cadence; flag new/changed/dropped subs)
+
+## Parked / revisit
+- [ ] PDF statement import — native macOS PDFKit extraction works (no installs), but US Bank's layout scrambles date↔transaction mapping (≈99 amounts / 11 dates), unreliable for money. Use CSV export instead. Revisit only if a bank's PDF has a clean tabular layout.
+- [ ] Petal credit card — no SimpleFIN; import via CSV (drag onto board, or import_statements.py), or revisit a direct connect
+- [ ] Commit income tagger + SOPs to git (you handle git)
+
+## Shipped
+- [x] **Averages widget** — lifetime monthly averages from the ledger: avg income, avg spend, avg net/shortfall (the deficit between inflow and outflow), avg Instacart income, avg subscriptions, avg spend/day, over N months (skips the partial current month). /api/averages (2026-06-22)
+- [x] **Subscriptions "build your box"** — tracked list always shows anything tagged a subscription (even few charges); active/lapsed/paused pip read from the ledger's last-charge date (green=charged <40d, amber=lapsed >1mo, grey=manually paused — click pip to pause/reactivate, paused drops from the total); × to untrack; "+ add" links a merchant by name; "+ track" promotes a detected one. detect_recurring always includes tagged subs (2026-06-22)
+- [x] **Settings panel** (Menu → ⚙ Settings) — Profile (name/role/note → time-based greeting in the sidebar); Money targets (reserve, monthly need, work rate, centralized from the inline prompts, ripple via Store); Display (Privacy blur = blur all dollar amounts until hover for screen-sharing; theme swatches). Stored in localStorage (2026-06-22)
+- [x] **Ledger → JSONL (one transaction per line, append-only)** — migrated ledger.json (single object) → ledger.jsonl. Adding a txn is now an O(1) append (never rewrites history); a corrupt line is skipped individually instead of taking down the whole file; still plain text you can open. Auto-migrates the old format once (keeps ledger.json.pre-jsonl.bak), merge compacts only on updates, backup-restore handles both formats. 532 txns migrated + verified, consistency + live sync confirmed (2026-06-22)
+- [x] **Ledger durability hardening** — (1) anti-wipe: a corrupt/unreadable ledger.json no longer silently falls back to empty (which let the next sync overwrite all history with the last 90 days); `load_ledger()` restores from the newest good backup, or refuses to write; `merge_ledger` has a shrink-guard. (2) count-based (multiset) CSV dedup so genuinely-repeated transactions (two same-price coffees same day) are kept instead of dropped, with unique per-occurrence ids. All tested; no regression on already-imported statements (2026-06-22)
+- [x] **Single source of truth + accuracy fix** — (1) one client `Store` holds the canonical data; every money widget subscribes and renders from the same object; any edit (categorize, income tag, core/flex, period, sync) calls `Store.refresh()`/`Store.emit()` and EVERY widget re-renders together — edits ripple, widgets can't disagree. (2) Transfers / credit-card payments no longer counted as spending anywhere (was ~30% inflation + Months/Breakdown mismatch); period_summary, Months, and balances now use one consistent rule; broadened transfer detection (mobile pymt, e-payment, etc.); "Where it's going" shows excluded-transfers as a footnote. Verified income/spend/net identical across all paths for every month (2026-06-22)
+- [x] Balance widget redesign — headline is now Total cash, with Checking and Savings rows beneath (split by account type, they sum to the total) + "as of" timestamp; skull still expands the full per-account list (2026-06-22)
+- [x] Global Period selector — one date-range control in the dock (This month default · 30d · 90d · pick a month · All time) drives every "span" widget (income, spending, gap, core/flex, subs, work) off the full ledger via /api/summary; each span widget shows its period as a chip; balance/forecast stay point-in-time. Date range is now obvious everywhere (2026-06-22)
+- [x] Categorizer shows transaction dates — each merchant row shows its date (or first–last range + count for repeats) under the name (2026-06-22)
+- [x] The Dock — unified all bottom controls (scale, date/time, status, soundtrack, roadmap, sources, server, sync) into one cohesive bottom-center bar with a "dock" label; drag bubbles to reorder, toggle them in Menu → Dock (2026-06-22)
+- [x] Date/time bubble added to the dock (live clock + date) (2026-06-22)
+- [x] Version moved to the sidebar bottom in accent text; removed the conflicting footer (2026-06-22)
+- [x] Brand dot next to "SUFFERING GOAT" now mirrors live status (green/amber/red) like the dock server light (2026-06-22)
+- [x] Categorizer window now opens centered, is draggable (by its header) and resizable (size persists) (2026-06-22)
+- [x] Widgets resize from any of the 4 corners (top edges re-anchor); bottom-right corner indicator rounded to match the widget (2026-06-22)
+- [x] Categorizer modal resizable (drag the corner, size persists) + auto-save hardened with saved/error feedback (2026-06-22)
+- [x] Goat: removed trotting sprite; 8-bit goat head lives in the server light — spins when live, eyes X-out when offline/stale (2026-06-22)
+- [x] Always-on server — moved app to ~/goat (out of TCC-locked Documents) + a LaunchAgent that auto-starts on login & self-heals (KeepAlive). No more manual starts (2026-06-22)
+- [x] Restart button — click the HUD server light to restart the backend in place (/api/restart self-execs); reloads when it's back (2026-06-22)
+- [x] Inline income status edit — click the ✓/dot pip on a badge to confirm-income or mark-not-income, no modal (2026-06-22)
+- [x] Core subscriptions feed into The Gap / need (subs you mark core now count toward what you must cover) (2026-06-22)
+- [x] Untagged-deposit nudge — status indicator shows "Review N untagged deposits" so new income doesn't slip by (2026-06-22)
+- [x] Merchant dedup — strip card-network prefixes so "Visa Apple Bill" merges with "Apple Bill" (2026-06-22)
+- [x] Documented income-decision precedence (tag > gig/payroll hint > not-transfer & not-fee) in store.py (2026-06-22)
+- [x] Data contract in CLAUDE.md — balances.json shape, data files, API, localStorage registry (2026-06-22)
+- [x] /new-tagger skill — the override→decision→recompute→endpoint→modal recipe (2026-06-22)
+- [x] check.sh — one-command self-check (JS/py syntax + logic sanity, counts only) (2026-06-22)
+- [x] Pixel-goat sprite — extracted 8 trot frames from the reference video, knocked out the white bg, packed into goat-sprite.png; replaces the line-art goat (2026-06-21)
+- [x] Backgrounds picker (✨ top-right) — Motion / Retro / Stickers categories, spins out, remembered; separate from theme (2026-06-21)
+- [x] More extreme themes — Vapor, Acid, Ember palettes (2026-06-21)
+- [x] Sync button → green arcade button (cutout text, 3D side, depresses on press) (2026-06-21)
+- [x] Balance skull state persists across refresh; Months side padding re-evaluated (2026-06-21)
+- [x] Bug report system — report → solve/reopen/delete, logged locally to data/bugs.json (Menu → Report a bug) (2026-06-21)
+- [x] Resizable side menu — drag the right edge; width persists (2026-06-21)
+- [x] Months redesign — bigger, labeled in/out bars with values + a hero net number (2026-06-21)
+- [x] Status pills — more padding from the corner so they're not jammed in (2026-06-21)
+- [x] Cursor — snappier follow (less lag) + smaller ball; Months widget — much larger bars & numbers (2026-06-21)
+- [x] Rebrand → SUFFERING GOAT wordmark (thick, expanded, AKIRA-style); fit-to-menu so it no longer clips (2026-06-21)
+- [x] Hold-space to pan the canvas — open-hand cursor that grabs closed on drag (2026-06-21)
+- [x] Fix: income tagger / categorizer "backend not running" message now points to restarting (start.command) — it fired on a stale server missing /api/deposits (2026-06-21)
+- [x] HUD backend light — live / restart-needed / offline status in the status bar, pinged every 8s; click for how to start (2026-06-21)
+- [x] Snap gutter — grid-adjacent widgets now leave an 8px gap instead of touching (2026-06-21)
+- [x] Utilities category + add-your-own categories from the categorizer (custom categories persist and flow through the whole system) (2026-06-20)
+- [x] start.command — double-click launcher so the local backend is easy to start (2026-06-20)
+- [x] Import account-matching — imported CSVs merge into the right live account by last-4 (Card No. column or filename), so history extends one account instead of splitting (2026-06-20)
+- [x] Data coverage view — sources panel shows the live-sync window + per-account date range/count/source; Months show per-month txn count + source (2026-06-20)
+- [x] Months view — see every backlogged month (income/spend/net + category drill-down) rolled up from the full ledger (2026-06-20)
+- [x] /fix-bug skill — repeatable diagnose→fix→verify→log flow with this app's gotchas baked in (2026-06-20)
+- [x] Fix: roadmap modal flicker when toggling Roadmap/Features — cached tabs + min-height so it no longer collapses and reveals the dashboard behind (2026-06-20)
+- [x] Status indicator — bottom-right pill shows the top next action; click to see all (sync, confirm income, categorize, mark subs) (2026-06-20)
+- [x] Subscription detail + rename — click a sub to see what it's connected to; rename it (alias only, data untouched) (2026-06-20)
+- [x] FEATURES.md + Features tab in the roadmap — running product feature list for launch (2026-06-20)
+- [x] In-dashboard CSV import — drag a CSV onto the board, or Menu → Import statement (2026-06-20)
+- [x] CSV statement importer — drop bank CSVs in data/statements/, run import_statements.py (deduped, merged, local) (2026-06-20)
+- [x] Roadmap button — bullet list of this backlog, read live from BACKLOG.md (2026-06-20)
+- [x] Zoom + scroll the sandbox — pannable, scalable canvas (zoom control + ⌘/ctrl-wheel) (2026-06-20)
+- [x] Income status pip — ✓ confirmed vs faint auto-dot on income sources; click a badge to edit (2026-06-20)
+- [x] Income tagger — define what counts as income (2026-06-20)
+- [x] Income as Lucide-icon knockout badges (2026-06-20)
+- [x] Subscriptions widget — aggregate + core/flex per sub (2026-06-20)
+- [x] Date ranges on windowed widgets (2026-06-20)
+- [x] Per-widget magnet snap, 24px grid (2026-06-20)
+- [x] Audio bell when I'm waiting on you (Notification hook) (2026-06-20)
+- [x] CLAUDE.md conventions + /new-widget skill (2026-06-20)

@@ -77,6 +77,8 @@ def run_sync(access_url=None):
     window_cutoff = now - WINDOW_DAYS * 86400
     store.save_transactions([t for t in txns if t["posted"] >= window_cutoff], WINDOW_DAYS)
     total_ledger = store.merge_ledger(txns)
+    store.recompute_monthly()  # roll the whole ledger up by month
+    store.recompute_coverage()  # what data we have, from where, how far back
     store.append_history(snapshot)
     store.append_synclog(len(snapshot["accounts"]), len(txns))
     try:
