@@ -215,45 +215,107 @@ function monthlyNeed(d) {
   return Math.round(cm > 0 ? cm : tot);
 }
 
-// per-subscription core/flex — which recurring subs are non-negotiable (local)
-const SUBCORE_KEY = "money.subcore";
-function subCoreMap() {
-  try { return JSON.parse(localStorage.getItem(SUBCORE_KEY) || "{}"); } catch (e) { return {}; }
+// ── The "decisions ledger" for recurring money ─────────────────────────────
+// Your calls about each recurring merchant — must-pay? cadence? paused? renamed?
+// — persisted to data/subs.json so they survive a browser wipe and ride along in
+// your backups, exactly like the category/income tags. NOT the transaction ledger;
+// this is just your labels. The browser holds the in-session copy; every change
+// writes the whole map back to the server.
+let SUBS = {};  // { merchantKey: { mustpay, cadence, paused, name } }
+let _subsSaveTimer = null;
+function subEntry(key) { return SUBS[key] || {}; }
+function saveSubs() {
+  clearTimeout(_subsSaveTimer);
+  _subsSaveTimer = setTimeout(() => {
+    fetch("/api/subs", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subs: SUBS }) }).catch(() => {});
+  }, 350);
 }
-function isSubCore(key) { return subCoreMap()[key] === 1; }
-function setSubCore(key, val) {
-  const m = subCoreMap();
-  m[key] = val ? 1 : 0;
-  localStorage.setItem(SUBCORE_KEY, JSON.stringify(m));
+function setSubField(key, field, value) {
+  const e = SUBS[key] || (SUBS[key] = {});
+  const isDefault = value === false || value == null || value === "" || (field === "cadence" && value === "monthly");
+  if (isDefault) delete e[field]; else e[field] = value;
+  if (!Object.keys(e).length) delete SUBS[key];  // keep the file tidy — no empty entries
+  saveSubs();
 }
-// manual "paused" flag — you marking a subscription inactive so the data stays honest
-const SUBPAUSE_KEY = "money.subpaused";
-function subPausedMap() { try { return JSON.parse(localStorage.getItem(SUBPAUSE_KEY) || "{}"); } catch (e) { return {}; } }
-function isSubPaused(key) { return subPausedMap()[key] === 1; }
-function setSubPaused(key, val) {
-  const m = subPausedMap(); m[key] = val ? 1 : 0;
-  localStorage.setItem(SUBPAUSE_KEY, JSON.stringify(m));
+function loadSubs() {
+  return fetch("/api/subs?t=" + Date.now())
+    .then((r) => (r.ok ? r.json() : { subs: {} }))
+    .then((d) => {
+      SUBS = (d && d.subs) || {};
+      if (!Object.keys(SUBS).length && localStorage.getItem("money.subsMigrated") !== "1") migrateLocalSubs();
+      localStorage.setItem("money.subsMigrated", "1");
+    })
+    .catch(() => {});
 }
-// active = charged within ~40 days (from the ledger's last-seen date)
+// one-time lift of the old browser-only flags into the durable file
+function migrateLocalSubs() {
+  const parse = (k) => { try { return JSON.parse(localStorage.getItem(k) || "{}"); } catch (e) { return {}; } };
+  const core = parse("money.subcore"), cad = parse("money.subcadence"),
+        paused = parse("money.subpaused"), names = parse("money.subnames");
+  const keys = new Set([].concat(Object.keys(core), Object.keys(cad), Object.keys(paused), Object.keys(names)));
+  if (!keys.size) return;
+  keys.forEach((k) => {
+    const e = {};
+    if (core[k] === 1) e.mustpay = true;
+    if (cad[k] && cad[k] !== "monthly") e.cadence = cad[k];
+    if (paused[k] === 1) e.paused = true;
+    if (names[k]) e.name = names[k];
+    if (Object.keys(e).length) SUBS[k] = e;
+  });
+  saveSubs();
+}
+// must-pay — which recurring charges are non-negotiable (funds the Budget first)
+function isSubCore(key) { return !!subEntry(key).mustpay; }
+function setSubCore(key, val) { setSubField(key, "mustpay", !!val); }
+// manual "paused" flag — you marking a charge inactive so the data stays honest
+function isSubPaused(key) { return !!subEntry(key).paused; }
+function setSubPaused(key, val) { setSubField(key, "paused", !!val); }
+// per-charge CADENCE — not everything is monthly. We store the period and
+// normalize every "monthly" use to the monthly-equivalent (sinking-fund: a
+// $139/yr bill counts as ~$11.58/mo so the annual hit never surprises you).
+const CADENCES = [
+  { id: "weekly", label: "weekly", perYear: 52, abbr: "wk" },
+  { id: "biweekly", label: "every 2 weeks", perYear: 26, abbr: "2wk" },
+  { id: "monthly", label: "monthly", perYear: 12, abbr: "mo" },
+  { id: "quarterly", label: "quarterly", perYear: 4, abbr: "qtr" },
+  { id: "yearly", label: "yearly", perYear: 1, abbr: "yr" },
+];
+function subCadence(key) { return subEntry(key).cadence || "monthly"; }
+function setSubCadence(key, val) { setSubField(key, "cadence", val); }
+function cadenceInfo(id) { return CADENCES.find((c) => c.id === id) || CADENCES[2]; }
+function cadenceAbbr(key) { return cadenceInfo(subCadence(key)).abbr; }
+// the per-charge amount r.amount converted to a monthly-equivalent for budgets/totals
+function monthlyAmount(r) { return (r.amount || 0) * cadenceInfo(subCadence(r.key)).perYear / 12; }
+// active = charged within ~40 days, but non-monthly cadences get a longer window
 function subState(r) {
   if (isSubPaused(r.key)) return "paused";
-  const days = r.last ? (Date.now() / 1000 - r.last) / 86400 : 999;
-  return days > 40 ? "lapsed" : "active";
+  if (!r.last) return "lapsed";
+  const days = (Date.now() / 1000 - r.last) / 86400;
+  const cad = subCadence(r.key);
+  const window = cad === "yearly" ? 400 : cad === "quarterly" ? 130 : 40;  // a yearly bill isn't "lapsed" at 41 days
+  return days > window ? "lapsed" : "active";
+}
+// pin-to-top — a local display preference, namespaced (proj / sub) so they don't collide
+const PIN_KEY = "money.pinned";
+function pinnedMap() { try { return JSON.parse(localStorage.getItem(PIN_KEY) || "{}"); } catch (e) { return {}; } }
+function isPinned(ns, key) { return !!((pinnedMap()[ns] || {})[key]); }
+function togglePin(ns, key) {
+  const m = pinnedMap();
+  const s = m[ns] || (m[ns] = {});
+  if (s[key]) delete s[key]; else s[key] = 1;
+  localStorage.setItem(PIN_KEY, JSON.stringify(m));
+}
+// sort: pinned first (keeping the incoming order within each group)
+function pinSort(arr, ns, keyOf) {
+  return arr.slice().sort((a, b) => (isPinned(ns, keyOf(b)) ? 1 : 0) - (isPinned(ns, keyOf(a)) ? 1 : 0));
 }
 // per-subscription display alias — a label only; never changes what data it's tied to
-const SUBNAMES_KEY = "money.subnames";
-function subNames() {
-  try { return JSON.parse(localStorage.getItem(SUBNAMES_KEY) || "{}"); } catch (e) { return {}; }
-}
 function subName(item) {
   if (!item) return "";
-  return subNames()[item.key] || item.name || "";
+  return subEntry(item.key).name || item.name || "";
 }
-function setSubName(key, alias) {
-  const m = subNames();
-  if (alias && alias.trim()) m[key] = alias.trim(); else delete m[key];
-  localStorage.setItem(SUBNAMES_KEY, JSON.stringify(m));
-}
+function setSubName(key, alias) { setSubField(key, "name", (alias || "").trim()); }
 
 // Typical Instacart busy windows (general demand patterns, not your market).
 const INSTACART_WINDOWS = [
@@ -286,7 +348,7 @@ function fmtBusy(b) {
   return b.start.toLocaleDateString("en-US", { weekday: "short" }) + " " +
     hhmm(b.start) + "–" + hhmm(b.end) + " · " + b.label;
 }
-const DRAG_IGNORE = ".widget-close,.widget-toggle,.widget-magnet,.sticker-close,.widget-resize,.sticker-resize";
+const DRAG_IGNORE = ".widget-close,.widget-toggle,.widget-magnet,.widget-help,.sticker-close,.widget-resize,.sticker-resize";
 
 // ── How each widget type renders ───────────────────────────
 // classify an account by its name so we can split cash into checking / savings
@@ -375,6 +437,96 @@ const RENDERERS = {
         )
         .join("");
     });
+  },
+  accountflow(el) {
+    el.classList.add("is-breakdown");
+    el.innerHTML =
+      '<div class="bd-head"><div class="bd-top"><span class="fc-label">money flow</span>' +
+        '<button class="af-cards-toggle" type="button">hide cards</button></div></div>' +
+      '<div class="af-wrap"><svg class="af-links" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>' +
+        '<div class="af-flow"></div></div>';
+    const wrap = el.querySelector(".af-wrap");
+    const flow = el.querySelector(".af-flow");
+    const svg = el.querySelector(".af-links");
+    const cardsBtn = el.querySelector(".af-cards-toggle");
+    let transfers = [], lastTypes = null;
+    let showCards = localStorage.getItem("money.flowCards") !== "0";  // default: show cards
+    const paintCardsBtn = () => { cardsBtn.textContent = showCards ? "hide cards" : "show cards"; cardsBtn.classList.toggle("on", !showCards); };
+    cardsBtn.addEventListener("click", () => {
+      showCards = !showCards; localStorage.setItem("money.flowCards", showCards ? "1" : "0");
+      paintCardsBtn(); if (Store.data) render(Store.data);
+    });
+    paintCardsBtn();
+
+    const nodeHtml = (a, kind) =>
+      '<div class="af-node af-' + kind + '" data-acct="' + escapeHtml(a.name) + '">' +
+        '<span class="af-node-type">' + kind + "</span>" +
+        '<span class="af-node-name">' + escapeHtml(shortAcct(a.name)) + "</span>" +
+        '<span class="af-node-bal">' + fmtUSD(a.balance || 0) + "</span></div>";
+    const tier = (arr, kind) => arr.length ? '<div class="af-tier">' + arr.map((a) => nodeHtml(a, kind)).join("") + "</div>" : "";
+
+    function render(d) {
+      const accts = (d && d.accounts) || [];
+      const byType = { checking: [], savings: [], credit: [], other: [] };
+      accts.forEach((a) => { (byType[acctType(a.name)] || byType.other).push(a); });
+      lastTypes = byType;
+      let html = '<div class="af-tier"><div class="af-port af-in">money in</div></div>';
+      html += tier(byType.checking, "checking");
+      html += tier(byType.savings, "savings");
+      html += tier(byType.other, "other");
+      if (showCards) html += tier(byType.credit, "credit");
+      html += '<div class="af-tier"><div class="af-port af-out">money out</div></div>';
+      flow.innerHTML = html;
+      requestAnimationFrame(() => redraw(d));
+    }
+    function redraw(d) {
+      if (!wrap.isConnected) return;
+      const wr = wrap.getBoundingClientRect();
+      if (!wr.width) return;
+      const z = boardZoom || 1;  // the board is zoom-scaled; work in unscaled px so the SVG overlay lines up
+      const W = wr.width / z, H = wr.height / z;
+      const m = (node) => { const r = node.getBoundingClientRect(); return { el: node, cx: (r.left - wr.left + r.width / 2) / z, top: (r.top - wr.top) / z, bottom: (r.bottom - wr.top) / z }; };
+      const q = (sel) => [...wrap.querySelectorAll(sel)].map(m);
+      const inEl = wrap.querySelector(".af-in") && m(wrap.querySelector(".af-in"));
+      const outEl = wrap.querySelector(".af-out") && m(wrap.querySelector(".af-out"));
+      const chk = q(".af-checking"), sav = q(".af-savings"), oth = q(".af-other"), crd = showCards ? q(".af-credit") : [];
+      const sources = chk.length ? chk : sav.concat(oth);
+      const incomeLbl = d && d.income && d.income.per_month ? "+" + fmtUSD(d.income.per_month) : null;
+      const spendLbl = d && d.spending && d.spending.per_month ? "−" + fmtUSD(d.spending.per_month) : null;
+      const transferBubble = (s, t) => {
+        const sa = s.el.dataset.acct, ta = t.el.dataset.acct;
+        const f = transfers.find((x) => (x.account === sa && x.dir === "out") || (x.account === ta && x.dir === "in"));
+        return f ? "⇄ " + fmtUSD(f.amount) : null;
+      };
+      const paths = [], bubbles = [];
+      const addEdge = (s, t, bubble) => {
+        if (!s || !t) return;
+        const my = (s.bottom + t.top) / 2;
+        paths.push("M " + s.cx + " " + s.bottom + " C " + s.cx + " " + my + ", " + t.cx + " " + my + ", " + t.cx + " " + t.top);
+        if (bubble) bubbles.push({ x: (s.cx + t.cx) / 2, y: my, text: bubble });
+      };
+      (chk.length ? chk : sources).forEach((c, i) => addEdge(inEl, c, i === 0 ? incomeLbl : null));
+      sources.forEach((s) => {
+        sav.forEach((sv) => addEdge(s, sv, transferBubble(s, sv)));
+        oth.forEach((o) => addEdge(s, o, null));
+        crd.forEach((cr) => addEdge(s, cr, transferBubble(s, cr)));
+      });
+      sources.forEach((s, i) => addEdge(s, outEl, i === 0 ? spendLbl : null));
+      svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+      svg.style.width = W + "px"; svg.style.height = H + "px";
+      svg.innerHTML = paths.map((p) => '<path d="' + p + '" class="af-link" />').join("");
+      wrap.querySelectorAll(".af-bubble").forEach((b) => b.remove());
+      bubbles.forEach((b) => {
+        const n = document.createElement("div");
+        n.className = "af-bubble"; n.textContent = b.text;
+        n.style.left = b.x + "px"; n.style.top = b.y + "px";
+        wrap.appendChild(n);
+      });
+    }
+    Store.subscribe(el, (d) => render(d));
+    fetch("/api/transfers?t=" + Date.now()).then((r) => r.json())
+      .then((t) => { transfers = t.transfers || []; if (Store.data) render(Store.data); }).catch(() => {});
+    if (window.ResizeObserver) new ResizeObserver(() => { if (Store.data) requestAnimationFrame(() => redraw(Store.data)); }).observe(el);
   },
   clock(el) {
     el.classList.add("is-clock");
@@ -605,6 +757,320 @@ const RENDERERS = {
     });
     el.querySelector(".bd-fix").addEventListener("click", () => openIncomeTagger(() => Store.refresh()));
   },
+  plan(el) {
+    el.classList.add("is-breakdown");
+    const now0 = new Date();
+    const moName = (off) => new Date(now0.getFullYear(), now0.getMonth() + off, 1)
+      .toLocaleDateString("en-US", { month: "long" });
+    el.innerHTML =
+      '<div class="bd-head"><div class="bd-top"><span class="fc-label">budget</span>' +
+        '<span class="bg-modes"><button class="bg-mode on" data-m="plan">plan</button>' +
+          '<button class="bg-mode" data-m="build">build</button></span></div></div>' +
+      '<div class="bg-view bg-plan">' +
+        '<div class="pl-hero">' +
+          '<div class="pl-hero-head"><span class="pl-pane-mo">' + moName(0) + '</span>' +
+            '<span class="pl-pane-tag">this month</span></div>' +
+          '<div class="big pl-big">…</div>' +
+          '<div class="fc-sub pl-sub"></div>' +
+          '<div class="pl-pool"></div>' +
+          '<div class="bd-list pl-list"></div>' +
+        '</div>' +
+        '<button class="pl-next" type="button">' +
+          '<span class="pl-next-dot"></span><span class="pl-next-mo">' + moName(1) + '</span>' +
+          '<span class="pl-next-sum">…</span><span class="pl-next-caret">▾</span>' +
+        '</button>' +
+        '<div class="pl-next-body bd-list" hidden></div>' +
+        '<div class="wn-say pl-say"></div>' +
+      '</div>' +
+      '<div class="bg-view bg-build" hidden></div>';
+    const say = el.querySelector(".pl-say");
+    const planView = el.querySelector(".bg-plan");
+    const buildView = el.querySelector(".bg-build");
+    const heroEl = el.querySelector(".pl-hero");
+    const nextBtn = el.querySelector(".pl-next");
+    const nextBody = el.querySelector(".pl-next-body");
+    let mode = "plan";
+    let nextOpen = localStorage.getItem("money.planNextOpen") === "1";
+
+    function rowHtml(t, i, cut, drag) {
+      const st = t.paid || t.pct >= 0.999 ? "met" : t.pct > 0 ? "part" : "unmet";
+      const ic = st === "met" ? "✓" : st === "part" ? "⚠" : "✕";
+      const est = t.kind === "est";
+      const canDrag = drag && !est;
+      let note;
+      if (t.kind === "rent") note = t.paid ? "✓ paid " + t.dueStr : "due " + t.dueStr + " · " + Math.max(0, t.daysUntil) + "d";
+      else if (t.kind === "bill") note = t.paid ? "✓ paid " + t.dueStr
+        : (t.cadence && t.cadence !== "monthly" ? "set aside · " + fmtUSD(t.perCharge) + "/" + cadenceInfo(t.cadence).abbr : "~ monthly");
+      else note = "estimate · from your spending";
+      return '<div class="pl-tier ' + st + (t.paid ? " paid" : "") + (est ? " est" : "") + '"' +
+          (canDrag ? ' draggable="true"' : "") + ' data-key="' + escapeHtml(t.key) + '" data-kind="' + t.kind + '">' +
+        '<div class="pl-row">' +
+          (canDrag ? '<span class="pl-grip" title="drag to reprioritize">⠿</span>' : '<span class="pl-grip ghost">·</span>') +
+          '<span class="pl-ic">' + ic + '</span><span class="pl-name">' + escapeHtml(t.name) + '</span>' +
+          '<span class="pl-amt">' + fmtUSD(t.amt) + '</span></div>' +
+        '<div class="pl-track"><span class="pl-fill" style="width:' + Math.min(100, Math.round(t.pct * 100)) + '%"></span></div>' +
+        '<div class="pl-note">' + note + '</div>' +
+        (i === cut ? '<div class="pl-cut">↑ money runs out here</div>' : '') +
+      '</div>';
+    }
+    function listHtml(S, drag) {
+      let html = "";
+      if (!S.hasMustpays) html += '<div class="pl-empty">No must-pay bills picked yet.<br><button class="pl-pick-inline">Choose your bills →</button></div>';
+      S.bills.forEach((t) => { html += rowHtml(t, S.tiers.indexOf(t), S.cut, drag); });
+      if (S.estimates.length) {
+        html += '<div class="pl-subhead">everyday spending · estimated</div>';
+        S.estimates.forEach((t) => { html += rowHtml(t, S.tiers.indexOf(t), S.cut, drag); });
+      }
+      return html;
+    }
+    // THIS MONTH — the hero: big number + the full, editable waterfall
+    function renderHero(d) {
+      const big = heroEl.querySelector(".pl-big");
+      const sub = heroEl.querySelector(".pl-sub");
+      const poolEl = heroEl.querySelector(".pl-pool");
+      const S = planSummary(d, 0);
+      if (!S) { big.textContent = "…"; return null; }
+      const { cash, income, rentBal, rentLabel, pool, totalShort, covered, leftover } = S;
+      if (covered) {
+        big.textContent = "✓ Covered"; big.style.color = "#3f8f4e";
+        sub.innerHTML = "everything funded · " + fmtUSD(leftover) + " to spare";
+      } else {
+        big.textContent = fmtUSD(totalShort) + " to earn"; big.style.color = "#c9542e";
+        sub.innerHTML = "≈ <b>" + S.hrs + " hrs</b> of Instacart";
+      }
+      poolEl.innerHTML = rentBal !== null
+        ? "Rent ← <b>" + escapeHtml(rentLabel) + " " + fmtUSD(rentBal) + "</b> · rest ← <b>" + fmtUSD(pool) + "</b>"
+        : "Reliable: <b>" + fmtUSD(cash + income) + "</b> (" + fmtUSD(cash) + " cash + " + fmtUSD(income) + "/mo)";
+      heroEl.querySelector(".pl-list").innerHTML = listHtml(S, true);
+      return S;
+    }
+    // NEXT MONTH — a compact peek; expand for the full list
+    function renderNext(d) {
+      const S = planSummary(d, 1);
+      const dot = nextBtn.querySelector(".pl-next-dot");
+      const sum = nextBtn.querySelector(".pl-next-sum");
+      if (!S) { sum.textContent = "…"; return null; }
+      if (S.covered) { sum.innerHTML = "✓ covered"; dot.style.background = "#3f8f4e"; }
+      else { sum.innerHTML = "<b>" + fmtUSD(S.totalShort) + "</b> to earn · " + S.hrs + " hrs"; dot.style.background = "#c9542e"; }
+      nextBtn.classList.toggle("open", nextOpen);
+      nextBody.hidden = !nextOpen;
+      nextBody.innerHTML = nextOpen ? listHtml(S, false) : "";
+      return S;
+    }
+    function render(d) {
+      if (!d || !d.spending) { heroEl.querySelector(".pl-big").textContent = "…"; say.textContent = ""; return; }
+      const a = renderHero(d);
+      const next = renderNext(d);
+      const igMissing = !(parseFloat(localStorage.getItem("money.guaranteedIncome")) > 0);
+      if (!a) { say.textContent = ""; return; }
+      say.textContent = !a.hasMustpays
+        ? "Hit ‘build’ up top to set your income and star your must-pay bills — they’re pulled from your bank with exact amounts, so the plan stays accurate. Everyday spending below is estimated from your history."
+        : a.covered
+        ? "This month is fully funded — any Instacart you work is pure cushion." +
+          (next && !next.covered ? " Next month needs about " + next.hrs + " hours to stay ahead." : "")
+        : "This month you're " + fmtUSD(a.totalShort) + " short — about " + a.hrs +
+          " hours of Instacart, anything beyond that you keep." +
+          (next && next.totalShort > a.totalShort ? " Next month climbs to " + fmtUSD(next.totalShort) + "." : "") +
+          (igMissing ? " ⚠ Set your Guaranteed income in Settings or this uses your (variable) recent income." : "");
+    }
+    nextBtn.addEventListener("click", () => {
+      nextOpen = !nextOpen;
+      localStorage.setItem("money.planNextOpen", nextOpen ? "1" : "0");
+      if (Store.data) renderNext(Store.data);
+    });
+    // ── BUILD mode: every budget input lives here (income, rent, rate, bills) ──
+    function renderBuild(d) {
+      const v = (k) => { const x = localStorage.getItem(k); return x === null ? "" : x; };
+      const rent = getRent();
+      const accts = (d && d.accounts) || [];
+      const curAcct = localStorage.getItem("money.rentAccount") || "";
+      // must-pays are DEFINED in the Money Map; build mode just shows them read-only
+      const mustpays = (Store.recurring || []).filter((r) => isSubCore(r.key) && !isSubPaused(r.key))
+        .sort((a, b) => b.amount - a.amount);
+      const mpList = mustpays.length
+        ? mustpays.map((r) => '<div class="bg-mp"><span class="bg-mp-name">' + escapeHtml(r.name) + "</span>" +
+            '<span class="bg-mp-amt">' + fmtUSD(r.amount) + "</span></div>").join("")
+        : '<div class="bg-hint">None yet — open the Money Map and star the bills you have to pay.</div>';
+      buildView.innerHTML =
+        '<div class="bg-build-scroll">' +
+          '<div class="bg-sec">Reliable income</div>' +
+          '<label class="bg-field"><span>Guaranteed /mo</span><input class="bg-guar" type="number" value="' + v("money.guaranteedIncome") + '" placeholder="your dependable base"></label>' +
+          '<div class="bg-hint">music, retainers, base pay — what you can count on. <b>Not</b> Instacart / variable side work.</div>' +
+          '<div class="bg-sec">Rent</div>' +
+          '<label class="bg-field"><span>Amount</span><input class="bg-rentamt" type="number" value="' + (rent.amount || "") + '" placeholder="e.g. 1388"></label>' +
+          '<label class="bg-field"><span>Due day</span><input class="bg-rentday" type="number" min="1" max="31" value="' + (rent.day || "") + '" placeholder="1"></label>' +
+          '<label class="bg-field"><span>Paid from</span><select class="bg-rentacct">' +
+            '<option value="">total cash (all accounts)</option>' +
+            accts.map((a) => '<option value="' + escapeHtml(a.name) + '"' + (a.name === curAcct ? " selected" : "") + ">" + escapeHtml(a.name) + "</option>").join("") +
+          '</select></label>' +
+          '<div class="bg-sec">Side-gig rate</div>' +
+          '<label class="bg-field"><span>$ / hr after gas</span><input class="bg-rate" type="number" value="' + v("money.rate") + '" placeholder="25"></label>' +
+          '<div class="bg-hint">turns your shortfall into Instacart hours.</div>' +
+          '<div class="bg-sec">Must-pay bills <span class="bg-sec-note">defined in your Money Map</span></div>' +
+          '<div class="bg-mustpays">' + mpList + "</div>" +
+          '<button class="bg-open-map" type="button">⊞ Open Money Map to choose bills →</button>' +
+        "</div>";
+      const num = (sel, key) => buildView.querySelector(sel).addEventListener("change", (e) => {
+        const val = (e.target.value || "").trim();
+        if (val === "") localStorage.removeItem(key);
+        else localStorage.setItem(key, String(parseFloat(val.replace(/[^0-9.]/g, "")) || 0));
+        Store.emit();
+      });
+      num(".bg-guar", "money.guaranteedIncome");
+      num(".bg-rate", "money.rate");
+      const saveRent = () => {
+        const amount = parseFloat((buildView.querySelector(".bg-rentamt").value || "").replace(/[^0-9.]/g, "")) || 0;
+        const day = Math.max(1, Math.min(31, parseInt(buildView.querySelector(".bg-rentday").value, 10) || 1));
+        localStorage.setItem("money.rent", JSON.stringify({ amount, day }));
+        Store.emit();
+      };
+      buildView.querySelector(".bg-rentamt").addEventListener("change", saveRent);
+      buildView.querySelector(".bg-rentday").addEventListener("change", saveRent);
+      buildView.querySelector(".bg-rentacct").addEventListener("change", (e) => {
+        localStorage.setItem("money.rentAccount", e.target.value); Store.emit();
+      });
+      buildView.querySelector(".bg-open-map").addEventListener("click", () => {
+        addSingleton("subscriptions");  // the Money Map — bring it up (or add it)
+        if (nodes.subscriptions) springIn(nodes.subscriptions);
+      });
+    }
+    function paint(d) {
+      if (mode === "build") renderBuild(d); else render(d);
+    }
+    el.querySelectorAll(".bg-mode").forEach((b) => b.addEventListener("click", () => {
+      mode = b.dataset.m;
+      el.querySelectorAll(".bg-mode").forEach((x) => x.classList.toggle("on", x.dataset.m === mode));
+      planView.hidden = mode !== "plan";
+      buildView.hidden = mode !== "build";
+      if (Store.data) paint(Store.data);
+    }));
+    // the plan's empty-state button jumps straight to build mode
+    el.addEventListener("click", (e) => {
+      if (e.target.closest(".pl-pick-inline")) el.querySelector('.bg-mode[data-m="build"]').click();
+    });
+    // drag a bill in EITHER pane to reprioritize — order is shared, both re-pour. Estimates don't rank.
+    let dragEl = null, dragList = null;
+    el.addEventListener("dragstart", (e) => {
+      const item = e.target.closest(".pl-tier");
+      if (!item || item.classList.contains("est")) return;
+      dragEl = item; dragList = item.closest(".pl-list");
+      item.classList.add("pl-dragging");
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    });
+    el.addEventListener("dragover", (e) => {
+      if (!dragEl || !dragList || !dragList.contains(e.target)) return;
+      e.preventDefault();
+      const after = [...dragList.querySelectorAll('.pl-tier[draggable="true"]:not(.pl-dragging)')]
+        .find((row) => { const r = row.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+      if (after) dragList.insertBefore(dragEl, after); else dragList.appendChild(dragEl);
+    });
+    el.addEventListener("dragend", () => {
+      if (!dragEl) return;
+      dragEl.classList.remove("pl-dragging");
+      const lst = dragList; dragEl = null; dragList = null;
+      if (lst) setMustPayOrder([...lst.querySelectorAll('.pl-tier[data-kind="rent"], .pl-tier[data-kind="bill"]')].map((r) => r.dataset.key));
+      Store.emit();  // re-pour the plan with the new priority order
+    });
+    Store.subscribe(el, (d) => paint(d));
+  },
+  whatsnext(el) {
+    el.classList.add("is-breakdown");
+    el.innerHTML =
+      '<div class="bd-head">' +
+        '<div class="bd-top"><span class="fc-label">what’s next</span></div>' +
+        '<div class="big bd-avg wn-big">…</div>' +
+        '<div class="fc-sub wn-sub"></div>' +
+      '</div>' +
+      '<div class="wn-deadline"></div>' +
+      '<div class="bd-list wn-list"></div>' +
+      '<div class="wn-say"></div>';
+    const big = el.querySelector(".wn-big");
+    const sub = el.querySelector(".wn-sub");
+    const dl = el.querySelector(".wn-deadline");
+    const list = el.querySelector(".wn-list");
+    const say = el.querySelector(".wn-say");
+    const row = (lbl, val, color) => '<div class="avg-row"><span class="avg-label">' + lbl + "</span>" +
+      '<span class="avg-val"' + (color ? ' style="color:' + color + '"' : "") + ">" + val + "</span></div>";
+    function render(d) {
+      if (!d || !d.spending) { big.textContent = "…"; return; }
+      const rent = getRent();
+      const amount = parseFloat(rent.amount) || 0;
+      const day = parseInt(rent.day, 10) || 0;
+      if (!amount || !day) {
+        big.textContent = "Set rent"; big.style.color = "var(--ink)";
+        sub.textContent = "add it in Settings →"; dl.innerHTML = ""; list.innerHTML = "";
+        say.textContent = "Tell me your rent amount and the day it's due (Settings → Rent), and I'll track whether you'll have it in time and what to earn before then.";
+        return;
+      }
+      // next rent due date
+      const now = new Date();
+      const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      let due = new Date(now.getFullYear(), now.getMonth(), day);
+      if (due < today0) due = new Date(now.getFullYear(), now.getMonth() + 1, day);
+      const daysUntil = Math.max(0, Math.round((due - today0) / 86400000));
+      const dueStr = due.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const rate = parseFloat(localStorage.getItem("money.rate")) || 25;
+
+      // if you keep rent in a specific account, just check that the money is sitting there
+      const acctName = localStorage.getItem("money.rentAccount") || "";
+      if (acctName) {
+        const acct = (d.accounts || []).find((a) => a.name === acctName);
+        const bal = acct ? (acct.balance || 0) : 0;
+        const label = (typeof shortAcct === "function" ? shortAcct(acctName) : acctName);
+        const shortA = Math.max(0, amount - bal);
+        const hrsA = shortA > 0 ? Math.max(1, Math.round(shortA / rate)) : 0;
+        if (shortA > 0) {
+          big.textContent = "Need " + fmtUSD(shortA); big.style.color = "var(--ink)";
+          sub.innerHTML = "more for rent · by " + dueStr;
+        } else {
+          big.textContent = "✓ Ready"; big.style.color = "#3f8f4e";
+          sub.innerHTML = "rent's set aside in " + escapeHtml(label);
+        }
+        dl.innerHTML = "Rent <b>" + fmtUSD(amount) + "</b> due <b>" + dueStr + "</b> · " + daysUntil + " days";
+        list.innerHTML =
+          row(escapeHtml(label) + " has", fmtUSD(bal), bal >= amount ? "#3f8f4e" : "#c9542e") +
+          row("Rent needed", fmtUSD(amount)) +
+          row(shortA > 0 ? "Short" : "Cushion", fmtUSD(Math.abs(bal - amount)), shortA > 0 ? "#c9542e" : "#3f8f4e");
+        say.textContent = shortA > 0
+          ? "Your " + label + " has " + fmtUSD(bal) + " — that's " + fmtUSD(shortA) + " short of rent (" + fmtUSD(amount) +
+            ") due " + dueStr + ". Move it in or earn it (~" + hrsA + " hrs) before the " + ordinal(day) + "."
+          : "Your " + label + " has " + fmtUSD(bal) + " — rent (" + fmtUSD(amount) + ") is fully covered and ready. 🎉";
+        return;
+      }
+
+      const need = monthlyNeed(d);
+      const income = (d.income && d.income.per_month) || 0;
+      const cash = d.cash || 0;
+      const frac = daysUntil / 30.44;
+      const otherCore = Math.max(0, need - amount);     // non-rent core, per month
+      const spendBefore = otherCore * frac;             // other core you'll spend before rent
+      const incomeBefore = income * frac;               // income you'd usually receive before rent
+      const availForRent = cash + incomeBefore - spendBefore;
+      const short = Math.max(0, amount - availForRent);
+      const hours = short > 0 ? Math.max(1, Math.round(short / rate)) : 0;
+
+      if (short > 0) {
+        big.textContent = "Earn " + fmtUSD(short);
+        big.style.color = "var(--ink)";
+        sub.innerHTML = "for rent · ≈ <b>" + hours + " hrs</b> by " + dueStr;
+      } else {
+        big.textContent = "✓ On track";
+        big.style.color = "#3f8f4e";
+        sub.innerHTML = "you'll have rent by " + dueStr;
+      }
+      dl.innerHTML = "Rent <b>" + fmtUSD(amount) + "</b> due <b>" + dueStr + "</b> · " + daysUntil + " days";
+      list.innerHTML =
+        row("On hand now", fmtUSD(cash)) +
+        row("Income expected by then", "+" + fmtUSD(incomeBefore), "#3f8f4e") +
+        row("Other core before then", "−" + fmtUSD(spendBefore), "#c9542e") +
+        row("Left for rent", fmtUSD(Math.round(availForRent)), availForRent >= amount ? "#3f8f4e" : "#c9542e");
+      say.textContent = short > 0
+        ? "You're on track to be about " + fmtUSD(short) + " short for rent by the " + ordinal(day) +
+          ". That's roughly " + hours + " hours of work — get it in before " + dueStr + "."
+        : "You're on track to have rent (" + fmtUSD(amount) + ") covered by " + dueStr + ". 🎉";
+    }
+    Store.subscribe(el, (d) => render(d));
+  },
   gap(el) {
     el.classList.add("is-breakdown");
     el.innerHTML =
@@ -635,7 +1101,7 @@ const RENDERERS = {
         '<span class="bd-amt">' + fmtUSD(val) + '</span></div>';
     }
     function render() {
-      const income = (data.income && data.income.per_month) || 0;
+      const income = guaranteedIncome(data);  // reliable base, not variable Instacart
       const need = monthlyNeed(data);
       const g = need - income;
       num.textContent = fmtUSD(Math.abs(g));
@@ -690,7 +1156,7 @@ const RENDERERS = {
       return s !== null ? (parseFloat(s) || 0) : Math.round(spend);
     };
     function render() {
-      const income = (data.income && data.income.per_month) || 0;
+      const income = guaranteedIncome(data);  // reliable base, not variable Instacart
       const gap = monthlyNeed(data) - income;
       const rate = rateOf();
       rateBtn.textContent = "rate: " + fmtUSD(rate) + "/hr ✎";
@@ -797,107 +1263,194 @@ const RENDERERS = {
     Store.subscribe(el, () => load());
     load();
   },
-  subscriptions(el) {
+  worklog(el) {
     el.classList.add("is-breakdown");
     el.innerHTML =
       '<div class="bd-head">' +
-        '<div class="bd-top"><span class="fc-label">subscriptions</span><button class="sub-add" type="button" title="add a subscription by name">+ add</button></div>' +
-        '<div class="big bd-avg">…</div>' +
-        '<div class="fc-sub cf-sub"></div>' +
+        '<div class="bd-top"><span class="fc-label">time worked</span>' +
+          '<a class="toggl-link" href="https://track.toggl.com/timer" target="_blank" rel="noopener" title="open Toggl">' +
+            '<span class="toggl-mark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e9408f"/>' +
+            '<path d="M12 7v5l3 2" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span></a>' +
+        '</div>' +
+        '<div class="wk-spots">' +
+          '<div class="wk-spot"><div class="wk-spot-num wk-hours">…</div><div class="wk-spot-lbl">worked</div></div>' +
+          '<div class="wk-spot"><div class="wk-spot-num wk-earned">…</div><div class="wk-spot-lbl">earned</div></div>' +
+        '</div>' +
+        '<div class="fc-sub wk-sub"></div>' +
       '</div>' +
-      '<div class="bd-list cf-list"></div>' +
-      '<div class="sub-detected"></div>' +
+      '<div class="wk-running"></div>' +
+      '<div class="bd-list wk-list"></div>';
+    const hoursEl = el.querySelector(".wk-hours");
+    const earnedEl = el.querySelector(".wk-earned");
+    const sub = el.querySelector(".wk-sub");
+    const list = el.querySelector(".wk-list");
+    const runEl = el.querySelector(".wk-running");
+    const r1 = (h) => (h || 0).toFixed(1) + "h";
+    // shrink both spotlight numbers to the largest size that fits BOTH cards — so
+    // the earned amount can never get cut off and the two stay the same size
+    function fitSpots() {
+      const spots = [hoursEl, earnedEl];
+      if (!spots[0].clientWidth) return;
+      let size = 32;
+      spots.forEach((e) => (e.style.fontSize = size + "px"));
+      let guard = 0;
+      while (size > 13 && spots.some((e) => e.scrollWidth > e.clientWidth) && guard++ < 30) {
+        size -= 1.5;
+        spots.forEach((e) => (e.style.fontSize = size + "px"));
+      }
+    }
+    function load() {
+      fetch("/api/work?t=" + Date.now()).then((r) => (r.ok ? r.json() : null)).then((d) => {
+        if (!d || !d.month) { hoursEl.textContent = "—"; earnedEl.textContent = "—"; sub.textContent = "no Toggl data yet"; list.innerHTML = ""; runEl.innerHTML = ""; return; }
+        const eff = (w) => (w.hours > 0 ? fmtUSD(w.earned / w.hours) + "/hr" : "—");
+        hoursEl.textContent = r1(d.month.hours);
+        earnedEl.textContent = fmtUSD(d.month.earned);
+        requestAnimationFrame(fitSpots);
+        sub.innerHTML = "this month · " + eff(d.month) + " effective";
+        runEl.innerHTML = d.running
+          ? '<div class="wk-run">⏱ running now · ' + r1(d.running.elapsed_hours) +
+            (d.running.description ? " · " + escapeHtml(d.running.description) : "") + "</div>"
+          : "";
+        let html = "";  // month lives in the headline above; jump straight to projects
+        const projs = pinSort(d.projects_month || [], "proj", (p) => p.name).slice(0, 8);
+        if (projs.length) html += '<div class="wk-projh">this month by project</div>' +
+          projs.map((p) => {
+            const pin = isPinned("proj", p.name);
+            return '<div class="avg-row wk-proj' + (pin ? " pinned" : "") + '">' +
+              '<button class="pin-btn' + (pin ? " on" : "") + '" data-pin="' + escapeHtml(p.name) + '" title="pin to top">★</button>' +
+              '<span class="avg-label">' + escapeHtml(p.name) + "</span>" +
+              '<span class="avg-val">' + r1(p.hours) + "</span></div>";
+          }).join("");
+        list.innerHTML = html;
+        list.querySelectorAll(".pin-btn").forEach((b) => b.addEventListener("click", () => { togglePin("proj", b.dataset.pin); load(); }));
+        drawIcons();
+      }).catch(() => { hoursEl.textContent = "—"; earnedEl.textContent = "—"; sub.textContent = "no data · run toggl_sync.py"; list.innerHTML = ""; });
+    }
+    Store.subscribe(el, () => load());
+    load();
+  },
+  subscriptions(el) {
+    el.classList.add("is-breakdown");
+    // MONEY MAP — the ONE place you define what every recurring thing is:
+    // money IN (income vs ignore) and money OUT (must-pay bill, subscription).
+    el.innerHTML =
+      '<div class="bd-head">' +
+        '<div class="bd-top"><span class="fc-label">money map</span><button class="sub-add" type="button" title="add a recurring bill by name">+ add</button></div>' +
+        '<div class="fc-sub mm-sub">…</div>' +
+      '</div>' +
+      '<div class="mm-scroll">' +
+        '<div class="mm-sec">money in <span class="mm-sec-note">which deposits count as income</span></div>' +
+        '<div class="mm-in"></div>' +
+        '<div class="mm-sec">money out · recurring <span class="mm-sec-note">mark your must-pays</span></div>' +
+        '<div class="cf-list"></div>' +
+      '</div>' +
       '<button class="bd-fix" type="button">⚙ fix categories</button>';
-    const big = el.querySelector(".bd-avg");
-    const sub = el.querySelector(".cf-sub");
+    const sub = el.querySelector(".mm-sub");
+    const inEl = el.querySelector(".mm-in");
     const list = el.querySelector(".cf-list");
-    const detEl = el.querySelector(".sub-detected");
-    let detected = [];
-    function loadDetected() {
-      fetch("/api/recurring?t=" + Date.now()).then((r) => r.json())
-        .then((d) => { detected = d.recurring || []; render(); }).catch(() => {});
+    let detected = [], deposits = [];
+    function loadData() {
+      Promise.all([
+        fetch("/api/recurring?t=" + Date.now()).then((r) => r.json()).catch(() => ({ recurring: [] })),
+        fetch("/api/deposits?t=" + Date.now()).then((r) => r.json()).catch(() => ({ deposits: [] })),
+      ]).then(([rec, dep]) => { detected = rec.recurring || []; deposits = dep.deposits || []; render(); });
     }
     function trackKey(key) {
       fetch("/api/categorize", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ merchant: key, category: "subscriptions" }) })
         .then((r) => { if (!r.ok) throw new Error("stale"); return r.json(); })
-        .then(() => { flash("✓ now tracking as a subscription"); loadDetected(); Store.refresh(); })
+        .then(() => { flash("✓ now tracking as a subscription"); loadData(); Store.refresh(); })
         .catch(() => flash("couldn't save — backend down?"));
     }
     function untrackKey(key) {
       fetch("/api/categorize", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ merchant: key, category: "other" }) })
         .then((r) => { if (!r.ok) throw new Error("stale"); return r.json(); })
-        .then(() => { flash("removed from subscriptions"); loadDetected(); Store.refresh(); })
+        .then(() => { flash("removed from subscriptions"); loadData(); Store.refresh(); })
         .catch(() => flash("couldn't save — backend down?"));
     }
-    // the whole widget is driven by all-time recurrence detection, so a tracked
-    // item just moves up to the tracked list — it never disappears. Active/lapsed
-    // is read from the ledger; you can pause one by hand to keep the data honest.
+    function setIncome(key, status) {
+      fetch("/api/income", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: key, status: status }) })
+        .then((r) => { if (!r.ok) throw new Error("stale"); return r.json(); })
+        .then(() => { flash(status === "income" ? "✓ counts as income" : "ignored (not income)"); loadData(); Store.refresh(); })
+        .catch(() => flash("couldn't save — backend down?"));
+    }
     function render() {
-      const tracked = detected.filter((r) => r.tagged);
-      const untracked = detected.filter((r) => !r.tagged);
-      const active = tracked.filter((r) => !isSubPaused(r.key));
-      if (!tracked.length) {
-        big.textContent = detected.length ? "—" : "…";
-        sub.textContent = untracked.length ? "tag the " + untracked.length + " detected below ↓"
-          : (detected.length ? "none tracked yet" : "scanning for recurring charges…");
-      } else {
-        let core = 0, flex = 0, total = 0;
-        active.forEach((r) => { total += r.amount; if (isSubCore(r.key)) core += r.amount; else flex += r.amount; });
-        big.textContent = fmtUSD(total) + " /mo";
-        const lapsed = tracked.filter((r) => subState(r) === "lapsed").length;
-        sub.innerHTML = "<b style=\"color:#3f8f4e\">" + fmtUSD(core) + "</b> core · " +
-          "<b style=\"color:#c9542e\">" + fmtUSD(flex) + "</b> flex" +
-          (lapsed ? ' · <b style="color:#d6920f">' + lapsed + " lapsed</b>" : "");
-      }
-      list.innerHTML = tracked.map((r) => {
+      // ── money in ──
+      inEl.innerHTML = deposits.length
+        ? deposits.map((r) => {
+            const on = r.status === "income";
+            return '<div class="cf-row mm-row">' +
+              '<span class="mm-dir ' + (on ? "in" : "off") + '">' + (on ? "+" : "·") + "</span>" +
+              '<span class="cf-cat" title="' + escapeHtml(r.source) + '">' + escapeHtml(r.source) + "</span>" +
+              '<span class="cf-amt">' + fmtUSD(r.amount) + "</span>" +
+              '<button class="cf-toggle ' + (on ? "is-income" : "is-ignore") + '" data-key="' + escapeHtml(r.key) +
+                '" data-on="' + (on ? 1 : 0) + '">' + (on ? "income" : "ignore") + "</button>" +
+            "</div>";
+          }).join("")
+        : '<div class="mm-empty">no deposits seen yet</div>';
+      inEl.querySelectorAll(".cf-toggle").forEach((b) => b.addEventListener("click", () =>
+        setIncome(b.dataset.key, b.dataset.on === "1" ? "ignore" : "income")));
+
+      // ── money out · recurring — ALL detected bills in one list, must-pays first.
+      // You can mark ANY recurring charge must-pay; you don't have to call it a "subscription" first.
+      const active = detected.filter((r) => !isSubPaused(r.key));
+      const mustpay = active.filter((r) => isSubCore(r.key)).reduce((s, r) => s + monthlyAmount(r), 0);
+      const incCount = deposits.filter((r) => r.status === "income").length;
+      sub.innerHTML = "<b>" + fmtUSD(mustpay) + "</b>/mo must-pay · <b>" + incCount + "</b> income source" + (incCount === 1 ? "" : "s");
+      const ordered = detected.slice().sort((a, b) =>
+        (isSubCore(b.key) ? 1 : 0) - (isSubCore(a.key) ? 1 : 0) || b.amount - a.amount);
+      list.innerHTML = pinSort(ordered, "sub", (r) => r.key).map((r) => {
         const on = isSubCore(r.key);
         const st = subState(r);
         const nm = subName(r);
+        const pin = isPinned("sub", r.key);
         const ago = r.last ? Math.round(Date.now() / 1000 / 86400 - r.last / 86400) : null;
         const tip = st === "paused" ? "paused — click to reactivate"
           : st === "lapsed" ? "no charge in " + ago + "d — click to pause" : "active · last charge " + ago + "d ago";
-        return '<div class="cf-row sub-row ' + st + '">' +
+        return '<div class="cf-row sub-row ' + st + (pin ? " pinned" : "") + '">' +
+          '<button class="pin-btn' + (pin ? " on" : "") + '" data-pin="' + escapeHtml(r.key) + '" title="pin to top">★</button>' +
           '<button class="sub-pip ' + st + '" data-key="' + escapeHtml(r.key) + '" title="' + tip + '"></button>' +
           '<button class="cf-cat sub-name" data-key="' + escapeHtml(r.key) +
-            '" title="' + escapeHtml(nm) + ' — details">' + escapeHtml(nm) + "</button>" +
-          '<span class="cf-amt">' + fmtUSD(r.amount) + "/mo</span>" +
-          '<button class="cf-toggle ' + (on ? "is-core" : "is-flex") + '" data-key="' + escapeHtml(r.key) + '">' +
-          (on ? "core" : "flex") + "</button>" +
-          '<button class="sub-x" data-key="' + escapeHtml(r.key) + '" title="not a subscription / remove">×</button>' +
+            '" title="' + escapeHtml(nm) + ' — rename">' + escapeHtml(nm) + "</button>" +
+          '<span class="cf-amt"' + (subCadence(r.key) !== "monthly" ? ' title="≈ ' + fmtUSD(monthlyAmount(r)) + '/mo"' : "") + ">" + fmtUSD(r.amount) + "</span>" +
+          '<span class="cf-cad-wrap"><select class="cf-cad" data-key="' + escapeHtml(r.key) + '" title="how often this charges">' +
+            CADENCES.map((c) => '<option value="' + c.id + '"' + (c.id === subCadence(r.key) ? " selected" : "") + ">" + c.abbr + "</option>").join("") +
+          "</select></span>" +
+          '<button class="cf-toggle ' + (on ? "is-core" : "is-flex") + '" data-key="' + escapeHtml(r.key) +
+            '" title="' + (on ? "a must-pay bill — funds your budget first" : "optional — click to mark must-pay") + '">' +
+          (on ? "must-pay" : "optional") + "</button>" +
+          (r.tagged ? '<button class="sub-x" data-key="' + escapeHtml(r.key) + '" title="remove from tracked subscriptions">×</button>' : '<span class="sub-x sub-x-empty"></span>') +
         "</div>";
       }).join("");
+      list.querySelectorAll(".pin-btn").forEach((b) => b.addEventListener("click", () => {
+        togglePin("sub", b.dataset.pin); Store.emit();
+      }));
       list.querySelectorAll(".sub-pip").forEach((b) => b.addEventListener("click", () => {
         setSubPaused(b.dataset.key, !isSubPaused(b.dataset.key)); Store.emit();
       }));
       list.querySelectorAll(".cf-toggle").forEach((b) => b.addEventListener("click", () => {
         setSubCore(b.dataset.key, !isSubCore(b.dataset.key));
-        Store.emit();  // core subs feed The Gap's need → ripple
+        Store.emit();  // must-pays feed the Budget + Gap → ripple
       }));
       list.querySelectorAll(".sub-x").forEach((b) => b.addEventListener("click", () => {
-        if (confirm("Remove this from your subscriptions?")) untrackKey(b.dataset.key);
+        if (confirm("Remove this from tracked subscriptions? (it stays detected, just untagged)")) untrackKey(b.dataset.key);
+      }));
+      list.querySelectorAll(".cf-cad").forEach((s) => s.addEventListener("change", () => {
+        setSubCadence(s.dataset.key, s.value);
+        Store.emit();  // cadence ripples to the must-pay total + Budget
       }));
       list.querySelectorAll(".sub-name").forEach((b) => b.addEventListener("click", () =>
-        openSubDetail(tracked.find((x) => x.key === b.dataset.key), () => Store.emit())));
-      if (!untracked.length) { detEl.innerHTML = ""; } else {
-        detEl.innerHTML = '<div class="sub-det-h">detected · not tracked yet (' + untracked.length + ")</div>" +
-          untracked.map((r) =>
-            '<div class="cf-row sub-det-row">' +
-              '<span class="cf-cat" title="' + escapeHtml((r.descriptions || [])[0] || r.name) + '">' + escapeHtml(r.name) + "</span>" +
-              '<span class="cf-amt">' + fmtUSD(r.amount) + "/mo</span>" +
-              '<button class="sub-track" data-key="' + escapeHtml(r.key) + '">+ track</button>' +
-            "</div>").join("");
-        detEl.querySelectorAll(".sub-track").forEach((b) => b.addEventListener("click", () => trackKey(b.dataset.key)));
-      }
+        openSubDetail(detected.find((x) => x.key === b.dataset.key), () => Store.emit())));
     }
-    Store.subscribe(el, () => render());  // re-render on ripple (core toggles, etc.)
+    Store.subscribe(el, () => render());  // re-render on ripple (must-pay toggles, etc.)
     el.querySelector(".bd-fix").addEventListener("click", () => openCategorizer(() => Store.refresh()));
     el.querySelector(".sub-add").addEventListener("click", () => {
-      const v = prompt("Add a subscription — type the merchant as it reads on your statement (e.g. netflix, spotify). It links to any transaction containing that text.");
+      const v = prompt("Add a recurring bill — type the merchant as it reads on your statement (e.g. netflix, spotify). It links to any transaction containing that text.");
       if (v && v.trim()) trackKey(v.trim().toLowerCase());
     });
-    loadDetected();
+    loadData();
   },
   months(el) {
     el.classList.add("is-breakdown", "is-months");
@@ -1063,6 +1616,106 @@ function openCategoryManager() {
 
 // ── Profile + Settings ─────────────────────────────────────
 function getProfile() { try { return JSON.parse(localStorage.getItem("money.profile") || "{}"); } catch (e) { return {}; } }
+function getRent() { try { return JSON.parse(localStorage.getItem("money.rent") || "{}"); } catch (e) { return {}; } }
+// priority order of your must-pays (keys; "__rent__" is rent). Drag in the plan to set it.
+const MUSTPAY_ORDER_KEY = "money.mustpayOrder";
+function mustPayOrder() {
+  try { const o = JSON.parse(localStorage.getItem(MUSTPAY_ORDER_KEY) || "null"); return Array.isArray(o) ? o : []; }
+  catch (e) { return []; }
+}
+function setMustPayOrder(o) { localStorage.setItem(MUSTPAY_ORDER_KEY, JSON.stringify(o)); }
+// The ONE waterfall computation — both the Priority Plan widget and the top stats
+// bar read from this so their numbers can never disagree.
+//
+// Must-pays are EXACT and bank-confirmed: rent (declared) + recurring bills you
+// marked non-negotiable (isSubCore), with the bank's own amounts. Food / everything
+// else are ESTIMATES from your category averages, ranked below the exact bills.
+function planSummary(d, monthOffset) {
+  monthOffset = monthOffset || 0;
+  if (!d || !d.spending) return null;
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+  const nextStart = new Date(now.getFullYear(), now.getMonth() + monthOffset + 1, 1);
+  const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const cash = d.cash || 0;
+  const income = guaranteedIncome(d);
+
+  // rent is earmarked — funded only from the account it lives in
+  const rentAmt = parseFloat(getRent().amount) || 0;
+  const dueDay = parseInt(getRent().day, 10) || 1;
+  const rentAcctName = localStorage.getItem("money.rentAccount") || "";
+  let rentBal = null, rentLabel = "";
+  if (rentAcctName) {
+    const acct = (d.accounts || []).find((a) => a.name === rentAcctName);
+    rentBal = acct ? (acct.balance || 0) : 0;
+    rentLabel = (typeof shortAcct === "function" ? shortAcct(rentAcctName) : rentAcctName);
+  }
+
+  // ── exact must-pays ──
+  const bills = [];
+  if (rentAmt > 0) {
+    const rdue = new Date(now.getFullYear(), now.getMonth() + monthOffset, dueDay);
+    const rdays = Math.round((rdue - today0) / 86400000);
+    bills.push({ key: "__rent__", name: "Rent", amt: rentAmt, kind: "rent", earmark: true,
+      paid: monthOffset === 0 && rdays < 0, daysUntil: rdays,
+      dueStr: rdue.toLocaleDateString("en-US", { month: "short", day: "numeric" }) });
+  }
+  (Store.recurring || []).forEach((r) => {
+    if (!isSubCore(r.key) || isSubPaused(r.key)) return;
+    const lastD = r.last ? new Date(r.last * 1000) : null;
+    const cad = subCadence(r.key);
+    // only monthly bills get "paid this cycle"; non-monthly are funded as a steady set-aside
+    const paid = cad === "monthly" && monthOffset === 0 && lastD && lastD >= monthStart && lastD < nextStart;
+    bills.push({ key: r.key, name: r.name, amt: monthlyAmount(r), kind: "bill", paid: !!paid, cadence: cad,
+      perCharge: r.amount || 0,
+      dueStr: lastD ? lastD.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "" });
+  });
+  // rank by your saved order; unranked appended (rent floats to the top by default)
+  const order = mustPayOrder();
+  const rankOf = (b) => { const i = order.indexOf(b.key); return i < 0 ? (b.kind === "rent" ? -1 : 998) : i; };
+  bills.sort((a, b) => rankOf(a) - rankOf(b));
+
+  // ── estimated everyday spending (variable, from category averages) ──
+  const FOOD = new Set(["groceries", "dining"]);
+  const w = d.spending.window_days || 30;
+  const mo = (a) => (a / w) * 30;
+  let food = 0, flex = 0;
+  (d.spending.categories || []).forEach((c) => {
+    if (c.key === "transfer" || c.key === "housing" || c.key === "subscriptions") return;
+    const m = mo(c.amount);
+    if (FOOD.has(c.key)) food += m; else flex += m;
+  });
+  const estimates = [];
+  if (food > 0.5) estimates.push({ key: "__food__", name: "Food", amt: food, kind: "est" });
+  if (flex > 0.5) estimates.push({ key: "__flex__", name: "Everything else", amt: flex, kind: "est" });
+
+  // ── pour the money in: rent from its account, the rest from cash + guaranteed income ──
+  const pool = (rentBal !== null ? Math.max(0, cash - rentBal) : cash) + income;
+  let rem = pool, cut = -1, totalShort = 0;
+  const tiers = bills.concat(estimates);
+  tiers.forEach((t, i) => {
+    if (t.paid) { t.funded = t.amt; }
+    else if (t.kind === "rent" && rentBal !== null) { t.funded = Math.min(t.amt, Math.max(0, rentBal)); }
+    else { t.funded = Math.min(t.amt, Math.max(0, rem)); rem -= t.funded; if (cut < 0 && t.funded < t.amt - 0.5) cut = i; }
+    t.pct = t.amt > 0 ? t.funded / t.amt : 1;
+    if (!t.paid) totalShort += Math.max(0, t.amt - t.funded);
+  });
+  const rentTier = bills.find((b) => b.kind === "rent");
+  const covered = totalShort < 0.5;
+  const rate = parseFloat(localStorage.getItem("money.rate")) || 25;
+  const leftover = rem + (rentBal !== null && rentTier ? Math.max(0, rentBal - rentTier.amt) : 0);
+  return { bills, estimates, tiers, cash, income, rentBal, rentLabel, pool, cut, rentTier,
+    totalShort, covered, rate, hrs: Math.max(1, Math.round(totalShort / rate)),
+    leftover, hasMustpays: bills.length > 0 };
+}
+// guaranteed (reliable) monthly income — NOT variable side-gig. The plan funds from
+// this so the shortfall shows how much Instacart/side work you actually need.
+function guaranteedIncome(d) {
+  const g = parseFloat(localStorage.getItem("money.guaranteedIncome"));
+  if (g > 0) return g;
+  return (d && d.income && d.income.per_month) || 0;  // fallback until you set it
+}
+function ordinal(n) { const s = ["th", "st", "nd", "rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 function setProfile(p) { localStorage.setItem("money.profile", JSON.stringify(p)); updateGreeting(); }
 function updateGreeting() {
   const g = document.getElementById("greeting");
@@ -1070,9 +1723,36 @@ function updateGreeting() {
   const p = getProfile();
   const h = new Date().getHours();
   const part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
-  g.textContent = p.name ? "good " + part + ", " + p.name : "";
-  g.style.display = p.name ? "" : "none";
+  const name = (p.name || "").trim().replace(/\b\w/g, (m) => m.toUpperCase());
+  g.textContent = name ? "Good " + part + ", " + name + "." : "";
+  g.style.display = name ? "" : "none";
 }
+
+// ── Gamification: every click banks 1 EXP into your profile's stats ──
+let PROFILE_STATS = (function () { const p = getProfile(); return Object.assign({ exp: 0, clicks: 0 }, p.stats || {}); })();
+let _statsTimer = null;
+function saveStats() {
+  const p = getProfile();
+  p.stats = PROFILE_STATS;
+  try { localStorage.setItem("money.profile", JSON.stringify(p)); } catch (e) {}
+}
+function updateXp() {
+  const e = document.getElementById("sidebarXp");
+  if (e) e.innerHTML = "⭐ <b>" + PROFILE_STATS.exp.toLocaleString() + "</b> EXP";
+  // update just the EXP chip in place (no full re-render → no thrash on every click)
+  const chip = document.querySelector('.stat-chip[data-stat="exp"] .stat-val');
+  if (chip) chip.textContent = "⭐ " + PROFILE_STATS.exp.toLocaleString();
+}
+function addExp(n) {
+  PROFILE_STATS.exp += n;
+  PROFILE_STATS.clicks += n;
+  updateXp();
+  clearTimeout(_statsTimer);
+  _statsTimer = setTimeout(saveStats, 700);
+}
+document.addEventListener("pointerdown", () => addExp(1), true);  // capture → counts every click
+window.addEventListener("pagehide", saveStats);
+window.addEventListener("beforeunload", saveStats);
 function applyPrivacy() {
   document.body.classList.toggle("privacy-on", localStorage.getItem("money.privacy") === "1");
 }
@@ -1092,15 +1772,17 @@ function openSettings() {
       '<label class="set-row"><span>Your name</span><input id="setName" type="text" value="' + escapeHtml(p.name || "") + '" placeholder="your name"></label>' +
       '<label class="set-row"><span>What you do</span><input id="setRole" type="text" value="' + escapeHtml(p.role || "") + '" placeholder="musician · gig work · freelance"></label>' +
       '<label class="set-row"><span>Note to self</span><input id="setNote" type="text" value="' + escapeHtml(p.note || "") + '" placeholder="optional"></label>' +
-      '<div class="set-sec">Money targets</div>' +
+      '<div class="set-sec">Safety buffer</div>' +
       '<label class="set-row"><span>Reserve (don’t-touch)</span><input id="setReserve" type="number" value="' + v("money.reserve") + '" placeholder="0"></label>' +
       '<label class="set-row"><span>Monthly need</span><input id="setNeed" type="number" value="' + v("money.need") + '" placeholder="auto from core"></label>' +
-      '<label class="set-row"><span>Work rate $/hr</span><input id="setRate" type="number" value="' + v("money.rate") + '" placeholder="25"></label>' +
-      '<div class="set-hint">these feed Safe-to-spend, The Gap and the Work planner</div>' +
+      '<div class="set-hint">Reserve protects your runway in the Safe widget. Your <b>income, rent, rate &amp; bills</b> now live in the <b>Budget</b> widget → tap <b>build</b>.</div>' +
       '<div class="set-sec">Display</div>' +
       '<button class="set-toggle" id="setPrivacy"><span>Privacy blur</span><span class="set-state">off</span></button>' +
       '<div class="set-hint">blurs dollar amounts until you hover — good for screen-sharing</div>' +
       '<div class="set-themes" id="setThemes"></div>' +
+      '<div class="set-sec">Stats bar</div>' +
+      '<div class="set-hint">the live numbers along the top — toggle any on or off · drag them in the bar to reorder</div>' +
+      '<div id="setStats" class="set-stats"></div>' +
     '</div>';
   document.body.appendChild(back);
   document.body.appendChild(modal);
@@ -1120,7 +1802,7 @@ function openSettings() {
     else localStorage.setItem(key, String(parseFloat(val.replace(/[^0-9.]/g, "")) || 0));
     Store.emit();  // ripple to Safe / Gap / Work
   });
-  bind("#setReserve", "money.reserve"); bind("#setNeed", "money.need"); bind("#setRate", "money.rate");
+  bind("#setReserve", "money.reserve"); bind("#setNeed", "money.need");
 
   const privBtn = modal.querySelector("#setPrivacy");
   const paintPriv = () => {
@@ -1134,15 +1816,32 @@ function openSettings() {
     applyPrivacy(); paintPriv();
   });
 
+  // Stats bar editor — add / remove the live numbers across the top
+  const statsHost = modal.querySelector("#setStats");
+  const renderSetStats = () => {
+    const hidden = new Set(statsList(STATS_HIDDEN_KEY));
+    statsHost.innerHTML = STAT_DEFS.map((d) => {
+      const on = !hidden.has(d.id);
+      return '<button class="set-toggle' + (on ? " on" : "") + '" data-st="' + d.id + '">' +
+        "<span>" + d.label + "</span><span class=\"set-state\">" + (on ? "on" : "off") + "</span></button>";
+    }).join("");
+    statsHost.querySelectorAll("[data-st]").forEach((b) => b.addEventListener("click", () => {
+      const id = b.dataset.st;
+      const h = new Set(statsList(STATS_HIDDEN_KEY));
+      if (h.has(id)) h.delete(id); else h.add(id);
+      localStorage.setItem(STATS_HIDDEN_KEY, JSON.stringify([...h]));
+      renderStatsBar();
+      reflowBelowStats();   // bar height may have changed → keep widgets clear
+      renderSetStats();
+      renderStatsMenu();    // keep the sidebar list (if present) in sync
+    }));
+  };
+  renderSetStats();
+
   const cur = document.documentElement.getAttribute("data-theme") || "light";
   const th = modal.querySelector("#setThemes");
-  th.innerHTML = THEMES.map((t) =>
-    '<button class="theme-swatch' + (t.id === cur ? " active" : "") + '" data-id="' + t.id +
-    '" title="' + t.label + '" style="background:' + t.bg + ';border-color:' + t.accent + '"></button>').join("");
-  th.querySelectorAll(".theme-swatch").forEach((sw) => sw.addEventListener("click", () => {
-    applyTheme(sw.dataset.id);
-    th.querySelectorAll(".theme-swatch").forEach((s) => s.classList.toggle("active", s === sw));
-  }));
+  th.innerHTML = THEMES.map((t) => themeChipHtml(t, cur)).join("");
+  wireThemeChips(th);
 }
 // make a modal centered + resizable (corner) with a persisted size, and movable by its header
 function makeModalResizable(modal, key) {
@@ -1315,11 +2014,15 @@ function openIncomeTagger(onDone) {
 const LIBRARY = [
   { type: "balance", title: "Total balance", w: 320, h: 190 },
   { type: "income", title: "What makes money", w: 300, h: 240 },
+  { type: "plan", title: "Budget", w: 360, h: 360 },
+  { type: "whatsnext", title: "What’s next", w: 320, h: 256 },
   { type: "gap", title: "The gap", w: 300, h: 230 },
   { type: "coreflex", title: "Core vs flex", w: 300, h: 300 },
-  { type: "subscriptions", title: "Subscriptions", w: 300, h: 300 },
+  { type: "subscriptions", title: "Money Map", w: 320, h: 340 },
+  { type: "accountflow", title: "Money flow", w: 320, h: 380 },
   { type: "work", title: "Work planner", w: 300, h: 210 },
   { type: "averages", title: "Averages", w: 300, h: 260 },
+  { type: "worklog", title: "Time worked", w: 300, h: 270 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
   { type: "months", title: "Months", w: 320, h: 340 },
@@ -1364,6 +2067,42 @@ function saveLayout() {
   localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
 }
 
+// ── Saved views: snapshot the whole board under a name, jump back anytime ──
+const VIEWS_KEY = "money.views";
+function loadViews() { try { return JSON.parse(localStorage.getItem(VIEWS_KEY) || "{}"); } catch (e) { return {}; } }
+function persistViews(v) { localStorage.setItem(VIEWS_KEY, JSON.stringify(v)); }
+function saveView(name) {
+  const v = loadViews();
+  v[name] = JSON.parse(JSON.stringify(layout));
+  persistViews(v);
+  renderViews();
+}
+function deleteView(name) { const v = loadViews(); delete v[name]; persistViews(v); renderViews(); }
+function applyView(name) {
+  const snap = loadViews()[name];
+  if (!snap) return;
+  Object.keys(nodes).forEach((id) => { if (nodes[id]) nodes[id].remove(); delete nodes[id]; });
+  layout = JSON.parse(JSON.stringify(snap));
+  saveLayout();
+  Object.keys(layout).forEach((id) => makeAny(id, layout[id]));
+  drawIcons();
+  Store.emit();  // refill the rebuilt widgets + drop the removed ones' subscriptions
+}
+function renderViews() {
+  const host = document.getElementById("viewList");
+  if (!host) return;
+  const names = Object.keys(loadViews());
+  host.innerHTML = names.length
+    ? names.map((n) => '<button class="lib-item view-item" data-v="' + escapeHtml(n) + '">' +
+        '<span class="lib-label">' + escapeHtml(n) + "</span>" +
+        '<span class="view-del" data-del="' + escapeHtml(n) + '" title="delete">✕</span></button>').join("")
+    : '<div class="section-hint">none yet — save one below</div>';
+  host.querySelectorAll(".view-item").forEach((b) => b.addEventListener("click", (e) => {
+    if (e.target.classList.contains("view-del")) { deleteView(e.target.dataset.del); return; }
+    applyView(b.dataset.v); setSidebar(false); flash("loaded “" + b.dataset.v + "”");
+  }));
+}
+
 // ── State ──────────────────────────────────────────────────
 const board = document.getElementById("board");          // scroll viewport
 const canvas = document.getElementById("boardCanvas");   // scalable coordinate space
@@ -1401,6 +2140,80 @@ function drawIcons() {
 }
 
 // ── Build a framed widget ──────────────────────────────────
+// ── Back-of-card: exactly what data each widget uses & how it's calculated ──
+const WIDGET_INFO = {
+  _default: "<p>Local device info — no financial data.</p>",
+  balance:
+    "<p><b>Source:</b> your live bank balances (SimpleFIN sync → <code>balances.json</code>). Point-in-time, not affected by the Period.</p>" +
+    "<p><b>Total cash</b> = sum of <i>positive</i> balances of non-credit accounts (checking + savings).</p>" +
+    "<p><b>Checking / Savings</b> = those accounts grouped by name.</p>" +
+    "<p><b>“include card debt”</b> adds your credit-card balances (negative) → net = cash − debt.</p>" +
+    "<p><b>“as of”</b> = time of the last sync.</p>",
+  income:
+    "<p><b>Source:</b> the ledger, for the selected <b>Period</b> (<code>/api/summary</code>).</p>" +
+    "<p><b>What counts as income:</b> a deposit where <i>your tag says income</i>, OR it's a gig/payroll deposit — and it's <i>not</i> a transfer or fee. Your tag always wins.</p>" +
+    "<p><b>Per source</b> = deposits grouped by cleaned source name. <b>/mo</b> = period total ÷ days × 30.</p>",
+  plan:
+    "<p><b>Two modes.</b> <b>Plan</b> shows what you need to earn; <b>build</b> is where you set everything — your guaranteed income, rent, hourly rate, and which bank-detected bills are must-pays. Nothing lives in Settings anymore.</p>" +
+    "<p><b>Must-pays are exact.</b> In build, star the recurring charges you have to pay — amounts come straight from your statements, nothing typed. Back in plan, drag them to rank what matters most.</p>" +
+    "<p><b>The waterfall:</b> your money pours into that ranked list top-down until it runs out. Whatever's below the cutline is what you're short.</p>" +
+    "<p><b>Rent is earmarked</b> — funded ONLY from the account it lives in (Settings). Everything else is funded from your other cash + your <b>guaranteed income</b> (your reliable base, NOT variable Instacart).</p>" +
+    "<p><b>Everyday spending</b> (food, etc.) sits below as an <b>estimate</b> from your history — clearly separated from the exact bills, ranked last.</p>" +
+    "<p><b>This month is the hero</b> up top — it marks bills ✓ paid once they've already charged, so they stop counting against you. <b>Next month</b> is the peek bar below (tap to expand); it shows everything still due.</p>" +
+    "<p>The shortfall is the money you actually need from side work — shown as <b>Instacart hours</b> (shortfall ÷ your rate, set in Settings).</p>",
+  whatsnext:
+    "<p><b>Anchored on rent</b> — your top priority bill. Set the amount + due day in <b>Settings → Rent</b>.</p>" +
+    "<p><b>Due date</b> = next time the due-day comes around. <b>Days</b> = until then.</p>" +
+    "<p><b>Left for rent</b> = cash on hand + income you'd usually get before the due date − other core spending before then.</p>" +
+    "<p><b>Earn</b> = Rent − Left-for-rent (what you'd still be short). <b>Hours</b> = that ÷ your work rate.</p>" +
+    "<p>Income is estimated from the selected Period's rate (it assumes your usual income lands).</p>",
+  gap:
+    "<p><b>Need</b> = your manual override, else your monthly <b>Core</b> spending + Core subscriptions.</p>" +
+    "<p><b>Income</b> = income /mo (from What-makes-money).</p>" +
+    "<p><b>The gap = Need − Income.</b> Positive means that's how much more you must earn each month.</p>",
+  coreflex:
+    "<p><b>Source:</b> spending categories for the Period (ledger; <b>transfers/card-payments excluded</b>).</p>" +
+    "<p>Each category is normalized to <b>/mo</b> (period total ÷ days × 30).</p>" +
+    "<p><b>Core vs Flex</b> is your own per-category mark — Core = non-negotiable, Flex = cuttable.</p>",
+  subscriptions:
+    "<p><b>The Money Map is where you define what everything is</b> — one place, so you’re never tagging income in one widget and bills in another.</p>" +
+    "<p><b>Money in:</b> every deposit source, with a toggle to count it as <b>income</b> or <b>ignore</b> it (e.g. a friend paying you back). Feeds what the app treats as real income.</p>" +
+    "<p><b>Money out · recurring:</b> a recurrence scan of your <b>whole ledger</b> (all accounts incl. cards). Star a bill <b>must-pay</b> and it funds your Budget first; leave it <b>optional</b> and it doesn’t.</p>" +
+    "<p><b>🟢 active</b> = charged in the last ~40 days · <b>🟠 lapsed</b> = no charge in over a month · <b>⚫ paused</b> = you marked it off. Amounts are the bank’s exact median charge.</p>",
+  work:
+    "<p><b>Gap</b> = Need − Income /mo (same as The Gap).</p>" +
+    "<p><b>Hours/week</b> = (Gap ÷ your $/hr rate) ÷ 4.33 weeks.</p>" +
+    "<p>Set your rate in <b>Settings → Work rate</b>.</p>",
+  averages:
+    "<p><b>Source:</b> your full ledger, bucketed by calendar month (the partial current month is skipped).</p>" +
+    "<p>Each row = the <b>average across those months</b>. Spending <b>excludes transfers</b>.</p>" +
+    "<p><b>Instacart</b> = deposits containing “instacart”. <b>Shortfall</b> = avg spend − avg income.</p>",
+  worklog:
+    "<p><b>Source:</b> Toggl hours (<code>toggl_sync.py</code> → <code>toggl.json</code>) paired with <b>real income from your ledger</b> over the same window.</p>" +
+    "<p><b>Worked</b> = sum of this month's Toggl durations (a running timer counts now − start).</p>" +
+    "<p><b>Earned</b> = income that <i>landed in your bank</i> this month — pay lags work, so it's most meaningful monthly.</p>" +
+    "<p><b>Effective $/hr</b> = Earned ÷ Worked (blends all income, not just hourly).</p>",
+  breakdown:
+    "<p><b>Source:</b> spending categories for the Period (ledger; <b>transfers/card-payments excluded</b> so they don't inflate it).</p>" +
+    "<p><b>/mo</b> = period spend ÷ days × 30. Bars = top categories by amount.</p>",
+  safe:
+    "<p><b>Spendable</b> = cash − your <b>Reserve</b> (set in Settings).</p>" +
+    "<p><b>Burn</b> = average $/day spent over the Period.</p>" +
+    "<p><b>Runway</b> = Spendable ÷ Burn → the date it would run out.</p>",
+  months:
+    "<p><b>Source:</b> your full ledger, bucketed by calendar month.</p>" +
+    "<p><b>In</b> = income deposits that month · <b>Out</b> = spending (<b>transfers excluded</b>) · <b>Net</b> = In − Out.</p>" +
+    "<p>Tap a month to see its category split.</p>",
+  accountflow:
+    "<p><b>A map of where your money lives and moves.</b> Each box is a real account (live balance). <b>Checking sits up top</b> — that's where new money lands — then it cascades down to savings, other accounts, and cards.</p>" +
+    "<p><b>money in</b> = your monthly income · <b>money out</b> = your monthly spending (the bubbles on those lines).</p>" +
+    "<p><b>Bubbles on the connectors</b> = recurring transfers detected from your ledger (exact amounts). They appear once you have transfers that repeat.</p>" +
+    "<p><b>hide cards</b> collapses credit cards for a cash-only view. Card balances show in red (debt owed).</p>",
+  clock: "<p>Your device's local time, formatted however you set it in the dock’s date/time popover.</p>",
+  date: "<p>Today's date from your device. No financial data.</p>",
+  note: "<p>A free-text note you type — saved locally in your browser. No financial data.</p>",
+};
+
 function makeWidget(id, entry) {
   const node = document.createElement("section");
   node.className = "widget" + (entry.bare ? " bare" : "");
@@ -1409,6 +2222,7 @@ function makeWidget(id, entry) {
   node.style.top = entry.y + "px";
   node.style.width = entry.w + "px";
   node.style.height = entry.h + "px";
+  if (entry.snap === undefined) entry.snap = true;  // snapping is ON by default
   if (entry.snap) {  // re-inset the gutter for already-snapped widgets
     entry.w = snapSize(entry.w, MIN_W);
     entry.h = snapSize(entry.h, MIN_H);
@@ -1425,6 +2239,7 @@ function makeWidget(id, entry) {
     (PERIOD_WIDGETS.has(entry.type) ? '<span class="w-period">' + periodLabel() + "</span>" : "") +
     "</span>" +
     '<span class="bar-right">' +
+    '<button class="widget-help" title="What data &amp; how it’s calculated" aria-label="How it’s calculated">?</button>' +
     '<button class="widget-magnet' + (entry.snap ? " on" : "") +
       '" title="Snap to grid" aria-label="Toggle snap"><i data-lucide="magnet"></i></button>' +
     '<button class="widget-toggle" title="Hide / show frame" aria-label="Toggle frame"><span class="toggle-dot"></span></button>' +
@@ -1434,8 +2249,23 @@ function makeWidget(id, entry) {
   const body = document.createElement("div");
   body.className = "widget-body";
 
-  node.appendChild(bar);
-  node.appendChild(body);
+  // card flip: front (bar + body) / back (how it's calculated)
+  const flip = document.createElement("div");
+  flip.className = "widget-flip";
+  const front = document.createElement("div");
+  front.className = "widget-face face-front";
+  front.appendChild(bar);
+  front.appendChild(body);
+  const back = document.createElement("div");
+  back.className = "widget-face face-back";
+  back.innerHTML =
+    '<header class="widget-bar back-bar"><span class="bar-left"><span class="widget-title">how this is calculated</span></span>' +
+    '<span class="bar-right"><button class="flip-back" title="flip back" aria-label="Flip back">↩</button></span></header>' +
+    '<div class="widget-back-body">' + (WIDGET_INFO[entry.type] || WIDGET_INFO._default) + "</div>";
+  flip.appendChild(front);
+  flip.appendChild(back);
+  node.appendChild(flip);
+
   const grips = ["nw", "ne", "sw", "se"].map((c) => {
     const g = document.createElement("div");
     g.className = "widget-resize r-" + c;
@@ -1447,6 +2277,8 @@ function makeWidget(id, entry) {
 
   RENDERERS[entry.type](body, entry);
   drawIcons();
+  bar.querySelector(".widget-help").addEventListener("click", (e) => { e.stopPropagation(); node.classList.add("flipped"); });
+  back.querySelector(".flip-back").addEventListener("click", () => node.classList.remove("flipped"));
   bar.querySelector(".widget-close").addEventListener("click", () => removeWidget(id));
   bar.querySelector(".widget-toggle").addEventListener("click", () => {
     entry.bare = !entry.bare;
@@ -1560,11 +2392,12 @@ function makeDraggable(node, handle, id) {
   });
   handle.addEventListener("pointermove", (e) => {
     if (!drag) return;
+    const minY = topInset();  // keep the widget's top below the stats bar
     let nx = ox + (e.clientX - sx) / boardZoom;
     let ny = oy + (e.clientY - sy) / boardZoom;
     nx = Math.max(0, Math.min(CANVAS_W - 40, nx));
-    ny = Math.max(0, Math.min(CANVAS_H - 40, ny));
-    if (layout[id] && layout[id].snap) { nx = snapTo(nx); ny = snapTo(ny); }
+    ny = Math.max(minY, Math.min(CANVAS_H - 40, ny));
+    if (layout[id] && layout[id].snap) { nx = snapTo(nx); ny = Math.max(minY, snapTo(ny)); }
     node.style.left = nx + "px"; node.style.top = ny + "px";
   });
   const end = () => {
@@ -1608,6 +2441,8 @@ function makeResizable(node, grips, id) {
         if (corner.indexOf("n") >= 0) t = st + sh - h;
         l = snapTo(l); t = snapTo(t);
       }
+      const minY = topInset();  // don't let the top edge slip under the stats bar
+      if (t < minY) { h = Math.max(MIN_H, h - (minY - t)); t = minY; }
       node.style.width = w + "px"; node.style.height = h + "px";
       node.style.left = l + "px"; node.style.top = t + "px";
     });
@@ -1782,7 +2617,7 @@ document.getElementById("sidebarClose").addEventListener("click", () => setSideb
   });
   grip.addEventListener("pointermove", (e) => {
     if (!sizing) return;
-    sidebar.style.width = clamp(sw + (e.clientX - sx)) + "px";
+    sidebar.style.width = clamp(sw - (e.clientX - sx)) + "px";  // grip is on the left edge (sidebar docks right)
   });
   const end = () => {
     if (!sizing) return;
@@ -1797,15 +2632,45 @@ document.getElementById("sidebarClose").addEventListener("click", () => setSideb
 // ── Theme (color profiles) ─────────────────────────────────
 const THEME_KEY = "money.theme";
 const THEMES = [
-  { id: "light", label: "Paper", bg: "#ece6d6", accent: "#c9542e" },
-  { id: "dark", label: "Ink", bg: "#14130e", accent: "#e0734a" },
-  { id: "terminal", label: "Phosphor", bg: "#0c0f0a", accent: "#8fe388" },
-  { id: "blueprint", label: "Blueprint", bg: "#0e1830", accent: "#6aa6ff" },
-  { id: "mist", label: "Mist", bg: "#e8ecf0", accent: "#4a6da7" },
-  { id: "vapor", label: "Vapor", bg: "#1a0e2e", accent: "#ff4fd8" },
-  { id: "acid", label: "Acid", bg: "#0a0a06", accent: "#aaff2b" },
-  { id: "ember", label: "Ember", bg: "#1a0c08", accent: "#ff5a36" },
+  { id: "light", label: "Oat Milk", bg: "#ece6d6", accent: "#c9542e" },
+  { id: "dark", label: "Goblin Mode", bg: "#14130e", accent: "#e0734a" },
+  { id: "terminal", label: "Gamer Sweat", bg: "#0c0f0a", accent: "#8fe388" },
+  { id: "blueprint", label: "Bluetooth CEO", bg: "#0e1830", accent: "#6aa6ff" },
+  { id: "mist", label: "Foggy Brain", bg: "#e8ecf0", accent: "#4a6da7" },
+  { id: "vapor", label: "Mall Ghost", bg: "#1a0e2e", accent: "#ff4fd8" },
+  { id: "acid", label: "Toxic Trait", bg: "#0a0a06", accent: "#aaff2b" },
+  { id: "ember", label: "Campfire Menace", bg: "#1a0c08", accent: "#ff5a36" },
 ];
+// star a theme just to flag a favorite (cosmetic — adds a ★ on its chip)
+const THEME_STARS_KEY = "money.themeStars";
+function themeStars() { try { return JSON.parse(localStorage.getItem(THEME_STARS_KEY) || "{}"); } catch (e) { return {}; } }
+function isThemeStarred(id) { return !!themeStars()[id]; }
+function toggleThemeStar(id) {
+  const m = themeStars();
+  if (m[id]) delete m[id]; else m[id] = 1;
+  localStorage.setItem(THEME_STARS_KEY, JSON.stringify(m));
+}
+function themeChipHtml(t, cur) {
+  const st = isThemeStarred(t.id);
+  return '<div class="theme-chip' + (t.id === cur ? " active" : "") + '" data-id="' + t.id + '">' +
+    '<span class="tc-swatch" style="background:' + t.bg + '"><span class="tc-dot" style="background:' + t.accent + '"></span></span>' +
+    '<span class="tc-name">' + escapeHtml(t.label) + "</span>" +
+    '<button class="tc-star' + (st ? " on" : "") + '" data-star="' + t.id + '" title="favorite" aria-label="favorite">' + (st ? "★" : "☆") + "</button>" +
+  "</div>";
+}
+function wireThemeChips(container, onPick) {
+  container.querySelectorAll(".tc-star").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleThemeStar(b.dataset.star);
+    const on = b.classList.toggle("on");
+    b.textContent = on ? "★" : "☆";
+  }));
+  container.querySelectorAll(".theme-chip").forEach((c) => c.addEventListener("click", () => {
+    applyTheme(c.dataset.id);
+    container.querySelectorAll(".theme-chip").forEach((x) => x.classList.toggle("active", x === c));
+    if (onPick) onPick(c.dataset.id);
+  }));
+}
 const themeBtn = document.getElementById("themeToggle");
 
 function applyTheme(id) {
@@ -1814,7 +2679,7 @@ function applyTheme(id) {
   localStorage.setItem(THEME_KEY, id);
   themeBtn.innerHTML = '<i data-lucide="palette"></i>';
   drawIcons();
-  document.querySelectorAll(".theme-swatch").forEach((s) =>
+  document.querySelectorAll(".theme-swatch, .theme-chip").forEach((s) =>
     s.classList.toggle("active", s.dataset.id === id));
 }
 function closeThemePop() {
@@ -1831,16 +2696,8 @@ function openThemePop() {
   back.addEventListener("pointerdown", closeThemePop);
   const pop = document.createElement("div");
   pop.className = "theme-pop";
-  THEMES.forEach((t) => {
-    const sw = document.createElement("button");
-    sw.className = "theme-swatch" + (t.id === cur ? " active" : "");
-    sw.dataset.id = t.id;
-    sw.title = t.label;
-    sw.style.background = t.bg;
-    sw.innerHTML = '<span class="dot" style="background:' + t.accent + '"></span>';
-    sw.addEventListener("click", () => { applyTheme(t.id); closeThemePop(); });
-    pop.appendChild(sw);
-  });
+  pop.innerHTML = THEMES.map((t) => themeChipHtml(t, cur)).join("");
+  wireThemeChips(pop, () => closeThemePop());
   document.body.appendChild(back);
   document.body.appendChild(pop);
 }
@@ -2005,7 +2862,8 @@ function renderSources() {
             ' · ' + e.accounts + " accts, " + e.transactions + " txns</div>";
         });
       }
-      html += '<div class="src-foot">last synced ' + when + '</div>';
+      html += '<div class="src-foot">last synced ' + when +
+        '<br><span class="src-auto">⟳ auto-syncs 3×/day + on login</span></div>';
       sourcesPanel.innerHTML = html;
     });
 }
@@ -2069,8 +2927,33 @@ document.getElementById("resetLayout").addEventListener("click", () => {
 });
 
 // tidy: snap everything into a clean left-to-right grid
+// the top stats bar floats over the board — reserve the canvas band beneath it so
+// widgets never hide under it. Returns the minimum widget top (in canvas px, scroll/zoom aware).
+function topInset() {
+  const s = document.querySelector(".stats");
+  if (!s || !s.children.length) return 8;
+  const barBottom = s.getBoundingClientRect().bottom + 12;
+  const board = document.getElementById("board");
+  const z = boardZoom || 1;
+  return Math.max(8, Math.round((barBottom + (board ? board.scrollTop : 0)) / z));
+}
+// nudge any widget currently tucked under the stats bar down to just below it
+function reflowBelowStats() {
+  const minY = topInset();
+  let changed = false;
+  Object.keys(layout).forEach((id) => {
+    const e = layout[id], node = nodes[id];
+    if (!e || !node) return;
+    if ((e.y || 0) < minY) {
+      e.y = minY;
+      node.style.top = minY + "px";
+      changed = true;
+    }
+  });
+  if (changed) saveLayout();
+}
 function tidyLayout() {
-  const pad = 16, startX = 32, startY = 86;
+  const pad = 16, startX = 32, startY = Math.max(86, topInset());
   const maxRight = window.innerWidth - 24;
   let x = startX, y = startY, rowH = 0;
   Object.keys(layout).forEach((id) => {
@@ -2089,6 +2972,11 @@ function tidyLayout() {
   setTimeout(() => Object.values(nodes).forEach((n) => n.classList.remove("tidying")), 480);
 }
 document.getElementById("tidyLayout").addEventListener("click", () => { tidyLayout(); setSidebar(false); });
+document.getElementById("saveView").addEventListener("click", () => {
+  const name = prompt("Name this view (e.g. ‘daily’, ‘work mode’):");
+  if (name && name.trim()) { saveView(name.trim()); flash("saved “" + name.trim() + "”"); }
+});
+renderViews();
 
 // ── Zoom controls ──────────────────────────────────────────
 document.getElementById("zoomIn").addEventListener("click", () => setZoom(boardZoom + 0.1));
@@ -2205,6 +3093,11 @@ function openSubDetail(item, onDone) {
       '<label class="subd-field"><span>Display name</span>' +
         '<input class="subd-input" type="text" value="' + escapeHtml(cur) + '" /></label>' +
       '<div class="subd-note">Just a label — renaming won’t change what data this is tied to.</div>' +
+      '<label class="subd-field"><span>Charges</span><select class="subd-cad">' +
+        CADENCES.map((c) => '<option value="' + c.id + '"' + (c.id === subCadence(item.key) ? " selected" : "") + ">" + c.label + "</option>").join("") +
+      "</select></label>" +
+      '<div class="subd-note">' + fmtUSD(item.amount) + " per charge" +
+        (subCadence(item.key) !== "monthly" ? " ≈ <b>" + fmtUSD(monthlyAmount(item)) + "/mo</b> in your budget" : "") + "</div>" +
       '<div class="subd-meta"><span class="subd-k">matches</span><code>' + escapeHtml(item.key) + "</code></div>" +
       '<div class="subd-meta"><span class="subd-k">charges</span>' + (item.count || 0) +
         " · " + fmtUSD(item.amount) + " total</div>" +
@@ -2220,6 +3113,10 @@ function openSubDetail(item, onDone) {
   document.body.appendChild(modal);
   const finish = () => { closeSubDetail(); if (typeof onDone === "function") onDone(); };
   modal.querySelector(".cat-close").addEventListener("click", closeSubDetail);
+  modal.querySelector(".subd-cad").addEventListener("change", (e) => {
+    setSubCadence(item.key, e.target.value);
+    if (typeof onDone === "function") onDone();  // ripple to the map + budget; modal stays open
+  });
   const input = modal.querySelector(".subd-input");
   modal.querySelector(".subd-save").addEventListener("click", () => { setSubName(item.key, input.value); finish(); });
   modal.querySelector(".subd-reset").addEventListener("click", () => { setSubName(item.key, ""); finish(); });
@@ -2550,18 +3447,25 @@ if (serverBtn) {
 //   One source of truth. The span widgets fetch /api/summary?<period>, so
 //   changing it re-filters income / spending / subs / gap from the ledger.
 const PERIOD_KEY = "money.period";
-const PERIOD_WIDGETS = new Set(["breakdown", "income", "gap", "work", "coreflex", "subscriptions"]);
+const PERIOD_WIDGETS = new Set(["breakdown", "income", "gap", "work", "coreflex", "subscriptions", "whatsnext", "plan"]);
 let PERIOD = (function () {
   try { return JSON.parse(localStorage.getItem(PERIOD_KEY)) || { kind: "mtd" }; }
   catch (e) { return { kind: "mtd" }; }
 })();
 function periodQS() {
-  return "kind=" + encodeURIComponent(PERIOD.kind) + (PERIOD.ym ? "&ym=" + encodeURIComponent(PERIOD.ym) : "");
+  let qs = "kind=" + encodeURIComponent(PERIOD.kind);
+  if (PERIOD.ym) qs += "&ym=" + encodeURIComponent(PERIOD.ym);
+  if (PERIOD.kind === "custom" && PERIOD.start && PERIOD.end) qs += "&start=" + PERIOD.start + "&end=" + PERIOD.end;
+  return qs;
 }
 function periodLabel() {
   if (PERIOD.kind === "30d") return "Last 30 days";
   if (PERIOD.kind === "90d") return "Last 90 days";
   if (PERIOD.kind === "all") return "All time";
+  if (PERIOD.kind === "custom" && PERIOD.start && PERIOD.end) {
+    const f = (s) => { const a = s.split("-"); return new Date(+a[0], +a[1] - 1, +a[2]).toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
+    return f(PERIOD.start) + " – " + f(PERIOD.end);
+  }
   let d;
   if (PERIOD.ym) { const a = PERIOD.ym.split("-"); d = new Date(+a[0], +a[1] - 1, 1); }
   else d = new Date();
@@ -2586,6 +3490,7 @@ function updatePeriodUI() {
 //   and EVERY widget re-renders from the same data — edits ripple everywhere.
 const Store = {
   data: null,
+  recurring: [],   // bank-confirmed recurring bills (exact amounts) — shared by plan + stats
   ready: false,
   _subs: [],
   subscribe(el, fn) {
@@ -2600,11 +3505,14 @@ const Store = {
     if (typeof renderStatus === "function") renderStatus();
   },
   refresh() {  // re-pull from the server, then ripple to every subscriber
-    return fetch("/api/summary?" + periodQS() + "&t=" + Date.now())
-      .then((r) => { if (!r.ok) throw new Error("backend"); return r.json(); })
-      .then((d) => {
+    const t = Date.now();
+    return Promise.all([
+      fetch("/api/summary?" + periodQS() + "&t=" + t).then((r) => { if (!r.ok) throw new Error("backend"); return r.json(); }),
+      fetch("/api/recurring?t=" + t).then((r) => (r.ok ? r.json() : { recurring: [] })).catch(() => ({ recurring: [] })),
+    ])
+      .then(([d, rec]) => {
         if (d.catmeta && d.catmeta.labels) CAT_LABELS = d.catmeta.labels;  // renames ripple to every widget
-        this.data = d; this.ready = true; this.emit(); return d;
+        this.data = d; this.recurring = (rec && rec.recurring) || []; this.ready = true; this.emit(); return d;
       })
       .catch(() => {});  // keep the last good data on the screen if a pull fails
   },
@@ -2628,12 +3536,21 @@ function openPeriodMenu(anchor) {
     { kind: "90d", label: "Last 90 days" },
     { kind: "all", label: "All time" },
   ];
+  const cstart = PERIOD.kind === "custom" ? PERIOD.start || "" : "";
+  const cend = PERIOD.kind === "custom" ? PERIOD.end || "" : "";
   menu.innerHTML =
     '<div class="pm-group">' +
     presets.map((o) =>
       '<button class="pm-item' + (PERIOD.kind === o.kind ? " active" : "") +
       '" data-kind="' + o.kind + '">' + o.label + "</button>").join("") +
-    '</div><div class="pm-label">jump to a month</div>' +
+    '</div><div class="pm-label">custom range</div>' +
+    '<div class="pm-custom' + (PERIOD.kind === "custom" ? " active" : "") + '">' +
+      '<input type="date" class="pm-start" value="' + cstart + '" />' +
+      '<span class="pm-dash">–</span>' +
+      '<input type="date" class="pm-end" value="' + cend + '" />' +
+      '<button class="pm-apply">apply</button>' +
+    "</div>" +
+    '<div class="pm-label">jump to a month</div>' +
     '<div class="pm-group pm-months">loading…</div>';
   document.body.appendChild(menu);
   const r = anchor.getBoundingClientRect();
@@ -2641,6 +3558,12 @@ function openPeriodMenu(anchor) {
   menu.style.bottom = (window.innerHeight - r.top + 8) + "px";
   menu.querySelectorAll(".pm-item[data-kind]").forEach((b) =>
     b.addEventListener("click", () => { setPeriod({ kind: b.dataset.kind }); closePeriodMenu(); }));
+  const startI = menu.querySelector(".pm-start"), endI = menu.querySelector(".pm-end");
+  menu.querySelector(".pm-apply").addEventListener("click", () => {
+    if (!startI.value || !endI.value) { flash("pick a start and end date"); return; }
+    setPeriod({ kind: "custom", start: startI.value, end: endI.value });
+    closePeriodMenu();
+  });
   fetch("data/monthly.json?t=" + Date.now())
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
@@ -2705,6 +3628,89 @@ function renderDockMenu() {
     renderDockMenu();
   }));
 }
+// ── Clock formatting (shared by the dock pill; configurable via its popover) ──
+const TZ_OPTS = [
+  { id: "", label: "Device (local)" },
+  { id: "America/Los_Angeles", label: "Pacific" },
+  { id: "America/Denver", label: "Mountain" },
+  { id: "America/Chicago", label: "Central" },
+  { id: "America/New_York", label: "Eastern" },
+  { id: "America/Anchorage", label: "Alaska" },
+  { id: "Pacific/Honolulu", label: "Hawaii" },
+  { id: "UTC", label: "UTC" },
+  { id: "Europe/London", label: "London" },
+  { id: "Europe/Paris", label: "Central Europe" },
+  { id: "Asia/Tokyo", label: "Tokyo" },
+];
+const DATE_FMTS = [
+  { id: "short", label: "Jun 23", opt: { month: "short", day: "numeric" } },
+  { id: "weekday", label: "Mon, Jun 23", opt: { weekday: "short", month: "short", day: "numeric" } },
+  { id: "long", label: "June 23", opt: { month: "long", day: "numeric" } },
+  { id: "numeric", label: "6/23/2026", opt: { year: "numeric", month: "numeric", day: "numeric" } },
+  { id: "iso", label: "2026-06-23", iso: true },
+];
+function clockTZ() { return localStorage.getItem("money.tz") || ""; }
+function fmtClockTime(d) {
+  const h24 = localStorage.getItem("money.clock24") !== "0";  // default 24h
+  const o = { hour: "numeric", minute: "2-digit", hour12: !h24 };
+  if (localStorage.getItem("money.clockSecs") === "1") o.second = "2-digit";
+  const tz = clockTZ(); if (tz) o.timeZone = tz;
+  return d.toLocaleTimeString("en-US", o);
+}
+function fmtClockDate(d) {
+  const def = DATE_FMTS.find((f) => f.id === (localStorage.getItem("money.dateFmt") || "short")) || DATE_FMTS[0];
+  const tz = clockTZ();
+  if (def.iso) { const o = { year: "numeric", month: "2-digit", day: "2-digit" }; if (tz) o.timeZone = tz; return d.toLocaleDateString("en-CA", o); }
+  const o = Object.assign({}, def.opt); if (tz) o.timeZone = tz;
+  return d.toLocaleDateString("en-US", o);
+}
+let _retickClock = () => {};  // set by buildDock so the popover can refresh the pill live
+function closeClockPop() {
+  const p = document.getElementById("clockPop"), b = document.getElementById("clockPopBack");
+  if (p) p.remove(); if (b) b.remove();
+}
+function openClockSettings(anchor) {
+  if (document.getElementById("clockPop")) { closeClockPop(); return; }
+  const back = document.createElement("div");
+  back.id = "clockPopBack"; back.className = "theme-backdrop";
+  back.addEventListener("pointerdown", closeClockPop);
+  const pop = document.createElement("div");
+  pop.id = "clockPop"; pop.className = "clock-pop";
+  const h24 = localStorage.getItem("money.clock24") !== "0";
+  const secs = localStorage.getItem("money.clockSecs") === "1";
+  const tz = clockTZ();
+  const dfmt = localStorage.getItem("money.dateFmt") || "short";
+  pop.innerHTML =
+    '<div class="cp-title">date &amp; time</div>' +
+    '<label class="cp-row"><span>Time zone</span><select class="cp-tz">' +
+      TZ_OPTS.map((z) => '<option value="' + z.id + '"' + (z.id === tz ? " selected" : "") + ">" + z.label + "</option>").join("") +
+    "</select></label>" +
+    '<div class="cp-row"><span>Clock</span><span class="cp-seg">' +
+      '<button class="cp-h' + (!h24 ? " on" : "") + '" data-h="12">12h</button>' +
+      '<button class="cp-h' + (h24 ? " on" : "") + '" data-h="24">24h</button></span></div>' +
+    '<div class="cp-row"><span>Show seconds</span><button class="cp-secs cp-toggle' + (secs ? " on" : "") + '">' + (secs ? "on" : "off") + "</button></div>" +
+    '<label class="cp-row"><span>Date format</span><select class="cp-date">' +
+      DATE_FMTS.map((f) => '<option value="' + f.id + '"' + (f.id === dfmt ? " selected" : "") + ">" + f.label + "</option>").join("") +
+    "</select></label>";
+  document.body.appendChild(back);
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = Math.max(12, Math.min(r.left, window.innerWidth - pop.offsetWidth - 12)) + "px";
+  pop.style.bottom = (window.innerHeight - r.top + 8) + "px";
+  pop.querySelector(".cp-tz").addEventListener("change", (e) => { localStorage.setItem("money.tz", e.target.value); _retickClock(); });
+  pop.querySelector(".cp-date").addEventListener("change", (e) => { localStorage.setItem("money.dateFmt", e.target.value); _retickClock(); });
+  pop.querySelectorAll(".cp-h").forEach((b) => b.addEventListener("click", () => {
+    localStorage.setItem("money.clock24", b.dataset.h === "24" ? "1" : "0");
+    pop.querySelectorAll(".cp-h").forEach((x) => x.classList.toggle("on", x === b));
+    _retickClock();
+  }));
+  pop.querySelector(".cp-secs").addEventListener("click", (e) => {
+    const on = localStorage.getItem("money.clockSecs") !== "1";
+    localStorage.setItem("money.clockSecs", on ? "1" : "0");
+    e.target.classList.toggle("on", on); e.target.textContent = on ? "on" : "off";
+    _retickClock();
+  });
+}
 (function buildDock() {
   const bar = document.createElement("div");
   bar.className = "dock-bar";
@@ -2714,14 +3720,16 @@ function renderDockMenu() {
 
   // date / time item
   const dt = document.createElement("button");
-  dt.id = "datetimeBtn"; dt.className = "status-pill"; dt.title = "date & time";
+  dt.id = "datetimeBtn"; dt.className = "status-pill"; dt.title = "date & time — click to format";
   dt.innerHTML = '<span class="dt-time">–</span><span class="dt-date">–</span>';
   const tickDt = () => {
     const n = new Date();
-    dt.querySelector(".dt-time").textContent = n.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-    dt.querySelector(".dt-date").textContent = n.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    dt.querySelector(".dt-time").textContent = fmtClockTime(n);
+    dt.querySelector(".dt-date").textContent = fmtClockDate(n);
   };
   tickDt(); setInterval(tickDt, 1000);
+  _retickClock = tickDt;  // let the format popover refresh the pill instantly
+  dt.addEventListener("click", () => openClockSettings(dt));
 
   // period item — the date range the span widgets are showing
   const pd = document.createElement("button");
@@ -2784,6 +3792,107 @@ function renderDockMenu() {
   renderDockMenu();
 })();
 
+// ── The top stats bar (a HUD of live numbers, mirrors the dock) ──
+const STATS_ORDER_KEY = "money.statsOrder";
+const STATS_HIDDEN_KEY = "money.statsHidden";
+// each stat reads from the SAME sources the widgets do, so nothing can disagree
+const STAT_DEFS = [
+  { id: "exp", label: "EXP", fn: () => ({ val: "⭐ " + PROFILE_STATS.exp.toLocaleString(), tone: "exp" }) },
+  { id: "cash", label: "Cash", fn: (d) => ({ val: d ? fmtUSD(d.cash || 0) : "…" }) },
+  { id: "earn", label: "To earn", fn: (d) => {
+      const S = d && planSummary(d, 0);
+      if (!S) return { val: "…" };
+      return S.covered ? { val: "✓ covered", tone: "ok" } : { val: fmtUSD(S.totalShort), tone: "bad" };
+    } },
+  { id: "hours", label: "IC hours", fn: (d) => {
+      const S = d && planSummary(d, 0);
+      if (!S) return { val: "…" };
+      return S.covered ? { val: "0 h", tone: "ok" } : { val: S.hrs + " h", tone: "warn" };
+    } },
+  { id: "rent", label: "Rent", fn: (d) => {
+      const S = d && planSummary(d, 0);
+      if (!S) return { val: "…" };
+      const rt = S.rentTier;
+      if (!rt) return { val: "—" };
+      if (rt.paid) return { val: "✓ paid", tone: "ok" };
+      const short = Math.max(0, rt.amt - rt.funded);
+      if (short < 0.5) return { val: "✓ ready", tone: "ok" };
+      return { val: fmtUSD(short) + " short", tone: "bad" };
+    } },
+  { id: "spend", label: "Spend/mo", fn: (d) => ({ val: d && d.spending ? fmtUSD(d.spending.per_month) : "…" }) },
+];
+function statsList(key) { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch (e) { return []; } }
+function statsDefOrder() {
+  const saved = statsList(STATS_ORDER_KEY);
+  const known = new Set(STAT_DEFS.map((s) => s.id));
+  const ordered = saved.filter((id) => known.has(id));
+  STAT_DEFS.forEach((s) => { if (!ordered.includes(s.id)) ordered.push(s.id); });
+  return ordered;
+}
+function renderStatsBar() {
+  const host = document.getElementById("stats");
+  if (!host) return;
+  const hidden = new Set(statsList(STATS_HIDDEN_KEY));
+  const d = Store.data;
+  host.innerHTML = statsDefOrder().filter((id) => !hidden.has(id)).map((id) => {
+    const def = STAT_DEFS.find((s) => s.id === id);
+    const r = def.fn(d) || {};
+    return '<div class="stat-chip" data-stat="' + id + '" draggable="true">' +
+      '<span class="stat-val' + (r.tone ? " t-" + r.tone : "") + '">' + r.val + "</span>" +
+      '<span class="stat-label">' + def.label + "</span></div>";
+  }).join("");
+}
+function renderStatsMenu() {
+  const host = document.getElementById("statsMenu");
+  if (!host) return;
+  const hidden = new Set(statsList(STATS_HIDDEN_KEY));
+  host.innerHTML = STAT_DEFS.map((d) => {
+    const on = !hidden.has(d.id);
+    return '<button class="lib-item' + (on ? " active" : "") + '" data-st="' + d.id + '">' +
+      '<span class="lib-dot"></span><span class="lib-label">' + d.label + '</span>' +
+      '<span class="lib-state">' + (on ? "on" : "off") + "</span></button>";
+  }).join("");
+  host.querySelectorAll("[data-st]").forEach((b) => b.addEventListener("click", () => {
+    const id = b.dataset.st;
+    const h = new Set(statsList(STATS_HIDDEN_KEY));
+    if (h.has(id)) h.delete(id); else h.add(id);
+    localStorage.setItem(STATS_HIDDEN_KEY, JSON.stringify([...h]));
+    renderStatsBar();
+    renderStatsMenu();
+  }));
+}
+(function buildStatsBar() {
+  const bar = document.createElement("div");
+  bar.className = "stats-bar";
+  bar.innerHTML = '<div id="stats" class="stats"></div>';
+  document.body.appendChild(bar);
+  const stats = bar.querySelector("#stats");
+  // drag to reorder (clicks elsewhere unaffected)
+  let dragEl = null;
+  stats.addEventListener("dragstart", (e) => {
+    const item = e.target.closest(".stat-chip");
+    if (!item) return;
+    dragEl = item; item.classList.add("stat-dragging");
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  });
+  stats.addEventListener("dragover", (e) => {
+    if (!dragEl) return;
+    e.preventDefault();
+    const after = [...stats.querySelectorAll(".stat-chip:not(.stat-dragging)")]
+      .find((el) => { const r = el.getBoundingClientRect(); return e.clientX < r.left + r.width / 2; });
+    if (after) stats.insertBefore(dragEl, after); else stats.appendChild(dragEl);
+  });
+  stats.addEventListener("dragend", () => {
+    if (dragEl) dragEl.classList.remove("stat-dragging");
+    dragEl = null;
+    localStorage.setItem(STATS_ORDER_KEY, JSON.stringify(
+      [...stats.querySelectorAll(".stat-chip")].map((el) => el.dataset.stat)));
+  });
+  renderStatsBar();
+  renderStatsMenu();
+  Store.subscribe(stats, () => renderStatsBar());  // live update on every data ripple
+})();
+
 // ── Boot ───────────────────────────────────────────────────
 Object.keys(layout).forEach((id) => makeAny(id, layout[id]));
 renderLibrary();
@@ -2793,4 +3902,6 @@ applyZoom();
 drawIcons();
 applyPrivacy();
 updateGreeting();
-Store.refresh();  // single source of truth: one pull populates every subscribed widget
+updateXp();
+requestAnimationFrame(reflowBelowStats);  // once the stats bar has measured, clear the top band
+loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint

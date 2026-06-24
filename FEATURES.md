@@ -14,6 +14,7 @@ _Last updated: 2026-06-20_
 - **Where it's going** — spending grouped by category, with the real date range and a daily/monthly pace.
 - **Spending trend** — up or down versus the prior period.
 - **Months** — browse every past month (income vs. spending, net, and a category breakdown), built from your full transaction history. Import older statements and they show up as new months automatically.
+- **Money flow** — a visual map of every account with checking up top (where new money lands) cascading down to savings and cards. Lines show income in and spending out; bubbles mark recurring transfers (real amounts). Toggle credit cards off for a cash-only view.
 
 ## Understand your income
 - **Auto-detected income** with gig/payroll smarts (Instacart, paychecks, and more).
@@ -31,7 +32,8 @@ _Last updated: 2026-06-20_
 - **Drag-and-drop board** — place, resize, and arrange widgets freely.
 - **Magnet snap** — per-widget grid snapping for clean alignment.
 - **Zoom & pan** — a scalable, scrollable canvas to spread out.
-- **Themes** — multiple palettes, light and dark.
+- **Themes** — multiple named palettes (light and dark), each star-able so your favorites stand out.
+- **Clock your way** — click the dock's date/time to set time zone, 12/24-hour, seconds, and date format.
 - **Icon stickers** — decorate the board from a large icon library.
 - **Custom cursor and optional soundtrack** — small touches that make it feel like yours.
 

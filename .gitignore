@@ -23,3 +23,6 @@ backups/
 # Python
 __pycache__/
 *.pyc
+
+# Toggl API token (credential) — never commit
+.toggl

@@ -8,9 +8,9 @@ _Last updated: 2026-06-20_
 - [x] **Category Manager** (Menu → Manage categories) — lists every category + # of transactions; rename (server-stored label, ripples to every widget); delete → fold/merge into another category (batch); click a category → recategorize its merchants one-by-one; + new category. Backend: catmeta.json registry (labels+remap), categorize() applies remap (2026-06-22)
 - [x] **Recurrence detection** — detect_recurring() scans the whole ledger (all accounts incl. cards) for ~monthly clustered charges; Subscriptions widget now shows a "detected · not tracked" section with one-click "+ track" (found 16 untracked recurring) (2026-06-22)
 - [x] **Review inbox** (status pill → Review panel) — triage: possible duplicates (remove one), recurring-not-tracked (+ track), uncategorized (inline category select), untagged deposits (tag); every fix ripples via the Store. Pill updates cheaply from Store data; full list fetched on open. Added /api/issues, /api/categories, /api/recurring, /api/category, /api/delete-txn (2026-06-22)
-- [ ] **Toggl auto-pull + work widget** — Toggl is NOT auto-synced today (manual/AI-only, toggl.json stale); add a scheduled pull (needs API token) + a widget showing hours and $ worked
+- [x] **Toggl work widget + auto-pull** — toggl_sync.py pulls time entries (token in gitignored .toggl), correct running-timer math; "Time worked" widget shows today/week/month hours + $ at your rate + by-project + live timer; LaunchAgent com.sufferinggoat.togglsync auto-pulls 4×/day + login. No AI (2026-06-22)
 - [ ] **Connect/CSV all cards** — connected cards already capture real purchases; for unconnected cards (Petal) the only fix for purchase visibility is connect-or-CSV (detail isn't in the checking batch payment)
-- [ ] **Schedule the syncs** — daily auto-sync (+ toggl + recurrence) so accuracy holds without running AI
+- [x] **Auto-sync** — LaunchAgent `com.sufferinggoat.sync` runs sync.py at 8am/2pm/8pm + on login; data stays fresh with no clicking or AI. Sources panel shows "auto-syncs 3×/day". Logs to data/sync.log (2026-06-22)
 
 ## Features
 - [ ] Link income sources to Toggl clients (uses the Toggl integration) — phase 2 of the status pip

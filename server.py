@@ -60,13 +60,21 @@ class Handler(SimpleHTTPRequestHandler):
             qs = parse_qs(urlparse(self.path).query)
             kind = (qs.get("kind") or ["mtd"])[0]
             ym = (qs.get("ym") or [None])[0]
-            return self._json(200, store.period_summary(kind, ym))
+            start_d = (qs.get("start") or [None])[0]
+            end_d = (qs.get("end") or [None])[0]
+            return self._json(200, store.period_summary(kind, ym, start_d=start_d, end_d=end_d))
         if path == "/api/categories":
             return self._json(200, {"categories": store.category_summary()})
         if path == "/api/recurring":
             return self._json(200, {"recurring": store.detect_recurring()})
+        if path == "/api/transfers":
+            return self._json(200, {"transfers": store.recurring_transfers()})
+        if path == "/api/subs":
+            return self._json(200, {"subs": store.load_subs()})
         if path == "/api/averages":
             return self._json(200, store.averages())
+        if path == "/api/work":
+            return self._json(200, store.work_summary())
         if path == "/api/issues":
             return self._json(200, {"issues": store.find_issues()})
         if path == "/api/bugs":
@@ -105,6 +113,13 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(400, {"error": "bad request"})
             store.save_income_override(data.get("source", ""), data.get("status", "auto"))
             return self._json(200, {"ok": True, "income": store.recompute_income()})
+        if self.path == "/api/subs":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            return self._json(200, {"ok": True, "subs": store.save_subs(data.get("subs", {}))})
         if self.path == "/api/category":
             try:
                 n = int(self.headers.get("Content-Length", 0))

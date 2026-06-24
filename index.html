@@ -36,6 +36,7 @@
 
       <div class="sidebar-scroll">
         <div class="sidebar-greeting" id="greeting" style="display:none"></div>
+        <div class="sidebar-xp" id="sidebarXp"></div>
         <section class="sidebar-section">
           <div class="section-title">Widget Library</div>
           <div id="library" class="library"></div>
@@ -62,6 +63,13 @@
           <button class="menu-item" id="importStatement">↓ Import statement (CSV)</button>
           <button class="menu-item" id="tidyLayout">↹ Tidy layout</button>
           <button class="menu-item" id="resetLayout">↺ Reset layout</button>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title">Saved views</div>
+          <div id="viewList" class="library"></div>
+          <button class="menu-item" id="saveView">+ Save current view</button>
+          <div class="section-hint">snapshot this layout to jump back to it anytime</div>
         </section>
 
         <section class="sidebar-section">

@@ -15,12 +15,13 @@ import re
 import json
 import time
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
 BALANCES = os.path.join(DATA, "balances.json")
 TRANSACTIONS = os.path.join(DATA, "transactions.json")
+TOGGL = os.path.join(DATA, "toggl.json")
 HISTORY = os.path.join(DATA, "history.json")
 CATEGORIES = os.path.join(DATA, "categories.json")
 INCOME = os.path.join(DATA, "income.json")  # YOUR income tags {source_key: "income"|"ignore"}
@@ -31,6 +32,7 @@ SYNCLOG = os.path.join(DATA, "synclog.json")
 LEDGER = os.path.join(DATA, "ledger.jsonl")     # permanent ledger — one transaction per line (append-only)
 LEDGER_OLD = os.path.join(DATA, "ledger.json")  # the old single-object format (auto-migrated once)
 CATMETA = os.path.join(DATA, "catmeta.json")    # category registry: renamed labels + delete/remap rules
+SUBS = os.path.join(DATA, "subs.json")          # YOUR decisions about recurring money: {key: {mustpay, cadence, paused, name}}
 
 # the built-in category keys (mirror of the frontend CAT_META) — so the manager
 # can list them even when they currently hold zero transactions
@@ -41,6 +43,7 @@ BACKUPS = os.path.join(HERE, "backups")     # local snapshots (gitignored, stays
 
 _BACKUP_FILES = ("balances.json", "transactions.json", "ledger.jsonl", "ledger.json",
                  "history.json", "synclog.json", "categories.json", "income.json",
+                 "catmeta.json", "subs.json",
                  "monthly.json", "coverage.json", "bugs.json")
 
 # Built-in keyword rules (first match wins). User overrides in categories.json
@@ -288,6 +291,21 @@ def _income_key(desc):
 def load_income_overrides():
     ov = _read(INCOME, {})
     return ov if isinstance(ov, dict) else {}
+
+
+# ── Recurring-money decisions ledger (data/subs.json) ──
+# Your calls about each recurring merchant: must-pay, cadence, paused, rename.
+# Durable + backed up, alongside the category/income tags. The browser owns the
+# in-session copy and writes the whole map back here on every change.
+def load_subs():
+    d = _read(SUBS, {})
+    return d if isinstance(d, dict) else {}
+
+
+def save_subs(data):
+    if isinstance(data, dict):
+        _write(SUBS, data)
+    return load_subs()
 
 
 def save_income_override(key, status):
@@ -808,15 +826,29 @@ def _ledger_txns():
     return list(led.values()) if isinstance(led, dict) else []
 
 
-def resolve_period(kind="mtd", ym=None, now=None):
+def resolve_period(kind="mtd", ym=None, now=None, start_d=None, end_d=None):
     """Turn a period spec into (start, end, label) — unix seconds, using LOCAL
     calendar boundaries so it lines up with the Months view.
       mtd            this calendar month, up to now (the default)
       month + ym     a specific calendar month ("2026-05")
       30d / 90d      trailing N days
       all            the full ledger span
+      custom         an explicit start_d..end_d ("YYYY-MM-DD", inclusive)
     end is exclusive."""
     now = now or int(time.time())
+    if kind == "custom" and start_d and end_d:
+        try:
+            y1, m1, d1 = (int(x) for x in start_d.split("-"))
+            y2, m2, d2 = (int(x) for x in end_d.split("-"))
+            start = int(datetime(y1, m1, d1).timestamp())
+            end = int(datetime(y2, m2, d2).timestamp()) + 86400  # include the end day
+            if end <= start:
+                start, end = end - 86400, start + 86400
+            label = "%s %d – %s %d" % (datetime(y1, m1, d1).strftime("%b"), d1,
+                                       datetime(y2, m2, d2).strftime("%b"), d2)
+            return start, end, label
+        except (ValueError, TypeError):
+            pass  # fall through to the default month
     if kind == "30d":
         return now - 30 * 86400, now, "Last 30 days"
     if kind == "90d":
@@ -835,13 +867,13 @@ def resolve_period(kind="mtd", ym=None, now=None):
     return start, end, datetime(y, mo, 1).strftime("%b %Y")
 
 
-def period_summary(kind="mtd", ym=None, now=None):
+def period_summary(kind="mtd", ym=None, now=None, start_d=None, end_d=None):
     """Income / spending / subscriptions for an arbitrary period, computed
     from the full permanent ledger. Returns the SAME shape as the matching
     blocks in balances.json, so the span widgets can read it directly. The
     point-in-time fields (total / cash / accounts) are copied through from the
     live snapshot since they don't depend on the window."""
-    start, end, label = resolve_period(kind, ym, now)
+    start, end, label = resolve_period(kind, ym, now, start_d, end_d)
     overrides = load_overrides()
     income_overrides = load_income_overrides()
     win = [t for t in _ledger_txns() if start <= (t.get("posted") or 0) < end]
@@ -1046,6 +1078,49 @@ def averages(skip_partial=True):
     }
 
 
+# ── Work: Toggl hours paired with REAL bank earnings ──────
+def work_summary():
+    """Combine Toggl hours (from toggl.json) with actual income received from
+    the ledger over the same windows (today / this week / this month), so you
+    can see real $ earned vs hours worked — and a true effective $/hr.
+    NOTE: 'earned' = income that LANDED in your bank during the window; pay lags
+    work, so it's most meaningful at the month level."""
+    tg = _read(TOGGL, {})
+    if not isinstance(tg, dict):
+        tg = {}
+    income_overrides = load_income_overrides()
+    overrides = load_overrides()
+    now = datetime.now()
+    today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week0 = today0 - timedelta(days=today0.weekday())   # Monday
+    month0 = today0.replace(day=1)
+    t0, w0, m0 = today0.timestamp(), week0.timestamp(), month0.timestamp()
+
+    today_e = week_e = month_e = 0.0
+    for t in _ledger_txns():
+        amt = t.get("amount", 0) or 0
+        if amt <= 0:
+            continue
+        _key, is_inc, _tagged = income_decision(t.get("description", ""), income_overrides, overrides)
+        if not is_inc:
+            continue
+        p = t.get("posted") or 0
+        if p >= t0:
+            today_e += amt
+        if p >= w0:
+            week_e += amt
+        if p >= m0:
+            month_e += amt
+    return {
+        "updated": tg.get("updated"),
+        "today": {"hours": tg.get("today_hours", 0), "earned": round(today_e, 2)},
+        "week": {"hours": tg.get("week_hours", 0), "earned": round(week_e, 2)},
+        "month": {"hours": tg.get("month_hours", 0), "earned": round(month_e, 2)},
+        "running": tg.get("running"),
+        "projects_month": tg.get("projects_month", []),
+    }
+
+
 # ── Recurrence detection (your real subscriptions, tagged or not) ──
 def detect_recurring(txns=None, min_months=3):
     """Merchants charging on a roughly monthly cadence across ALL accounts —
@@ -1099,6 +1174,41 @@ def detect_recurring(txns=None, min_months=3):
                     "accounts": sorted(it["accounts"]), "descriptions": it["descs"],
                     "category": cat, "tagged": is_sub})
     out.sort(key=lambda r: (-r["tagged"], -r["months"], -r["amount"]))
+    return out
+
+
+def recurring_transfers(txns=None, min_months=2):
+    """Recurring account-to-account moves (category 'transfer') — your real
+    transfer habits, per account + direction, with the bank's exact amount.
+    Drives the flow widget's bubbles. Pairing across accounts isn't attempted;
+    each flow is reported on its own account with a direction (out/in)."""
+    if txns is None:
+        txns = _ledger_txns()
+    overrides = load_overrides()
+    remap = load_catmeta()["remap"]
+    by = {}
+    for t in txns:
+        if categorize(t.get("description", ""), overrides, remap) != "transfer":
+            continue
+        amt = t.get("amount", 0) or 0
+        if amt == 0:
+            continue
+        acct = t.get("account") or "?"
+        direction = "out" if amt < 0 else "in"
+        key = (acct, direction, round(abs(amt)))  # cluster by account + size
+        it = by.setdefault(key, {"account": acct, "dir": direction,
+                                 "amount": abs(amt), "months": set(), "count": 0})
+        it["count"] += 1
+        p = t.get("posted") or 0
+        if p:
+            it["months"].add(datetime.fromtimestamp(p).strftime("%Y-%m"))
+    out = []
+    for it in by.values():
+        nm = len(it["months"])
+        if nm >= min_months:
+            out.append({"account": it["account"], "dir": it["dir"],
+                        "amount": round(it["amount"], 2), "months": nm, "count": it["count"]})
+    out.sort(key=lambda r: -r["amount"])
     return out
 
 
