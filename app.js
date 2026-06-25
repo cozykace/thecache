@@ -348,7 +348,7 @@ function fmtBusy(b) {
   return b.start.toLocaleDateString("en-US", { weekday: "short" }) + " " +
     hhmm(b.start) + "–" + hhmm(b.end) + " · " + b.label;
 }
-const DRAG_IGNORE = ".widget-close,.widget-toggle,.widget-magnet,.widget-help,.sticker-close,.widget-resize,.sticker-resize";
+const DRAG_IGNORE = ".widget-close,.widget-toggle,.widget-magnet,.widget-help,.sticker-close,.sticker-magnet,.widget-resize,.sticker-resize";
 
 // ── How each widget type renders ───────────────────────────
 // classify an account by its name so we can split cash into checking / savings
@@ -1348,12 +1348,25 @@ const RENDERERS = {
     const sub = el.querySelector(".mm-sub");
     const inEl = el.querySelector(".mm-in");
     const list = el.querySelector(".cf-list");
-    let detected = [], deposits = [];
+    let detected = [], deposits = [], projects = [], incomeLinks = {};
     function loadData() {
+      const t = Date.now();
       Promise.all([
-        fetch("/api/recurring?t=" + Date.now()).then((r) => r.json()).catch(() => ({ recurring: [] })),
-        fetch("/api/deposits?t=" + Date.now()).then((r) => r.json()).catch(() => ({ deposits: [] })),
-      ]).then(([rec, dep]) => { detected = rec.recurring || []; deposits = dep.deposits || []; render(); });
+        fetch("/api/recurring?t=" + t).then((r) => r.json()).catch(() => ({ recurring: [] })),
+        fetch("/api/deposits?t=" + t).then((r) => r.json()).catch(() => ({ deposits: [] })),
+        fetch("/api/work?t=" + t).then((r) => r.json()).catch(() => ({ projects_month: [] })),
+        fetch("/api/income-links?t=" + t).then((r) => r.json()).catch(() => ({ links: {} })),
+      ]).then(([rec, dep, work, lk]) => {
+        detected = rec.recurring || []; deposits = dep.deposits || [];
+        projects = (work && work.projects_month) || []; incomeLinks = (lk && lk.links) || {};
+        render();
+      });
+    }
+    function setIncomeLink(key, project) {
+      if (project) incomeLinks[key] = project; else delete incomeLinks[key];
+      fetch("/api/income-links", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ links: incomeLinks }) }).catch(() => {});
+      render();
     }
     function trackKey(key) {
       fetch("/api/categorize", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -1378,13 +1391,24 @@ const RENDERERS = {
     }
     function render() {
       // ── money in ──
+      const projHours = {}; projects.forEach((p) => { projHours[p.name] = p.hours; });
+      const projNames = projects.map((p) => p.name);
       inEl.innerHTML = deposits.length
         ? deposits.map((r) => {
             const on = r.status === "income";
+            const linked = incomeLinks[r.key] || "";
+            const linkSel = on
+              ? '<span class="mm-link-wrap"><select class="mm-link" data-key="' + escapeHtml(r.key) + '" title="link this income to the work that earns it">' +
+                  '<option value="">— link work</option>' +
+                  projNames.map((n) => '<option value="' + escapeHtml(n) + '"' + (n === linked ? " selected" : "") + ">" + escapeHtml(n) + "</option>").join("") +
+                "</select></span>" +
+                (linked && projHours[linked] != null ? '<span class="mm-hrs" title="hours on ' + escapeHtml(linked) + ' this month">' + (Math.round(projHours[linked] * 10) / 10) + "h</span>" : "")
+              : "";
             return '<div class="cf-row mm-row">' +
               '<span class="mm-dir ' + (on ? "in" : "off") + '">' + (on ? "+" : "·") + "</span>" +
               '<span class="cf-cat" title="' + escapeHtml(r.source) + '">' + escapeHtml(r.source) + "</span>" +
               '<span class="cf-amt">' + fmtUSD(r.amount) + "</span>" +
+              linkSel +
               '<button class="cf-toggle ' + (on ? "is-income" : "is-ignore") + '" data-key="' + escapeHtml(r.key) +
                 '" data-on="' + (on ? 1 : 0) + '">' + (on ? "income" : "ignore") + "</button>" +
             "</div>";
@@ -1392,6 +1416,7 @@ const RENDERERS = {
         : '<div class="mm-empty">no deposits seen yet</div>';
       inEl.querySelectorAll(".cf-toggle").forEach((b) => b.addEventListener("click", () =>
         setIncome(b.dataset.key, b.dataset.on === "1" ? "ignore" : "income")));
+      inEl.querySelectorAll(".mm-link").forEach((s) => s.addEventListener("change", () => setIncomeLink(s.dataset.key, s.value)));
 
       // ── money out · recurring — ALL detected bills in one list, must-pays first.
       // You can mark ANY recurring charge must-pay; you don't have to call it a "subscription" first.
@@ -1414,6 +1439,10 @@ const RENDERERS = {
           '<button class="sub-pip ' + st + '" data-key="' + escapeHtml(r.key) + '" title="' + tip + '"></button>' +
           '<button class="cf-cat sub-name" data-key="' + escapeHtml(r.key) +
             '" title="' + escapeHtml(nm) + ' — rename">' + escapeHtml(nm) + "</button>" +
+          (r.flag === "dropped" && st !== "paused"
+            ? '<span class="mm-flag mm-flag-dropped" title="no charge in a while — dropped?">stopped</span>'
+            : r.flag === "changed" ? '<span class="mm-flag mm-flag-changed" title="latest charge $' + fmtUSD(r.recent) + ' differs from the usual $' + fmtUSD(r.amount) + '">changed</span>'
+            : r.flag === "new" ? '<span class="mm-flag mm-flag-new" title="first seen recently">new</span>' : "") +
           '<span class="cf-amt"' + (subCadence(r.key) !== "monthly" ? ' title="≈ ' + fmtUSD(monthlyAmount(r)) + '/mo"' : "") + ">" + fmtUSD(r.amount) + "</span>" +
           '<span class="cf-cad-wrap"><select class="cf-cad" data-key="' + escapeHtml(r.key) + '" title="how often this charges">' +
             CADENCES.map((c) => '<option value="' + c.id + '"' + (c.id === subCadence(r.key) ? " selected" : "") + ">" + c.abbr + "</option>").join("") +
@@ -2312,12 +2341,15 @@ function makeSticker(id, entry) {
   const node = document.createElement("div");
   node.className = "sticker";
   node.dataset.id = id;
+  if (entry.snap === undefined) entry.snap = true;  // stickers snap to the grid by default
+  if (entry.snap) { entry.x = snapTo(entry.x); entry.y = snapTo(entry.y); }
   node.style.left = entry.x + "px";
   node.style.top = entry.y + "px";
   node.style.width = entry.w + "px";
   node.style.height = entry.h + "px";
   node.innerHTML =
     '<i data-lucide="' + entry.icon + '"></i>' +
+    '<button class="sticker-magnet' + (entry.snap ? " on" : "") + '" title="Snap to grid" aria-label="Toggle snap"><i data-lucide="magnet"></i></button>' +
     '<button class="sticker-close" aria-label="Remove">✕</button>' +
     '<div class="sticker-resize"></div>';
   canvas.appendChild(node);
@@ -2327,6 +2359,20 @@ function makeSticker(id, entry) {
   node.querySelector(".sticker-close").addEventListener("click", (e) => {
     e.stopPropagation();
     removeWidget(id);
+  });
+  node.querySelector(".sticker-magnet").addEventListener("click", (e) => {
+    e.stopPropagation();
+    entry.snap = !entry.snap;
+    e.currentTarget.classList.toggle("on", entry.snap);
+    if (entry.snap) {  // settle onto the grid right away
+      node.classList.add("tidying");
+      node.style.left = snapTo(parseInt(node.style.left, 10)) + "px";
+      node.style.top = snapTo(parseInt(node.style.top, 10)) + "px";
+      entry.x = parseInt(node.style.left, 10);
+      entry.y = parseInt(node.style.top, 10);
+      setTimeout(() => node.classList.remove("tidying"), 480);
+    }
+    saveLayout();
   });
   makeDraggable(node, node, id);
   makeResizable(node, [{ el: node.querySelector(".sticker-resize"), corner: "se" }], id);
@@ -3241,6 +3287,7 @@ function openReview() {
     let html = '<div class="src-title">Review · ' + issues.length + "</div>";
     if (!issues.length) { statusPanel.innerHTML = html + '<div class="status-clear">✓ nothing needs you right now</div>'; return; }
     const groups = [["duplicate", "Possible duplicates"], ["subscription", "Recurring · not tracked"],
+                    ["sub_dropped", "Recurring · stopped?"],
                     ["category", "Uncategorized"], ["income", "Untagged deposits"]];
     groups.forEach(([type, label]) => {
       const items = issues.filter((i) => i.type === type);
@@ -3253,6 +3300,7 @@ function openReview() {
           '<div class="rv-detail">' + escapeHtml(it.detail) + "</div>";
         if (type === "category") return base + '<select class="rv-cat">' + catOpts(cats, "other") + "</select></div>";
         if (type === "subscription") return base + '<button class="rv-act rv-sub">+ track as subscription</button></div>';
+        if (type === "sub_dropped") return base + '<button class="rv-act rv-pause">mark paused</button></div>';
         if (type === "income") return base + '<button class="rv-act rv-inc">tag this income</button></div>';
         if (type === "duplicate") return base + '<button class="rv-act rv-del">remove one</button></div>';
         return base + "</div>";
@@ -3273,6 +3321,13 @@ function openReview() {
     }));
     statusPanel.querySelectorAll(".rv-inc").forEach((b) => b.addEventListener("click", () =>
       openIncomeTagger(refresh)));
+    statusPanel.querySelectorAll(".rv-pause").forEach((b) => b.addEventListener("click", () => {
+      const key = b.closest(".rv-item").dataset.key;
+      setSubPaused(key, true);  // updates SUBS + debounced save
+      // persist immediately so the re-fetched issues reflect it, then refresh
+      fetch("/api/subs", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subs: SUBS }) }).then(refresh).catch(refresh);
+    }));
   });
 }
 function apiPost(url, body, done) {

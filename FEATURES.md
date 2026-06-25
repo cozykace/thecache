@@ -15,10 +15,13 @@ _Last updated: 2026-06-20_
 - **Spending trend** — up or down versus the prior period.
 - **Months** — browse every past month (income vs. spending, net, and a category breakdown), built from your full transaction history. Import older statements and they show up as new months automatically.
 - **Money flow** — a visual map of every account with checking up top (where new money lands) cascading down to savings and cards. Lines show income in and spending out; bubbles mark recurring transfers (real amounts). Toggle credit cards off for a cash-only view.
+- **Recurring radar** — the Money Map flags charges that are **new**, **changed** (price moved >10%), or **stopped**, so a sneaky price hike or a sub you forgot to cancel never slips by; stopped ones surface in the Review inbox.
+- **Clean merchant names** — raw bank gibberish ("Web Authorized Pmt Ventura Llc") is auto-tidied to readable names ("Ventura") everywhere, without changing the underlying data; your own renames always win.
 
 ## Understand your income
 - **Auto-detected income** with gig/payroll smarts (Instacart, paychecks, and more).
 - **Define income your way** — tag which deposits actually count (and which are just paybacks); your call sticks for future deposits from that source.
+- **Link income to your work** — connect an income source to the Toggl project that earns it; the Money Map then shows that project's hours next to the money, so pay lines up with effort.
 - **Income at a glance** — each source is a labeled badge with its own icon (a guitar for music money, a cart for gig work) and a checkmark once you've confirmed it.
 
 ## Plan and decide
@@ -34,7 +37,7 @@ _Last updated: 2026-06-20_
 - **Zoom & pan** — a scalable, scrollable canvas to spread out.
 - **Themes** — multiple named palettes (light and dark), each star-able so your favorites stand out.
 - **Clock your way** — click the dock's date/time to set time zone, 12/24-hour, seconds, and date format.
-- **Icon stickers** — decorate the board from a large icon library.
+- **Icon stickers** — decorate the board from a large icon library; they snap to the grid (toggle off to free-place).
 - **Custom cursor and optional soundtrack** — small touches that make it feel like yours.
 
 ## Stay on top of it

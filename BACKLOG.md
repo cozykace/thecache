@@ -2,7 +2,7 @@
 
 Running list of your requests and ideas. Anything you toss out, I add here; I'll surface relevant items when they come up, and check them off as we ship. You can read/edit this file too.
 
-_Last updated: 2026-06-20_
+_Last updated: 2026-06-23_
 
 ## The accuracy engine (fix-in-UI, no AI; all ripples via the Store)
 - [x] **Category Manager** (Menu → Manage categories) — lists every category + # of transactions; rename (server-stored label, ripples to every widget); delete → fold/merge into another category (batch); click a category → recategorize its merchants one-by-one; + new category. Backend: catmeta.json registry (labels+remap), categorize() applies remap (2026-06-22)
@@ -13,20 +13,21 @@ _Last updated: 2026-06-20_
 - [x] **Auto-sync** — LaunchAgent `com.sufferinggoat.sync` runs sync.py at 8am/2pm/8pm + on login; data stays fresh with no clicking or AI. Sources panel shows "auto-syncs 3×/day". Logs to data/sync.log (2026-06-22)
 
 ## Features
-- [ ] Link income sources to Toggl clients (uses the Toggl integration) — phase 2 of the status pip
-- [ ] Money-flow node map — income → accounts → spending, with flow arrows (designed, not built)
-- [ ] Magnet snap for stickers / icon-nodes (or a global grid)
+- [x] Link income sources to Toggl projects — Money Map "money in" rows have a "→ link work" picker (your Toggl projects); once linked, the row shows that project's monthly hours so income lines up with the work that earns it. Durable in income_links.json (2026-06-23)
+- [x] Money-flow node map — "Money flow" widget: SVG account cascade (checking→savings→cards), credit-card toggle, income/spend + recurring-transfer bubbles (/api/transfers) (2026-06-23)
+- [x] Magnet snap for stickers / icon-nodes — stickers snap to the 24px grid by default; hover magnet toggle to free-place (accent when on), reuses the widget snap machinery (2026-06-23)
 - [ ] Audio bell on every turn-end (Stop hook) — optional, currently off
 
 ## Smarter / more robust
-- [ ] True recurrence detection for subscriptions (scan 90-day ledger for ~monthly cadence; flag new/changed/dropped subs)
+- [x] Recurrence v2 — detect_recurring now flags **new** (first seen <10wk), **changed** (latest charge >10% off the usual), **dropped** (well past its usual gap). Shown as badges in the Money Map; dropped (tracked, not paused) surface in the Review inbox with "mark paused" to clear (2026-06-23)
 
 ## Parked / revisit
 - [ ] PDF statement import — native macOS PDFKit extraction works (no installs), but US Bank's layout scrambles date↔transaction mapping (≈99 amounts / 11 dates), unreliable for money. Use CSV export instead. Revisit only if a bank's PDF has a clean tabular layout.
 - [ ] Petal credit card — no SimpleFIN; import via CSV (drag onto board, or import_statements.py), or revisit a direct connect
-- [ ] Commit income tagger + SOPs to git (you handle git)
+- [x] Commit income tagger + SOPs to git — pushed to github.com/cozykace/goat (data stays gitignored) (2026-06-23)
 
 ## Shipped
+- [x] **Auto-clean merchant names** — `prettify_merchant()` turns raw bank descriptions into readable names for DISPLAY only (strips "Web Authorized Pmt", card/network noise, trailing state codes, collapses "Google Google" dupes, drops corp suffixes). Keys/tags untouched, so renames still override. Applied to recurring, deposits, income sources (2026-06-23)
 - [x] **Averages widget** — lifetime monthly averages from the ledger: avg income, avg spend, avg net/shortfall (the deficit between inflow and outflow), avg Instacart income, avg subscriptions, avg spend/day, over N months (skips the partial current month). /api/averages (2026-06-22)
 - [x] **Subscriptions "build your box"** — tracked list always shows anything tagged a subscription (even few charges); active/lapsed/paused pip read from the ledger's last-charge date (green=charged <40d, amber=lapsed >1mo, grey=manually paused — click pip to pause/reactivate, paused drops from the total); × to untrack; "+ add" links a merchant by name; "+ track" promotes a detected one. detect_recurring always includes tagged subs (2026-06-22)
 - [x] **Settings panel** (Menu → ⚙ Settings) — Profile (name/role/note → time-based greeting in the sidebar); Money targets (reserve, monthly need, work rate, centralized from the inline prompts, ripple via Store); Display (Privacy blur = blur all dollar amounts until hover for screen-sharing; theme swatches). Stored in localStorage (2026-06-22)

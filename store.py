@@ -33,6 +33,7 @@ LEDGER = os.path.join(DATA, "ledger.jsonl")     # permanent ledger — one trans
 LEDGER_OLD = os.path.join(DATA, "ledger.json")  # the old single-object format (auto-migrated once)
 CATMETA = os.path.join(DATA, "catmeta.json")    # category registry: renamed labels + delete/remap rules
 SUBS = os.path.join(DATA, "subs.json")          # YOUR decisions about recurring money: {key: {mustpay, cadence, paused, name}}
+INCOME_LINKS = os.path.join(DATA, "income_links.json")  # income source key -> Toggl project name
 
 # the built-in category keys (mirror of the frontend CAT_META) — so the manager
 # can list them even when they currently hold zero transactions
@@ -43,7 +44,7 @@ BACKUPS = os.path.join(HERE, "backups")     # local snapshots (gitignored, stays
 
 _BACKUP_FILES = ("balances.json", "transactions.json", "ledger.jsonl", "ledger.json",
                  "history.json", "synclog.json", "categories.json", "income.json",
-                 "catmeta.json", "subs.json",
+                 "catmeta.json", "subs.json", "income_links.json",
                  "monthly.json", "coverage.json", "bugs.json")
 
 # Built-in keyword rules (first match wins). User overrides in categories.json
@@ -220,6 +221,54 @@ def _clean(desc):
     return re.sub(r"\s+", " ", d).strip()
 
 
+# ── Pretty display names ───────────────────────────────────
+# Turn a raw bank description into a readable merchant name FOR DISPLAY ONLY.
+# The matching key (_clean / _income_key) is never touched, so tags/links keep
+# working; this just makes "Web Authorized Pmt Ventura Llc" read as "Ventura".
+_PRETTY_PREFIX = re.compile(
+    r"^(?:"
+    r"purchase\s+authorized\s+on\s+\d+|"
+    r"recurring\s+payment\s+authorized\s+on\s+\d+|"
+    r"(?:payment|pmt)\s+authorized\s+on\s+\d+|"
+    r"web\s+authorized\s+(?:pmt|payment)?|"
+    r"external\s+(?:withdrawal|deposit)|"
+    r"pos\s+(?:debit|purchase)|debit\s+card\s+purchase|"
+    r"checkcard\s*\d*|check\s*card|"
+    r"ach\s+(?:debit|credit)|"
+    r"(?:bill|online|electronic)\s+payment"
+    r")\b", re.I)
+_PRETTY_DROP = {
+    "sp", "wp", "tst", "sq", "pp", "fs", "dbt", "crd", "ckcd", "pos", "dda",
+    "visa", "mastercard", "amex", "discover", "mc", "debit", "credit", "card",
+    "purchase", "payment", "pmt", "pymt", "authorized", "auth", "recurring",
+    "web", "ach", "ppd", "ccd", "indn", "des", "xxxxx",
+    "llc", "inc", "corp", "ltd", "subscription", "subscr",
+}
+_US_STATES = {
+    "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id", "il",
+    "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "mo", "mt",
+    "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri",
+    "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy", "dc",
+}
+_ACRONYMS = {"ai": "AI", "fka": "FKA", "usa": "USA", "us": "US", "uk": "UK", "sf": "SF", "nyc": "NYC"}
+
+
+def prettify_merchant(raw, fallback=""):
+    s = _PRETTY_PREFIX.sub(" ", (raw or "").strip())
+    toks = [w for w in re.split(r"[^A-Za-z&]+", s) if w and w.lower() not in _PRETTY_DROP]
+    dedup = []
+    for w in toks:  # collapse consecutive repeats: "google google" -> "google"
+        if not dedup or dedup[-1].lower() != w.lower():
+            dedup.append(w)
+    while dedup and dedup[-1].lower() in _US_STATES:  # drop a trailing state code
+        dedup.pop()
+    while len(dedup) > 1 and len(dedup[-1]) == 1:  # drop stray trailing single letters ("google o", "mcdonald s f")
+        dedup.pop()
+    if not dedup:
+        return fallback or (raw or "").strip().title()
+    return " ".join(_ACRONYMS.get(w.lower(), w.capitalize()) for w in dedup)
+
+
 # positive amounts matching these are NOT real income (fee reversals, interest,
 # refunds, card-payment reversals) — they were inflating the income number
 NOT_INCOME = ("fee", "waiv", "interest", "refund", "reversal", "adjustment",
@@ -308,6 +357,18 @@ def save_subs(data):
     return load_subs()
 
 
+# income source key -> Toggl project name (so hours worked line up with money in)
+def load_income_links():
+    d = _read(INCOME_LINKS, {})
+    return d if isinstance(d, dict) else {}
+
+
+def save_income_links(data):
+    if isinstance(data, dict):
+        _write(INCOME_LINKS, data)
+    return load_income_links()
+
+
 def save_income_override(key, status):
     """status: 'income' | 'ignore' to pin it, or 'auto'/None to clear the tag."""
     ov = load_income_overrides()
@@ -353,7 +414,7 @@ def deposit_sources(txns, limit=40):
         if amt > 0:
             key, is_inc, tagged = income_decision(t.get("description", ""), income_overrides, overrides)
             if key not in agg:
-                agg[key] = {"source": key.title(), "key": key, "amount": 0.0,
+                agg[key] = {"source": prettify_merchant(key, key.title()), "key": key, "amount": 0.0,
                             "status": "income" if is_inc else "ignore", "tagged": tagged}
             agg[key]["amount"] += amt
     rows = list(agg.values())
@@ -527,7 +588,7 @@ def build_snapshot(accounts, window_days=30, now=None, fetch_days=None):
         key=lambda c: -c["amount"],
     )
     income_sources = sorted(
-        ({"source": k.title(), "key": k, "amount": round(v, 2), "tagged": k in income_overrides}
+        ({"source": prettify_merchant(k, k.title()), "key": k, "amount": round(v, 2), "tagged": k in income_overrides}
          for k, v in inc.items()),
         key=lambda s: -s["amount"],
     )
@@ -807,7 +868,7 @@ def recompute_income():
                 total += amt
                 inc[key] = inc.get(key, 0.0) + amt
     sources = sorted(
-        ({"source": k.title(), "key": k, "amount": round(v, 2), "tagged": k in income_overrides}
+        ({"source": prettify_merchant(k, k.title()), "key": k, "amount": round(v, 2), "tagged": k in income_overrides}
          for k, v in inc.items()),
         key=lambda s: -s["amount"],
     )
@@ -905,7 +966,7 @@ def period_summary(kind="mtd", ym=None, now=None, start_d=None, end_d=None):
     cats_list = sorted(({"key": k, "amount": round(v, 2)} for k, v in cats.items()),
                        key=lambda c: -c["amount"])
     income_sources = sorted(
-        ({"source": k.title(), "key": k, "amount": round(v, 2), "tagged": k in income_overrides}
+        ({"source": prettify_merchant(k, k.title()), "key": k, "amount": round(v, 2), "tagged": k in income_overrides}
          for k, v in inc.items()),
         key=lambda s: -s["amount"])
     subs_items = subscription_items(win, overrides)
@@ -1151,6 +1212,7 @@ def detect_recurring(txns=None, min_months=3):
         if dsc and dsc not in it["descs"] and len(it["descs"]) < 5:
             it["descs"].append(dsc)
     out = []
+    now_ts = int(time.time())
     for it in by.values():
         cat = categorize(it["descs"][0] if it["descs"] else it["key"], overrides, remap)
         is_sub = cat == "subscriptions"
@@ -1168,9 +1230,23 @@ def detect_recurring(txns=None, min_months=3):
         posts = sorted(it["posts"])
         gaps = [(posts[i + 1] - posts[i]) / 86400.0 for i in range(len(posts) - 1)]
         avg_gap = round(sum(gaps) / len(gaps)) if gaps else 0
-        out.append({"key": it["key"], "name": it["name"], "amount": round(med, 2),
+        last = max(it["posts"]) if it["posts"] else 0
+        first = min([p for p in it["posts"] if p], default=0)
+        # most-recent charge amount (amounts & posts are appended index-aligned)
+        recent = it["amounts"][it["posts"].index(last)] if it["posts"] else med
+        # flag meaningful changes so they can surface in the Review inbox / Money Map
+        flag = None
+        if avg_gap and last and (now_ts - last) > 1.8 * avg_gap * 86400 and nm >= 2:
+            flag = "dropped"        # was regular, then stopped (well past its usual gap)
+        elif abs(recent - med) > max(1.0, 0.10 * med):
+            flag = "changed"        # latest charge differs >10% from the usual amount
+        elif first and (now_ts - first) < 70 * 86400:
+            flag = "new"            # first seen within the last ~10 weeks
+        out.append({"key": it["key"],
+                    "name": prettify_merchant(it["descs"][0] if it["descs"] else it["key"], it["key"].title()),
+                    "amount": round(med, 2),
                     "months": nm, "count": len(it["amounts"]), "avg_gap_days": avg_gap,
-                    "last": max(it["posts"]) if it["posts"] else 0,
+                    "last": last, "first": first, "recent": round(recent, 2), "flag": flag,
                     "accounts": sorted(it["accounts"]), "descriptions": it["descs"],
                     "category": cat, "tagged": is_sub})
     out.sort(key=lambda r: (-r["tagged"], -r["months"], -r["amount"]))
@@ -1241,12 +1317,16 @@ def find_issues():
         issues.append({"type": "category", "key": k, "label": k.title(),
                        "detail": "uncategorized · $%.0f" % amt})
 
-    # recurring charges not yet tagged as subscriptions
+    # recurring charges: surface untracked ones to add, and a tracked one that seems to have stopped
+    subs = load_subs()
     for r in detect_recurring(txns):
         if not r["tagged"]:
             issues.append({"type": "subscription", "key": r["key"], "label": r["name"],
                            "detail": "recurring ~monthly (%d mo · $%.0f) — add as subscription?"
                                      % (r["months"], r["amount"])})
+        elif r.get("flag") == "dropped" and not subs.get(r["key"], {}).get("paused"):
+            issues.append({"type": "sub_dropped", "key": r["key"], "label": r["name"],
+                           "detail": "no charge in a while — dropped? (was every ~%dd)" % (r.get("avg_gap_days") or 30)})
 
     # possible duplicates: same day + amount + merchant, more than one
     groups = {}

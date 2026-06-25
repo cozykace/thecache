@@ -71,6 +71,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {"transfers": store.recurring_transfers()})
         if path == "/api/subs":
             return self._json(200, {"subs": store.load_subs()})
+        if path == "/api/income-links":
+            return self._json(200, {"links": store.load_income_links()})
         if path == "/api/averages":
             return self._json(200, store.averages())
         if path == "/api/work":
@@ -120,6 +122,13 @@ class Handler(SimpleHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError):
                 return self._json(400, {"error": "bad request"})
             return self._json(200, {"ok": True, "subs": store.save_subs(data.get("subs", {}))})
+        if self.path == "/api/income-links":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            return self._json(200, {"ok": True, "links": store.save_income_links(data.get("links", {}))})
         if self.path == "/api/category":
             try:
                 n = int(self.headers.get("Content-Length", 0))

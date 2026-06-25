@@ -417,6 +417,12 @@ body.panning .cursor-ball { display: none !important; }
   border: 1px solid transparent; border-radius: 6px; background: none; cursor: pointer;
   font-family: inherit; font-size: 9.5px; color: rgba(var(--ink-rgb), 0.55); }
 .cf-cad:hover { border-color: var(--edge-soft); color: var(--ink); }
+/* new / changed / dropped flags from recurrence detection */
+.mm-flag { flex-shrink: 0; font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 1px 5px; border-radius: 999px; line-height: 1.5; }
+.mm-flag-new { color: #3f8f4e; border: 1px solid rgba(63, 143, 78, 0.45); }
+.mm-flag-changed { color: #b9842c; border: 1px solid rgba(185, 132, 44, 0.5); }
+.mm-flag-dropped { color: #c9542e; border: 1px solid rgba(201, 84, 46, 0.5); }
 .inc-toggle {
   flex-shrink: 0; width: 58px; padding: 4px 0; border: 1px solid var(--edge-soft); border-radius: 999px;
   background: none; cursor: pointer; font-family: inherit; font-size: 9px;
@@ -684,6 +690,16 @@ body.panning .cursor-ball { display: none !important; }
 .mm-dir.in { color: #3f8f4e; }
 .mm-dir.off { color: rgba(var(--ink-rgb), 0.3); }
 .mm-empty { font-size: 11px; color: rgba(var(--ink-rgb), 0.45); padding: 4px 0; }
+/* income → Toggl project link */
+.mm-link-wrap { flex-shrink: 0; position: relative; }
+.mm-link { -webkit-appearance: none; appearance: none; max-width: 96px; padding: 2px 16px 2px 7px;
+  border: 1px solid var(--edge-soft); border-radius: 7px; background: none; cursor: pointer;
+  font-family: inherit; font-size: 9.5px; color: rgba(var(--ink-rgb), 0.6);
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+.mm-link:hover { color: var(--ink); border-color: var(--edge); }
+.mm-link-wrap::after { content: "▾"; position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  font-size: 7px; color: rgba(var(--ink-rgb), 0.4); pointer-events: none; }
+.mm-hrs { flex-shrink: 0; font-size: 9.5px; font-variant-numeric: tabular-nums; color: var(--accent); }
 
 /* Money flow widget — cascade of accounts with connector lines + transfer bubbles */
 .af-cards-toggle { margin-left: auto; border: 1px solid var(--edge); background: var(--panel); cursor: pointer;
@@ -868,6 +884,16 @@ body.panning .cursor-ball { display: none !important; }
   opacity: 0; transition: opacity 0.15s ease;
 }
 .sticker:hover .sticker-close { opacity: 1; }
+.sticker-magnet {
+  position: absolute; top: -8px; left: -8px;
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1px solid var(--edge); background: var(--paper);
+  color: rgba(var(--ink-rgb), 0.5); cursor: pointer; padding: 0;
+  display: grid; place-items: center; opacity: 0; transition: opacity 0.15s ease;
+}
+.sticker-magnet i, .sticker-magnet svg { width: 10px; height: 10px; }
+.sticker:hover .sticker-magnet { opacity: 1; }
+.sticker-magnet.on { color: var(--accent); border-color: var(--accent); opacity: 1; }
 .sticker-resize { position: absolute; right: -2px; bottom: -2px; width: 16px; height: 16px; cursor: nwse-resize; opacity: 0; }
 .sticker:hover .sticker-resize { opacity: 0.5; }
 .sticker-resize::after {
