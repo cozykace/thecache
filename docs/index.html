@@ -10,11 +10,11 @@
      (transparent background; add ?theme=dark to the iframe URL for dark pages). */
   :root {
     --fg: #1d1a12; --dim: rgba(29,26,18,0.55); --line: rgba(29,26,18,0.14);
-    --accent: #c9542e; --ok: #3f8f4e; --card: rgba(0,0,0,0.03);
+    --accent: #FFD409; --ok: #3f8f4e; --card: rgba(0,0,0,0.03); --on-accent: #14130e;
   }
   html[data-theme="dark"] {
     --fg: #efe7d6; --dim: rgba(239,231,214,0.55); --line: rgba(239,231,214,0.16);
-    --accent: #e0734a; --ok: #6fbf7e; --card: rgba(255,255,255,0.04);
+    --accent: #FFD409; --ok: #6fbf7e; --card: rgba(255,255,255,0.04); --on-accent: #14130e;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: transparent; color: var(--fg); padding: 4px 2px 24px;
@@ -30,7 +30,7 @@
   .tabs { display: flex; gap: 6px; margin: 12px 0 16px; }
   .tab { font: inherit; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer;
     border: 1px solid var(--line); background: none; color: var(--dim); padding: 7px 14px; border-radius: 999px; }
-  .tab.on { color: var(--accent); border-color: var(--accent); }
+  .tab.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 700; }
   .sec { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
     margin: 22px 0 9px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
   .item { display: flex; gap: 11px; padding: 8px 0; font-size: 14px; line-height: 1.5; align-items: flex-start; }
@@ -40,7 +40,7 @@
   .item.done .txt { color: var(--dim); }
   .item.todo .box { border-color: var(--accent); }
   .txt strong { font-weight: 700; }
-  .txt a { color: var(--accent); }
+  .txt a { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
   details > summary { cursor: pointer; list-style: none; }
   details > summary::-webkit-details-marker { display: none; }
   .ship-toggle { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
@@ -48,7 +48,7 @@
   .intro { font-size: 13px; color: var(--dim); line-height: 1.6; margin: 0 0 4px; }
   .err { color: var(--accent); font-size: 13px; padding: 20px 0; }
   .foot { margin-top: 26px; font-size: 11px; color: var(--dim); }
-  .foot a { color: var(--accent); }
+  .foot a { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); }
 </style>
 </head>
 <body>
