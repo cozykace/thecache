@@ -42,26 +42,26 @@
           <div class="section-title">Menu</div>
           <button class="menu-item" id="connectBank">⚡ Connect a bank</button>
           <button class="menu-item" id="openSettings">⚙ Settings</button>
-          <button class="menu-item" id="manageCats">▦ Manage categories</button>
+          <button class="menu-item" id="manageCats" data-tier="2">▦ Manage categories</button>
           <button class="menu-item" id="reportBug">⚑ Report a bug or request</button>
-          <button class="menu-item" id="importStatement">↓ Import statement (CSV)</button>
-          <button class="menu-item" id="tidyLayout">↹ Tidy layout</button>
-          <button class="menu-item" id="resetLayout">↺ Reset layout</button>
+          <button class="menu-item" id="importStatement" data-tier="3">↓ Import statement (CSV)</button>
+          <button class="menu-item" id="tidyLayout" data-tier="2">↹ Tidy layout</button>
+          <button class="menu-item" id="resetLayout" data-tier="2">↺ Reset layout</button>
           <button class="menu-item" id="updateApp">⟳ Update app</button>
         </section>
 
         <section class="sidebar-section">
           <div class="section-title">Widget Library</div>
-          <div class="gutter-ctrl">
+          <div class="gutter-ctrl" data-tier="2">
             <span class="gutter-label">Gutter</span>
             <input id="gutterSlider" type="range" min="4" max="48" step="2" class="gutter-slider" aria-label="Gutter between widgets" />
           </div>
-          <div class="section-hint">spacing between widgets when tidied · drag to preview live</div>
+          <div class="section-hint" data-tier="2">spacing between widgets when tidied · drag to preview live</div>
           <div id="library" class="library"></div>
           <div class="section-hint">click to add / remove from the board</div>
         </section>
 
-        <section class="sidebar-section" id="iconSection">
+        <section class="sidebar-section" id="iconSection" data-tier="2">
           <button class="section-toggle" id="iconToggle" type="button">
             <span class="section-title">Icon Library</span>
             <span class="section-caret">▾</span>
@@ -73,14 +73,14 @@
           </div></div>
         </section>
 
-        <section class="sidebar-section">
+        <section class="sidebar-section" data-tier="2">
           <div class="section-title">Saved views</div>
           <div id="viewList" class="library"></div>
           <button class="menu-item" id="saveView">+ Save current view</button>
           <div class="section-hint">snapshot this layout to jump back to it anytime</div>
         </section>
 
-        <section class="sidebar-section">
+        <section class="sidebar-section" data-tier="3">
           <div class="section-title">Dock</div>
           <div id="dockMenu" class="library"></div>
           <div class="section-hint">show / hide dock items · drag them in the dock to reorder</div>

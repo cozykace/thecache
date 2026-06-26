@@ -1931,7 +1931,7 @@ function openCategoryManager() {
         });
         row.querySelector(".cm-del").addEventListener("click", () => {
           drawer.classList.add("open");
-          drawer.innerHTML = '<div class="cm-delbar">move its <b>' + cat.count + "</b> txns → " +
+          drawer.innerHTML = '<div class="cm-delbar">move its <b>' + cat.count + "</b> transactions → " +
             '<select class="cm-delto">' + opts(cats, "other", key) + "</select>" +
             '<button class="cm-delgo">delete</button><button class="cm-x">cancel</button></div>';
           drawer.querySelector(".cm-delgo").addEventListener("click", () =>
@@ -2154,7 +2154,7 @@ function renderTrust() {
     if (!d) { el.innerHTML = ""; return; }
     el.innerHTML = '<button class="trust-chip ' + (d.ok ? "ok" : "warn") + '" title="how your data is protected">' +
       "<span>" + (d.ok ? "🛡 data verified" : "⚠ check data") + "</span>" +
-      '<span class="trust-n">' + (d.count || 0).toLocaleString() + " txns</span></button>";
+      '<span class="trust-n">' + (d.ok ? "✓" : "!") + "</span></button>";
     el.querySelector(".trust-chip").addEventListener("click", () => openTrust(d));
   }).catch(() => { el.innerHTML = ""; });
 }
@@ -2273,6 +2273,14 @@ function openConnect() {
   });
   modal.querySelector(".cn-csv").addEventListener("click", () => { closeCategorizer(); document.getElementById("importStatement").click(); });
 }
+// ── Settings tiers: Smooth Brain (simple) → Big Brain (standard) → Galaxy Brain (everything) ──
+const TIER_KEY = "money.menuTier";
+const TIERS = [{ n: 1, label: "Smooth Brain" }, { n: 2, label: "Big Brain" }, { n: 3, label: "Galaxy Brain" }];
+function menuTier() { const t = parseInt(localStorage.getItem(TIER_KEY)); return (t >= 1 && t <= 3) ? t : 2; }
+function applyTier() {
+  const t = menuTier();
+  document.querySelectorAll("[data-tier]").forEach((el) => { el.style.display = (+el.dataset.tier > t) ? "none" : ""; });
+}
 function openSettings() {
   closeCategorizer();
   const back = document.createElement("div");
@@ -2285,6 +2293,9 @@ function openSettings() {
   modal.innerHTML =
     '<div class="cat-head"><span>Settings</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="set-body">' +
+      '<div class="set-sec">Mode</div>' +
+      '<div class="set-tier" id="setTier"></div>' +
+      '<div class="set-hint">how much of the app you want to see — <b>Smooth Brain</b> keeps it simple, <b>Galaxy Brain</b> shows every button</div>' +
       '<div class="set-sec">Profile</div>' +
       '<label class="set-row"><span>Your name</span><input id="setName" type="text" value="' + escapeHtml(p.name || "") + '" placeholder="your name"></label>' +
       '<label class="set-row"><span>What you do</span><input id="setRole" type="text" value="' + escapeHtml(p.role || "") + '" placeholder="musician · gig work · freelance"></label>' +
@@ -2303,12 +2314,12 @@ function openSettings() {
       '<div class="set-sec">Display</div>' +
       '<button class="set-toggle" id="setPrivacy"><span>Privacy blur</span><span class="set-state">off</span></button>' +
       '<div class="set-hint">blurs dollar amounts until you hover — good for screen-sharing</div>' +
-      '<button class="set-toggle" id="setAutoPin"><span>Auto-pin favorites</span><span class="set-state">on</span></button>' +
-      '<div class="set-hint">starred widgets &amp; dock items jump to the top · turn off to leave them where they are when starred</div>' +
+      '<button class="set-toggle" id="setAutoPin" data-tier="2"><span>Auto-pin favorites</span><span class="set-state">on</span></button>' +
+      '<div class="set-hint" data-tier="2">starred widgets &amp; dock items jump to the top · turn off to leave them where they are when starred</div>' +
       '<div class="set-themes" id="setThemes"></div>' +
-      '<div class="set-sec">Stats bar</div>' +
-      '<div class="set-hint">the live numbers along the top — toggle any on or off · drag them in the bar to reorder</div>' +
-      '<div id="setStats" class="set-stats"></div>' +
+      '<div class="set-sec" data-tier="3">Stats bar</div>' +
+      '<div class="set-hint" data-tier="3">the live numbers along the top — toggle any on or off · drag them in the bar to reorder</div>' +
+      '<div id="setStats" class="set-stats" data-tier="3"></div>' +
     '</div>';
   document.body.appendChild(back);
   document.body.appendChild(modal);
@@ -2353,6 +2364,16 @@ function openSettings() {
     localStorage.setItem(AUTOPIN_KEY, autoPinOn() ? "0" : "1");
     paintPin(); renderLibrary(); renderDockMenu(); applyDockConfig(document.getElementById("dock"));
   });
+
+  const tierHost = modal.querySelector("#setTier");
+  const paintTier = () => {
+    tierHost.innerHTML = TIERS.map((t) => '<button class="set-tier-opt' + (menuTier() === t.n ? " on" : "") + '" data-tier-n="' + t.n + '">' + t.label + "</button>").join("");
+    tierHost.querySelectorAll(".set-tier-opt").forEach((b) => b.addEventListener("click", () => {
+      localStorage.setItem(TIER_KEY, b.dataset.tierN); paintTier(); applyTier();
+    }));
+  };
+  paintTier();
+  applyTier();  // also hides any tier-gated rows in this freshly-rendered panel
 
   // Bank connection — paste a SimpleFIN setup token right here
   const bankStatus = modal.querySelector("#setBankStatus");
@@ -4778,5 +4799,6 @@ applyPrivacy();
 updateGreeting();
 updateXp();
 renderTrust();
+applyTier();
 requestAnimationFrame(reflowBelowStats);  // once the stats bar has measured, clear the top band
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint

@@ -1340,6 +1340,12 @@ body.sidebar-open .sidebar { transform: none; }
 .trust-name { color: var(--ink); flex-shrink: 0; }
 .trust-detail { color: rgba(var(--ink-rgb), 0.5); margin-left: auto; text-align: right; font-variant-numeric: tabular-nums; }
 .trust-foot { font-size: 11px; color: rgba(var(--ink-rgb), 0.5); margin-top: 12px; font-variant-numeric: tabular-nums; }
+/* settings tiers — Smooth Brain / Big Brain / Galaxy Brain */
+.set-tier { display: flex; gap: 6px; margin: 2px 0 2px; }
+.set-tier-opt { flex: 1; font-family: inherit; font-size: 11px; cursor: pointer; padding: 8px 6px; border-radius: 8px;
+  border: 1px solid var(--edge); background: var(--panel); color: rgba(var(--ink-rgb), 0.7); white-space: nowrap; }
+.set-tier-opt:hover { border-color: var(--accent); color: var(--accent); }
+.set-tier-opt.on { background: var(--accent); color: var(--paper); border-color: var(--accent); font-weight: 600; }
 .lib-label { flex: 1; }
 .lib-state { text-transform: uppercase; letter-spacing: 0.12em; font-size: 9px; color: rgba(var(--ink-rgb), 0.4); }
 
