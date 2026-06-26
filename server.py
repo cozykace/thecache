@@ -83,6 +83,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, store.averages())
         if path == "/api/work":
             return self._json(200, store.work_summary())
+        if path == "/api/income-monthly":
+            qs = parse_qs(urlparse(self.path).query)
+            months = int((qs.get("months") or ["12"])[0])
+            return self._json(200, store.monthly_income_by_source(months_back=months))
         if path == "/api/issues":
             return self._json(200, {"issues": store.find_issues()})
         if path == "/api/bugs":

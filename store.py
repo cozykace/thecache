@@ -1050,6 +1050,51 @@ def monthly_history(limit=24):
     return rows[:limit]
 
 
+def monthly_income_by_source(months_back=12, top=6):
+    """Per-month income from the full ledger, broken down by source — drives the
+    stacked income-forecast chart's HISTORY half. Returns months (oldest→newest)
+    and a band per source with an amount for each month, ranked by lifetime total;
+    sources past `top` fold into 'Other income'."""
+    led = load_ledger()
+    txns = list(led.values()) if isinstance(led, dict) else []
+    income_overrides = load_income_overrides()
+    overrides = load_overrides()
+    buckets, names, totals = {}, {}, {}
+    for t in txns:
+        amt = t.get("amount", 0) or 0
+        posted = t.get("posted")
+        if amt <= 0 or not posted:
+            continue
+        key, is_inc, _ = income_decision(t.get("description", ""), income_overrides, overrides)
+        if not is_inc:
+            continue
+        ym = datetime.fromtimestamp(posted).strftime("%Y-%m")
+        buckets.setdefault(ym, {})
+        buckets[ym][key] = buckets[ym].get(key, 0.0) + amt
+        names[key] = prettify_merchant(key, key.title())
+        totals[key] = totals.get(key, 0.0) + amt
+    yms = sorted(buckets.keys())
+    if months_back:
+        yms = yms[-months_back:]
+    months = [{"ym": ym, "label": datetime.strptime(ym, "%Y-%m").strftime("%b")} for ym in yms]
+    ranked = sorted(totals, key=lambda k: -totals[k])
+    sources = []
+    for key in ranked[:top]:
+        sources.append({
+            "key": key, "name": names[key],
+            "monthly": [round(buckets.get(ym, {}).get(key, 0.0), 2) for ym in yms],
+            "total": round(totals[key], 2),
+        })
+    other = [0.0] * len(yms)
+    for key in ranked[top:]:
+        for i, ym in enumerate(yms):
+            other[i] += buckets.get(ym, {}).get(key, 0.0)
+    if any(other):
+        sources.append({"key": "__other__", "name": "Other income",
+                        "monthly": [round(v, 2) for v in other], "total": round(sum(other), 2)})
+    return {"months": months, "sources": sources}
+
+
 def data_coverage():
     """What data we have and where it came from. Per account: its date span,
     transaction count, and source (live = SimpleFIN sync, imported = CSV).
