@@ -30,6 +30,19 @@
       }
       /* "Update app" pulls from git — meaningless in the static demo */
       #updateApp { display: none; }
+      /* Embed showcase mode on narrow screens: hide the app's floating chrome
+         (menu/theme/bg toggles, zoom, status + stats + dock bars) so the embed
+         reads as a clean, scrollable board of widgets instead of a cramped app.
+         Desktop keeps the full interactive UI. */
+      @media (max-width: 640px) {
+        #sidebarToggle, #themeToggle, #bgToggle, .zoom-control,
+        .status-bar, .stats-bar, .dock-bar { display: none !important; }
+        .board-canvas {
+          padding-top: calc(46px + env(safe-area-inset-top)) !important;
+          padding-bottom: 24px !important;
+        }
+        #demoBadge { top: 8px; font-size: 10px; padding: 5px 10px; }
+      }
     </style>
   </head>
   <body>
