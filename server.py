@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Money — local backend (stdlib only, no installs). Serves the dashboard and
+THE CACHE — local backend (stdlib only, no installs). Serves the dashboard and
 provides small write endpoints so you can edit categories in the app.
 
 Run it:   python3 server.py
@@ -47,6 +47,8 @@ class Handler(SimpleHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/api/ping":
             return self._json(200, {"ok": True})
+        if path == "/api/connect-status":
+            return self._json(200, {"connected": os.path.exists(os.path.join(HERE, ".simplefin"))})
         if path == "/api/other-merchants":
             return self._json(200, {"merchants": store.other_merchants(
                 store.load_transactions(), store.load_overrides())})
@@ -128,6 +130,46 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 self._json(500, {"ok": False, "error": str(e)})
             return
+        if self.path == "/api/connect":
+            # Claim a SimpleFIN setup token → access URL → save to .simplefin → first sync.
+            # Done inline (not via sync.py's CLI claim, which sys.exit()s and would kill the server).
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            import base64
+            import urllib.request
+            if data.get("demo"):
+                claim_url = "https://beta-bridge.simplefin.org/simplefin/claim/demo"
+            else:
+                token = "".join((data.get("token") or "").split())
+                if not token:
+                    return self._json(200, {"ok": False, "error": "Paste your SimpleFIN setup token first."})
+                token += "=" * (-len(token) % 4)
+                try:
+                    claim_url = base64.b64decode(token).decode("utf-8").strip()
+                except Exception:
+                    return self._json(200, {"ok": False, "error": "That doesn't look like a setup token — copy the whole thing from SimpleFIN."})
+                if not claim_url.startswith("http"):
+                    return self._json(200, {"ok": False, "error": "That token didn't decode to a valid link — recopy the full token."})
+            try:
+                req = urllib.request.Request(claim_url, data=b"", method="POST",
+                                             headers={"User-Agent": "thecache/1.0"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    access_url = r.read().decode("utf-8").strip()
+                secret = os.path.join(HERE, ".simplefin")
+                with open(secret, "w") as f:
+                    f.write(access_url)
+                try:
+                    os.chmod(secret, 0o600)
+                except OSError:
+                    pass
+                import sync
+                snap, ntx, _ledger = sync.run_sync()
+                return self._json(200, {"ok": True, "accounts": len(snap.get("accounts", [])), "transactions": ntx})
+            except Exception as e:
+                return self._json(500, {"ok": False, "error": "Couldn't connect: " + str(e)})
         if self.path == "/api/categorize":
             try:
                 n = int(self.headers.get("Content-Length", 0))
@@ -237,5 +279,5 @@ if __name__ == "__main__":
     # on 127.0.0.1 and put it on your private Tailscale tailnet instead (tailscale serve).
     HOST = os.environ.get("GOAT_HOST", "127.0.0.1")
     where = "your network" if HOST == "0.0.0.0" else "localhost"
-    print(f"Money running on {HOST}:{PORT}  ({where})  (Ctrl-C to stop)")
+    print(f"THE CACHE running on {HOST}:{PORT}  ({where})  (Ctrl-C to stop)")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

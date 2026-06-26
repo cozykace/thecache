@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Money — data audit. Answers "do I have all my data, for every account?"
+THE CACHE — data audit. Answers "do I have all my data, for every account?"
 
 Run:  python3 audit_data.py
 

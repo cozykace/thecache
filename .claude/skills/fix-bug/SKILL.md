@@ -1,11 +1,11 @@
 ---
 name: fix-bug
-description: Diagnose and fix a bug in the Money dashboard. Use when the user reports something broken, glitchy, flickering, mis-rendering, off-by-something, or not updating — reproduce, find the ROOT cause, fix it, verify, and log it. Money project only.
+description: Diagnose and fix a bug in THE CACHE. Use when the user reports something broken, glitchy, flickering, mis-rendering, off-by-something, or not updating — reproduce, find the ROOT cause, fix it, verify, and log it. THE CACHE project only.
 ---
 
-# Fix a Money bug
+# Fix a bug in THE CACHE
 
-Find the root cause, not a symptom patch. Honor `money/CLAUDE.md` (privacy, lightweight, theme-aware, user-is-the-eyes). You can't see localhost — reason from the code and hand back something the user can verify.
+Find the root cause, not a symptom patch. Honor `CLAUDE.md` (privacy, lightweight, theme-aware, user-is-the-eyes). You can't see localhost — reason from the code and hand back something the user can verify.
 
 ## 1. Pin down the symptom
 Get specifics: which widget/element, what exactly happens, when (on toggle? on load? after sync? at a zoom level?), how often (always / sometimes). "Sometimes" usually means a timing/async or layout-shift issue.

@@ -1,4 +1,4 @@
-# Money — backlog
+# THE CACHE — backlog
 
 Running list of your requests and ideas. Anything you toss out, I add here; I'll surface relevant items when they come up, and check them off as we ship. You can read/edit this file too.
 
@@ -19,10 +19,11 @@ _Last updated: 2026-06-23_
 - [ ] Audio bell on every turn-end (Stop hook) — optional, currently off
 
 ## Sharing / let a friend try it
+- [x] In-app **Connect a bank** coaching panel (Menu → ⚡) — step-by-step SimpleFIN setup + paste-your-token field → `/api/connect` claims it inline (server-safe, no CLI sys.exit) + first sync; **Load demo data** (real SimpleFIN demo claim URL) + **Import CSV** free paths; demo guarded by confirm so it can't clobber a live connection. Per-user (each person's own token, stays on their Mac) — no enterprise/aggregator plan, no shared tokens (2026-06-25)
 - [x] In-app **Update app** button (Menu → ⟳) — `/api/update` does `git pull --ff-only origin main` then restarts; works for anyone running a clone, so pushed updates land with one click (2026-06-25)
 - [x] Friend onboarding guide — `SETUP.md` (clone → start.command → demo data or own bank → Update app); each person runs their OWN local copy, data stays on their machine (2026-06-25)
 - [x] Fixed local git corruption — stray macOS dup refs `refs/heads/main 2` + `refs/remotes/origin/main 2` (zero-SHA) broke every fetch/pull; removed (2026-06-25)
-- [ ] DECISION: make the code repo public (no data in it — safe) OR add friend as collaborator, so their clone + Update button can pull without auth friction
+- [x] Repo made PUBLIC (2026-06-25) — verified zero data/secrets ever committed (full-history scan); code-only, all data gitignored. Friend can clone + Update with no auth
 - [ ] Optional: an `install.command` that clones + sets up the auto-start LaunchAgent for a non-technical friend
 
 ## Mobile

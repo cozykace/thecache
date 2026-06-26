@@ -19,7 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOKEN_FILE = os.path.join(HERE, ".toggl")
 OUT = os.path.join(HERE, "data", "toggl.json")
 API = "https://api.track.toggl.com/api/v9"
-UA = "suffering-goat/1.0"
+UA = "thecache/1.0"
 
 
 def _token():

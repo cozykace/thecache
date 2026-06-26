@@ -1,4 +1,4 @@
-# Money — working conventions
+# THE CACHE — working conventions
 
 A local, private finance cockpit. Plain HTML/CSS/JS served by a Python stdlib backend. No build step, no framework. Read this before touching the code.
 

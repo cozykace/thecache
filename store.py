@@ -1,5 +1,5 @@
 """
-Money — shared data layer (stdlib only). Used by both sync.py (pull from
+THE CACHE — shared data layer (stdlib only). Used by both sync.py (pull from
 the bank) and server.py (serve + edit). Owns categorization, the spending
 summary, and all the local data files under data/.
 

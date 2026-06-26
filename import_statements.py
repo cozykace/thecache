@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Money — import bank statements (CSV) into your local ledger.
+THE CACHE — import bank statements (CSV) into your local ledger.
 
 WHY: SimpleFIN auto-syncs your connected banks already. Use this only for
 accounts it can't reach (e.g. Petal) or for older history beyond ~90 days.

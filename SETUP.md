@@ -1,6 +1,6 @@
-# Try SUFFERING GOAT (setup for a friend)
+# Try THE CACHE (setup for a friend)
 
-A private, local money dashboard. **It runs entirely on your own Mac — your financial data never leaves your machine and is never sent to me or anyone else.** You're running your own copy.
+A private, local money dashboard (**thecache.app**). **It runs entirely on your own Mac — your financial data never leaves your machine and is never sent to me or anyone else.** You're running your own copy.
 
 ## What you need
 - A Mac (macOS). Python 3 and git ship with Apple's Command Line Tools — if a step says they're missing, run `xcode-select --install` once.
@@ -9,28 +9,21 @@ A private, local money dashboard. **It runs entirely on your own Mac — your fi
 ## 1. Get the app
 Open **Terminal** and run:
 ```
-git clone https://github.com/cozykace/goat ~/goat
-cd ~/goat
+git clone https://github.com/cozykace/thecache ~/thecache
+cd ~/thecache
 ```
 
 ## 2. Start it
-Double-click **`start.command`** in the `~/goat` folder (or run `python3 server.py`). Keep that window open — closing it stops the app. Then open **http://localhost:5173** in your browser.
+Double-click **`start.command`** in the `~/thecache` folder (or run `python3 server.py`). Keep that window open — closing it stops the app. Then open **http://localhost:5173** in your browser.
 
-## 3. See it with demo data first (no bank needed)
-To just look around, connect SimpleFIN's free demo:
-```
-python3 sync.py setup demo
-python3 sync.py
-```
-Reload the page — you'll see sample accounts and spending. (Type `demo` literally; it uses SimpleFIN's public demo token.)
+## 3. Connect (all in the app — no Terminal)
+In the app, open the menu (**☰**) → **⚡ Connect a bank**. It walks you through it:
+- **Just looking?** Hit **Load demo data** — sample accounts, no bank, free.
+- **Your own bank?** Make a **SimpleFIN Bridge** account (~$15/yr) at [bridge.simplefin.org](https://bridge.simplefin.org), connect your bank there, click **New app connection** to get your **setup token**, then paste it into the app and hit **Connect**.
 
-## 4. Connect your own bank (when ready)
-SimpleFIN Bridge (~$15/yr) is the bank connection. Get a **setup token** from your SimpleFIN account, then:
-```
-python3 sync.py setup <YOUR-TOKEN>
-python3 sync.py
-```
-Your token is saved to `.simplefin` (gitignored, never shared). Toggl time-tracking is optional — drop your API token in a file named `.toggl` and run `python3 toggl_sync.py`.
+Your setup token is *yours alone* — never share it. It's exchanged for a read-only link saved to `.simplefin` on **your** Mac (gitignored, never uploaded). The app never sees your bank login.
+
+Toggl time-tracking is optional — drop your API token in a file named `.toggl` and run `python3 toggl_sync.py`.
 
 ## 5. Getting updates
 When the app gets new features, just open the in-app menu (☰) → **⟳ Update app**. It pulls the latest and reloads — no Terminal needed.

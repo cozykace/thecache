@@ -1,5 +1,5 @@
 // ============================================================
-//  Money — designed cursor: a 3D jelly ball.
+//  THE CACHE — designed cursor: a 3D jelly ball.
 //  One black sphere is the only cursor (native is hidden in CSS).
 //  It trails with a little lag, stretches in its direction of
 //  motion, squishes when pressed, and dents buttons inward like

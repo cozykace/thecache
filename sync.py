@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Money — balance sync (SimpleFIN). Pulls accounts + recent transactions and
+THE CACHE — balance sync (SimpleFIN). Pulls accounts + recent transactions and
 hands them to store.py, which categorizes and writes the local data files.
 Standard library only — nothing to install.
 

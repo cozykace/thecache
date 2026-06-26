@@ -1,5 +1,5 @@
 // ============================================================
-//  Money — widget board + sidebar engine. Plain JS, no build.
+//  THE CACHE — widget board + sidebar engine. Plain JS, no build.
 //
 //  • RENDERERS = how each widget TYPE draws itself
 //  • LIBRARY   = single-instance widgets you toggle on/off
@@ -1954,6 +1954,73 @@ window.addEventListener("beforeunload", saveStats);
 function applyPrivacy() {
   document.body.classList.toggle("privacy-on", localStorage.getItem("money.privacy") === "1");
 }
+// First-run coaching: how to set up the SimpleFIN bank connection, in-app (no Terminal).
+function openConnect() {
+  closeCategorizer();
+  const back = document.createElement("div");
+  back.className = "cat-backdrop"; back.id = "catBackdrop";
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) closeCategorizer(); });
+  const modal = document.createElement("div");
+  modal.className = "cat-modal connect-modal";
+  modal.innerHTML =
+    '<div class="cat-head"><span>Connect a bank</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="connect-body">' +
+      '<div class="cn-status">checking…</div>' +
+      '<div class="cn-intro">Bank data comes through <b>SimpleFIN Bridge</b> — a read-only service that <b>never hands the app your bank login</b>. The connection is stored only on this Mac. First time? Do this once:</div>' +
+      '<ol class="cn-steps">' +
+        '<li>Make a SimpleFIN account at <a href="https://bridge.simplefin.org" target="_blank" rel="noreferrer">bridge.simplefin.org</a> <span class="cn-dim">(~$15/yr — it protects your bank login)</span>.</li>' +
+        '<li>In SimpleFIN, connect your bank(s).</li>' +
+        '<li>Click <b>New app connection</b> → it shows a long <b>setup token</b>.</li>' +
+        '<li>Copy the <b>whole</b> token and paste it below.</li>' +
+      '</ol>' +
+      '<textarea class="cn-token" rows="3" placeholder="paste YOUR SimpleFIN setup token here (it stays on this Mac)"></textarea>' +
+      '<button class="cn-connect">Connect &amp; sync</button>' +
+      '<div class="cn-or">— or, free, no bank —</div>' +
+      '<div class="cn-alts">' +
+        '<button class="cn-demo">Load demo data</button>' +
+        '<button class="cn-csv">Import a bank CSV</button>' +
+      '</div>' +
+      '<div class="cn-result"></div>' +
+    '</div>';
+  document.body.appendChild(back);
+  document.body.appendChild(modal);
+  if (typeof makeModalResizable === "function") makeModalResizable(modal, "money.connect");
+  modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer());
+  const result = modal.querySelector(".cn-result");
+  const statusEl = modal.querySelector(".cn-status");
+  let connected = false;
+  fetch("/api/connect-status").then((r) => r.json()).then((d) => {
+    connected = !!(d && d.connected);
+    statusEl.innerHTML = connected
+      ? '<span class="cn-ok">✓ A bank is connected.</span> Paste a new token to reconnect, or just close this.'
+      : '<span class="cn-no">Not connected yet.</span> Follow the steps below.';
+  }).catch(() => { statusEl.textContent = ""; });
+  const doConnect = (body, label) => {
+    result.innerHTML = '<span class="cn-working">' + label + "…</span>";
+    fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.ok) {
+          result.innerHTML = '<span class="cn-ok">✓ Connected — ' + (d.accounts || 0) + " account(s), " + (d.transactions || 0) + " transactions.</span> Reloading…";
+          Store.refresh();
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          result.innerHTML = '<span class="cn-err">' + escapeHtml((d && d.error) || "Couldn’t connect.") + "</span>";
+        }
+      })
+      .catch(() => { result.innerHTML = '<span class="cn-err">Couldn’t reach the backend — is the server running?</span>'; });
+  };
+  modal.querySelector(".cn-connect").addEventListener("click", () => {
+    const tok = modal.querySelector(".cn-token").value.trim();
+    if (!tok) { result.innerHTML = '<span class="cn-err">Paste your setup token first.</span>'; return; }
+    doConnect({ token: tok }, "Connecting your bank");
+  });
+  modal.querySelector(".cn-demo").addEventListener("click", () => {
+    if (connected && !confirm("This replaces your current bank connection with sample demo data. Continue?")) return;
+    doConnect({ demo: true }, "Loading demo data");
+  });
+  modal.querySelector(".cn-csv").addEventListener("click", () => { closeCategorizer(); document.getElementById("importStatement").click(); });
+}
 function openSettings() {
   closeCategorizer();
   const back = document.createElement("div");
@@ -1970,6 +2037,13 @@ function openSettings() {
       '<label class="set-row"><span>Your name</span><input id="setName" type="text" value="' + escapeHtml(p.name || "") + '" placeholder="your name"></label>' +
       '<label class="set-row"><span>What you do</span><input id="setRole" type="text" value="' + escapeHtml(p.role || "") + '" placeholder="musician · gig work · freelance"></label>' +
       '<label class="set-row"><span>Note to self</span><input id="setNote" type="text" value="' + escapeHtml(p.note || "") + '" placeholder="optional"></label>' +
+      '<div class="set-sec">Bank connection</div>' +
+      '<div class="set-bank-status" id="setBankStatus">checking…</div>' +
+      '<div class="set-token-wrap"><input id="setToken" class="set-bank-input" type="password" placeholder="paste your SimpleFIN setup token">' +
+        '<button class="set-token-eye" id="setTokenEye" type="button" aria-label="Show/hide token"><i data-lucide="eye"></i></button></div>' +
+      '<div class="set-bank-row"><button class="set-bank-btn" id="setConnect">Connect &amp; sync</button>' +
+        '<button class="set-bank-help" id="setConnectHelp">Help &amp; demo</button></div>' +
+      '<div class="set-hint">Get a token from your SimpleFIN account → “New app connection”. It stays on this Mac, never shared. New here? Tap <b>Help &amp; demo</b> for steps + free sample data.</div>' +
       '<div class="set-sec">Safety buffer</div>' +
       '<label class="set-row"><span>Reserve (don’t-touch)</span><input id="setReserve" type="number" value="' + v("money.reserve") + '" placeholder="0"></label>' +
       '<label class="set-row"><span>Monthly need</span><input id="setNeed" type="number" value="' + v("money.need") + '" placeholder="auto from core"></label>' +
@@ -2013,6 +2087,36 @@ function openSettings() {
     localStorage.setItem("money.privacy", localStorage.getItem("money.privacy") === "1" ? "0" : "1");
     applyPrivacy(); paintPriv();
   });
+
+  // Bank connection — paste a SimpleFIN setup token right here
+  const bankStatus = modal.querySelector("#setBankStatus");
+  fetch("/api/connect-status").then((r) => r.json()).then((d) => {
+    bankStatus.innerHTML = d && d.connected
+      ? '<span style="color:#3f8f4e">✓ Connected</span>'
+      : '<span style="color:#c9542e">Not connected yet</span>';
+  }).catch(() => { bankStatus.textContent = ""; });
+  modal.querySelector("#setConnect").addEventListener("click", () => {
+    const tok = modal.querySelector("#setToken").value.trim();
+    if (!tok) { flash("Paste your SimpleFIN token first"); return; }
+    flash("Connecting your bank…");
+    fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: tok }) })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.ok) { flash("✓ Connected — " + (d.accounts || 0) + " account(s). Reloading…"); Store.refresh(); setTimeout(() => location.reload(), 1500); }
+        else { flash((d && d.error) || "Couldn’t connect"); }
+      })
+      .catch(() => flash("Couldn’t reach the backend"));
+  });
+  modal.querySelector("#setConnectHelp").addEventListener("click", () => openConnect());
+  const tokenInput = modal.querySelector("#setToken");
+  const eyeBtn = modal.querySelector("#setTokenEye");
+  eyeBtn.addEventListener("click", () => {
+    const show = tokenInput.type === "password";
+    tokenInput.type = show ? "text" : "password";
+    eyeBtn.innerHTML = '<i data-lucide="' + (show ? "eye-off" : "eye") + '"></i>';
+    drawIcons();
+  });
+  drawIcons();  // render the eye icon
 
   // Stats bar editor — add / remove the live numbers across the top
   const statsHost = modal.querySelector("#setStats");
@@ -3312,6 +3416,7 @@ function openBugReport() {
   input.focus();
   load();
 }
+document.getElementById("connectBank").addEventListener("click", () => { openConnect(); setSidebar(false); });
 document.getElementById("openSettings").addEventListener("click", () => { openSettings(); setSidebar(false); });
 document.getElementById("manageCats").addEventListener("click", () => { openCategoryManager(); setSidebar(false); });
 document.getElementById("reportBug").addEventListener("click", () => { openBugReport(); setSidebar(false); });
@@ -3651,7 +3756,7 @@ board.addEventListener("pointercancel", endPan);
 const serverBtn = document.getElementById("serverBtn");
 const serverText = serverBtn ? serverBtn.querySelector(".server-text") : null;
 function setServer(state) {
-  // mirror live status on the brand dot next to the SUFFERING GOAT title
+  // mirror live status on the brand dot next to the THE CACHE title
   const brandDot = document.querySelector(".brand-dot");
   if (brandDot) brandDot.dataset.state = state;
   if (!serverBtn) return;

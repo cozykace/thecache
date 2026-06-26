@@ -1,5 +1,5 @@
 /* ───────────────────────────────────────────────
-   Money — widget board + sidebar. Plain CSS.
+   THE CACHE — widget board + sidebar. Plain CSS.
    Widgets scale their contents with container queries.
    ─────────────────────────────────────────────── */
 
@@ -853,6 +853,47 @@ body.panning .cursor-ball { display: none !important; }
 
 /* ── Settings panel ── */
 .set-body { padding: 4px 16px 18px; display: flex; flex-direction: column; gap: 7px; overflow-y: auto; }
+
+/* Connect-a-bank coaching modal */
+.connect-body { padding: 12px 16px 18px; display: flex; flex-direction: column; gap: 11px; overflow-y: auto; }
+.cn-status { font-size: 12px; padding: 8px 10px; border-radius: 9px; background: rgba(var(--ink-rgb), 0.05); }
+.cn-ok { color: #3f8f4e; font-weight: 600; }
+.cn-no, .cn-err { color: #c9542e; font-weight: 600; }
+.cn-working { color: var(--accent); }
+.cn-intro { font-size: 12.5px; line-height: 1.6; color: rgba(var(--ink-rgb), 0.78); }
+.cn-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; line-height: 1.55; color: var(--ink); }
+.cn-steps a { color: var(--accent); }
+.cn-dim { color: rgba(var(--ink-rgb), 0.5); }
+.cn-token { width: 100%; box-sizing: border-box; resize: vertical; font-family: inherit; font-size: 12px;
+  padding: 9px 11px; border: 1px solid var(--edge); border-radius: 10px; background: var(--paper); color: var(--ink); }
+.cn-token:focus { outline: none; border-color: var(--accent); }
+.cn-connect { border: 1px solid var(--accent); background: var(--accent); color: var(--paper); cursor: pointer;
+  font-family: inherit; font-size: 13px; font-weight: 600; padding: 10px; border-radius: 10px; }
+.cn-connect:hover { filter: brightness(1.06); }
+.cn-or { text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: rgba(var(--ink-rgb), 0.4); }
+.cn-alts { display: flex; gap: 8px; }
+.cn-alts button { flex: 1; border: 1px solid var(--edge); background: var(--panel); color: var(--ink); cursor: pointer;
+  font-family: inherit; font-size: 11.5px; padding: 9px; border-radius: 9px; }
+.cn-alts button:hover { border-color: var(--accent); color: var(--accent); }
+.cn-result { font-size: 12.5px; line-height: 1.5; min-height: 1.2em; }
+
+/* Bank connection inside Settings */
+.set-bank-status { font-size: 11.5px; padding: 2px 0; }
+.set-token-wrap { position: relative; }
+.set-bank-input { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 12px; padding: 8px 38px 8px 10px;
+  border: 1px solid var(--edge); border-radius: 9px; background: var(--paper); color: var(--ink); }
+.set-bank-input:focus { outline: none; border-color: var(--accent); }
+.set-token-eye { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); border: none; background: none;
+  cursor: pointer; color: rgba(var(--ink-rgb), 0.5); padding: 5px; display: grid; place-items: center; }
+.set-token-eye:hover { color: var(--ink); }
+.set-token-eye i, .set-token-eye svg { width: 16px; height: 16px; }
+.set-bank-row { display: flex; gap: 8px; margin-top: 6px; }
+.set-bank-btn { flex: 1; border: 1px solid var(--accent); background: var(--accent); color: var(--paper); cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 600; padding: 8px; border-radius: 9px; }
+.set-bank-btn:hover { filter: brightness(1.06); }
+.set-bank-help { flex: 0 0 auto; border: 1px solid var(--edge); background: var(--panel); color: var(--ink); cursor: pointer;
+  font-family: inherit; font-size: 11.5px; padding: 8px 12px; border-radius: 9px; }
+.set-bank-help:hover { border-color: var(--accent); color: var(--accent); }
 .set-sec { font-size: 9px; text-transform: uppercase; letter-spacing: 0.16em; color: rgba(var(--ink-rgb), 0.42);
   padding: 12px 0 2px; border-top: 1px solid var(--edge-soft); margin-top: 4px; }
 .set-sec:first-child { border-top: none; margin-top: 0; padding-top: 4px; }

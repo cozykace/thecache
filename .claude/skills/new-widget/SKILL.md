@@ -1,11 +1,11 @@
 ---
 name: new-widget
-description: Scaffold a new widget/component on the Money dashboard. Use when adding any new board widget — gives the brick-by-brick recipe (renderer, library entry, optional backend data, styles, verify). Money project only.
+description: Scaffold a new widget/component on THE CACHE. Use when adding any new board widget — gives the brick-by-brick recipe (renderer, library entry, optional backend data, styles, verify). THE CACHE project only.
 ---
 
-# Add a new Money widget
+# Add a new widget to THE CACHE
 
-Follow these steps in order. Reuse existing patterns — don't invent new ones. Honor the rules in `money/CLAUDE.md` (privacy, lightweight, beauty, theme-aware colors, Lucide icons, user-is-the-eyes).
+Follow these steps in order. Reuse existing patterns — don't invent new ones. Honor the rules in `CLAUDE.md` (privacy, lightweight, beauty, theme-aware colors, Lucide icons, user-is-the-eyes).
 
 ## 1. Decide the data source
 - Already in `data/balances.json`? Just read it.

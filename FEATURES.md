@@ -1,6 +1,6 @@
-# Money — features
+# THE CACHE — features
 
-A living, product-facing list of what Money does — kept current as we ship, ready for when this goes live to other people.
+A living, product-facing list of what THE CACHE does — kept current as we ship, ready for when this goes live to other people.
 
 _Last updated: 2026-06-20_
 
@@ -48,6 +48,8 @@ _Last updated: 2026-06-20_
 
 ## Your data, owned
 - **Data coverage** — see exactly what data you have and where it's from: the live-sync window (how far back it reaches) plus each account's date range, transaction count, and source (synced vs. imported). Every month shows its own count and source too.
+- **Guided bank connection** — a menu panel walks you through connecting your bank via SimpleFIN (a read-only service that never gets your bank login), with a one-click demo-data option to try it first. Your connection lives only on your machine.
+- **One-click updates** — when there's a new version, hit Update in the menu and it pulls the latest and reloads.
 - **Permanent ledger** — nothing is lost once it's synced.
 - **Daily local backups.**
 - **Plain files you own** — your data is simple JSON on your disk.

@@ -1,6 +1,6 @@
 ---
 name: new-tagger
-description: Add a user-editable "tagger" to the dashboard — a way for the user to override/classify some dimension of their data (like categories, income, subscriptions) that persists locally and flows through the whole system. Use when adding any new override/classification the user controls. Goat project only.
+description: Add a user-editable "tagger" to the dashboard — a way for the user to override/classify some dimension of their data (like categories, income, subscriptions) that persists locally and flows through the whole system. Use when adding any new override/classification the user controls. THE CACHE project only.
 ---
 
 # Add a tagger
