@@ -19,7 +19,7 @@ _Last updated: 2026-06-20_
 - **Clean merchant names** — raw bank gibberish ("Web Authorized Pmt Ventura Llc") is auto-tidied to readable names ("Ventura") everywhere, without changing the underlying data; your own renames always win.
 
 ## Understand your income
-- **Auto-detected income** with gig/payroll smarts (Instacart, paychecks, and more).
+- **Auto-detected income** with gig/payroll smarts (delivery, rideshare, paychecks, and more).
 - **Define income your way** — tag which deposits actually count (and which are just paybacks); your call sticks for future deposits from that source.
 - **Link income to your work** — connect an income source to the Toggl project that earns it; the Money Map then shows that project's hours next to the money, so pay lines up with effort.
 - **Income at a glance** — each source is a labeled badge with its own icon (a guitar for music money, a cart for gig work) and a checkmark once you've confirmed it.

@@ -66,7 +66,7 @@ function windowRange(updatedISO, windowDays) {
   return f(start) + " – " + f(end);
 }
 
-// strip bank noise so labels read like a person ("Electronic Deposit John Page" → "John Page")
+// strip bank noise so labels read like a person ("Electronic Deposit Acme Co" → "Acme Co")
 function incomeLabel(name) {
   let s = String(name || "").trim();
   s = s.replace(/^(electronic|direct|mobile|ach|online|recurring)?\s*deposit\s*/i, "");
@@ -78,7 +78,7 @@ function incomeLabel(name) {
 // the Icon Library). Add a line here whenever a new kind of income shows up.
 function incomeIcon(name) {
   const s = String(name || "").toLowerCase();
-  if (/john page|jpg|music|guitar|band|gig|royalt|spotify|bandcamp|distrokid|tunecore|ascap|bmi/.test(s))
+  if (/music|guitar|band|gig|royalt|spotify|bandcamp|distrokid|tunecore|ascap|bmi/.test(s))
     return "guitar";
   if (/instacart|doordash|ubereats|uber|lyft|grubhub|shipt|batch|delivery/.test(s))
     return "shopping-cart";
@@ -317,8 +317,8 @@ function subName(item) {
 }
 function setSubName(key, alias) { setSubField(key, "name", (alias || "").trim()); }
 
-// Typical Instacart busy windows (general demand patterns, not your market).
-const INSTACART_WINDOWS = [
+// Typical gig busy windows (general demand patterns, not your market).
+const GIG_WINDOWS = [
   { days: [0], sh: 11, eh: 16, label: "Sunday rush" },
   { days: [6], sh: 10, eh: 15, label: "Saturday rush" },
   { days: [5], sh: 16, eh: 20, label: "Friday dinner" },
@@ -329,7 +329,7 @@ function nextBusyWindow() {
   let best = null;
   for (let i = 0; i < 8; i++) {
     const day = new Date(now); day.setDate(now.getDate() + i);
-    INSTACART_WINDOWS.forEach((w) => {
+    GIG_WINDOWS.forEach((w) => {
       if (!w.days.includes(day.getDay())) return;
       const start = new Date(day); start.setHours(w.sh, 0, 0, 0);
       const end = new Date(day); end.setHours(w.eh, 0, 0, 0);
@@ -674,8 +674,8 @@ const RENDERERS = {
         const gap = S ? Math.max(0, needOf(S) - base) : 0;
         const hrs = Math.max(0, Math.min(40, Math.round(gap / (rate * 52 / 12))));
         sources = [
-          { id: "jpg", name: "John Page Guitars", mode: "monthly", value: base || 2000, max: Math.max(5000, (base || 2000) * 2) },
-          { id: "instacart", name: "Instacart", mode: "hourly", rate: rate, value: hrs, max: 40 },
+          { id: "retainer", name: "Monthly retainer", mode: "monthly", value: base || 2000, max: Math.max(5000, (base || 2000) * 2) },
+          { id: "gig", name: "Gig work", mode: "hourly", rate: rate, value: hrs, max: 40 },
         ];
         persist();
       }
@@ -1005,7 +1005,7 @@ const RENDERERS = {
         sub.innerHTML = "everything funded · " + fmtUSD(leftover) + " to spare";
       } else {
         big.textContent = fmtUSD(totalShort) + " to earn"; big.style.color = "#c9542e";
-        sub.innerHTML = "≈ <b>" + S.hrs + " hrs</b> of Instacart";
+        sub.innerHTML = "≈ <b>" + S.hrs + " hrs</b> of gig work";
       }
       poolEl.innerHTML = rentBal !== null
         ? "Rent ← <b>" + escapeHtml(rentLabel) + " " + fmtUSD(rentBal) + "</b> · rest ← <b>" + fmtUSD(pool) + "</b>"
@@ -1035,10 +1035,10 @@ const RENDERERS = {
       say.textContent = !a.hasMustpays
         ? "Hit ‘build’ up top to set your income and star your must-pay bills — they’re pulled from your bank with exact amounts, so the plan stays accurate. Everyday spending below is estimated from your history."
         : a.covered
-        ? "This month is fully funded — any Instacart you work is pure cushion." +
+        ? "This month is fully funded — any gig work you do is pure cushion." +
           (next && !next.covered ? " Next month needs about " + next.hrs + " hours to stay ahead." : "")
         : "This month you're " + fmtUSD(a.totalShort) + " short — about " + a.hrs +
-          " hours of Instacart, anything beyond that you keep." +
+          " hours of gig work, anything beyond that you keep." +
           (next && next.totalShort > a.totalShort ? " Next month climbs to " + fmtUSD(next.totalShort) + "." : "") +
           (igMissing ? " ⚠ Set your Guaranteed income in Settings or this uses your (variable) recent income." : "");
     }
@@ -1064,7 +1064,7 @@ const RENDERERS = {
         '<div class="bg-build-scroll">' +
           '<div class="bg-sec">Reliable income</div>' +
           '<label class="bg-field"><span>Guaranteed /mo</span><input class="bg-guar" type="number" value="' + v("money.guaranteedIncome") + '" placeholder="your dependable base"></label>' +
-          '<div class="bg-hint">music, retainers, base pay — what you can count on. <b>Not</b> Instacart / variable side work.</div>' +
+          '<div class="bg-hint">music, retainers, base pay — what you can count on. <b>Not</b> gig / variable side work.</div>' +
           '<div class="bg-sec">Rent</div>' +
           '<label class="bg-field"><span>Amount</span><input class="bg-rentamt" type="number" value="' + (rent.amount || "") + '" placeholder="e.g. 1388"></label>' +
           '<label class="bg-field"><span>Due day</span><input class="bg-rentday" type="number" min="1" max="31" value="' + (rent.day || "") + '" placeholder="1"></label>' +
@@ -1074,7 +1074,7 @@ const RENDERERS = {
           '</select></label>' +
           '<div class="bg-sec">Side-gig rate</div>' +
           '<label class="bg-field"><span>$ / hr after gas</span><input class="bg-rate" type="number" value="' + v("money.rate") + '" placeholder="25"></label>' +
-          '<div class="bg-hint">turns your shortfall into Instacart hours.</div>' +
+          '<div class="bg-hint">turns your shortfall into gig hours.</div>' +
           '<div class="bg-sec">Must-pay bills <span class="bg-sec-note">defined in your Money Map</span></div>' +
           '<div class="bg-mustpays">' + mpList + "</div>" +
           '<button class="bg-open-map" type="button">⊞ Open Money Map to choose bills →</button>' +
@@ -1270,7 +1270,7 @@ const RENDERERS = {
         '<span class="bd-amt">' + fmtUSD(val) + '</span></div>';
     }
     function render() {
-      const income = guaranteedIncome(data);  // reliable base, not variable Instacart
+      const income = guaranteedIncome(data);  // reliable base, not variable gig work
       const need = monthlyNeed(data);
       const g = need - income;
       num.textContent = fmtUSD(Math.abs(g));
@@ -1325,7 +1325,7 @@ const RENDERERS = {
       return s !== null ? (parseFloat(s) || 0) : Math.round(spend);
     };
     function render() {
-      const income = guaranteedIncome(data);  // reliable base, not variable Instacart
+      const income = guaranteedIncome(data);  // reliable base, not variable gig work
       const gap = monthlyNeed(data) - income;
       const rate = rateOf();
       rateBtn.textContent = "rate: " + fmtUSD(rate) + "/hr ✎";
@@ -1343,11 +1343,11 @@ const RENDERERS = {
       big.style.color = "var(--ink)";
       sub.textContent = "≈ " + Math.round(hoursMo) + " hours this month";
       const shifts = Math.max(1, Math.round(hoursWk / 4));
-      detail.innerHTML = "to make <b>" + fmtUSD(gap) + "</b> on Instacart<br>" +
+      detail.innerHTML = "to make <b>" + fmtUSD(gap) + "</b> on gig work<br>" +
         "≈ " + shifts + " shift" + (shifts > 1 ? "s" : "") + " of ~" + Math.round(hoursWk / shifts) + "h a week";
     }
     rateBtn.addEventListener("click", () => {
-      const v = prompt("Your Instacart $/hour (after gas/expenses)?", String(rateOf()));
+      const v = prompt("Your gig $/hour (after gas/expenses)?", String(rateOf()));
       if (v !== null) {
         localStorage.setItem(RATE_KEY, String(parseFloat(v.replace(/[^0-9.]/g, "")) || 0));
         Store.emit();
@@ -1424,7 +1424,7 @@ const RENDERERS = {
         list.innerHTML =
           row("Income in", fmtUSD(a.income) + "/mo", "#3f8f4e") +
           row("Spending out", fmtUSD(a.spend) + "/mo", "#c9542e") +
-          row("Instacart", fmtUSD(a.instacart) + "/mo") +
+          row("Gig work", fmtUSD(a.instacart) + "/mo") +
           row("Subscriptions", fmtUSD(a.subscriptions) + "/mo") +
           row("Spend / day", fmtUSD(a.per_day));
       }).catch(() => { big.textContent = "—"; sub.textContent = "no data · run sync"; list.innerHTML = ""; });
@@ -1907,7 +1907,7 @@ function planSummary(d, monthOffset) {
     leftover, hasMustpays: bills.length > 0 };
 }
 // guaranteed (reliable) monthly income — NOT variable side-gig. The plan funds from
-// this so the shortfall shows how much Instacart/side work you actually need.
+// this so the shortfall shows how much gig/side work you actually need.
 function guaranteedIncome(d) {
   const g = parseFloat(localStorage.getItem("money.guaranteedIncome"));
   if (g > 0) return g;
@@ -2496,10 +2496,10 @@ const WIDGET_INFO = {
     "<p><b>Two modes.</b> <b>Plan</b> shows what you need to earn; <b>build</b> is where you set everything — your guaranteed income, rent, hourly rate, and which bank-detected bills are must-pays. Nothing lives in Settings anymore.</p>" +
     "<p><b>Must-pays are exact.</b> In build, star the recurring charges you have to pay — amounts come straight from your statements, nothing typed. Back in plan, drag them to rank what matters most.</p>" +
     "<p><b>The waterfall:</b> your money pours into that ranked list top-down until it runs out. Whatever's below the cutline is what you're short.</p>" +
-    "<p><b>Rent is earmarked</b> — funded ONLY from the account it lives in (Settings). Everything else is funded from your other cash + your <b>guaranteed income</b> (your reliable base, NOT variable Instacart).</p>" +
+    "<p><b>Rent is earmarked</b> — funded ONLY from the account it lives in (Settings). Everything else is funded from your other cash + your <b>guaranteed income</b> (your reliable base, NOT variable gig work).</p>" +
     "<p><b>Everyday spending</b> (food, etc.) sits below as an <b>estimate</b> from your history — clearly separated from the exact bills, ranked last.</p>" +
     "<p><b>This month is the hero</b> up top — it marks bills ✓ paid once they've already charged, so they stop counting against you. <b>Next month</b> is the peek bar below (tap to expand); it shows everything still due.</p>" +
-    "<p>The shortfall is the money you actually need from side work — shown as <b>Instacart hours</b> (shortfall ÷ your rate, set in Settings).</p>",
+    "<p>The shortfall is the money you actually need from side work — shown as <b>gig hours</b> (shortfall ÷ your rate, set in Settings).</p>",
   whatsnext:
     "<p><b>Anchored on rent</b> — your top priority bill. Set the amount + due day in <b>Settings → Rent</b>.</p>" +
     "<p><b>Due date</b> = next time the due-day comes around. <b>Days</b> = until then.</p>" +
@@ -2526,7 +2526,7 @@ const WIDGET_INFO = {
   averages:
     "<p><b>Source:</b> your full ledger, bucketed by calendar month (the partial current month is skipped).</p>" +
     "<p>Each row = the <b>average across those months</b>. Spending <b>excludes transfers</b>.</p>" +
-    "<p><b>Instacart</b> = deposits containing “instacart”. <b>Shortfall</b> = avg spend − avg income.</p>",
+    "<p><b>Gig work</b> = deposits from gig platforms (delivery, rideshare, etc.). <b>Shortfall</b> = avg spend − avg income.</p>",
   worklog:
     "<p><b>Source:</b> Toggl hours (<code>toggl_sync.py</code> → <code>toggl.json</code>) paired with <b>real income from your ledger</b> over the same window.</p>" +
     "<p><b>Worked</b> = sum of this month's Toggl durations (a running timer counts now − start).</p>" +
@@ -2549,7 +2549,7 @@ const WIDGET_INFO = {
     "<p><b>Bubbles on the connectors</b> = recurring transfers detected from your ledger (exact amounts). They appear once you have transfers that repeat.</p>" +
     "<p><b>hide cards</b> collapses credit cards for a cash-only view. Card balances show in red (debt owed).</p>",
   incomeforecast:
-    "<p><b>Slide to see the future.</b> Drag the slider to set how many hours of side work (Instacart) you'd do per week — the chart re-tilts live.</p>" +
+    "<p><b>Slide to see the future.</b> Drag the slider to set how many hours of side work you'd do per week — the chart re-tilts live.</p>" +
     "<p>The line is your <b>cushion over the next 6 months</b>, starting from your cash now. Its slope = your monthly surplus: <b>income − needs</b>. Rising green = you're building savings; falling red = you're draining.</p>" +
     "<p><b>Income</b> = your guaranteed base + (hours/wk × your $/hr rate, set in Budget → build). <b>Needs</b> = the essentials you must clear — your must-pay bills + food — not discretionary spending.</p>" +
     "<p>The dashed line marks today's cash. It opens on the hours that break even — slide up from there to watch your cushion grow.</p>",

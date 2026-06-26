@@ -56,9 +56,9 @@
   var income = {
     window_days: 30, total: 3200, per_month: 3200, untagged: 0,
     sources: [
-      { source: "John Page Guitars", key: "john-page", amount: 1800, tagged: true },
-      { source: "Instacart",         key: "instacart", amount: 980,  tagged: true },
-      { source: "Freelance",         key: "freelance", amount: 420,  tagged: true },
+      { source: "Lakeside Studio", key: "retainer",  amount: 1800, tagged: true },
+      { source: "Gig work",        key: "gig",       amount: 980,  tagged: true },
+      { source: "Freelance",       key: "freelance", amount: 420,  tagged: true },
     ],
   };
   var subscriptions = {
@@ -105,9 +105,9 @@
     month: { hours: 72, earned: 1728 },
     running: { description: "", elapsed_hours: 0 },
     projects_month: [
-      { name: "Instacart Batching", hours: 40 },
-      { name: "John Page Guitars",  hours: 22 },
-      { name: "Freelance",          hours: 10 },
+      { name: "Gig batches",     hours: 40 },
+      { name: "Lakeside Studio", hours: 22 },
+      { name: "Freelance",       hours: 10 },
     ],
   };
 
@@ -140,10 +140,10 @@
   ] };
 
   var deposits = { deposits: [
-    { source: "John Page Guitars", key: "john-page", amount: 1800, status: "income", tagged: true },
-    { source: "Instacart",         key: "instacart", amount: 660,  status: "income", tagged: true },
-    { source: "Branch (Instacart cashout)", key: "branch", amount: 320, status: "income", tagged: true },
-    { source: "Freelance",         key: "freelance", amount: 420,  status: "income", tagged: true },
+    { source: "Lakeside Studio", key: "retainer",  amount: 1800, status: "income", tagged: true },
+    { source: "Gig work",        key: "gig",       amount: 660,  status: "income", tagged: true },
+    { source: "Instant cashout", key: "cashout",   amount: 320,  status: "income", tagged: true },
+    { source: "Freelance",       key: "freelance", amount: 420,  status: "income", tagged: true },
   ] };
 
   var merchants = { merchants: [
