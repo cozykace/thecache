@@ -961,6 +961,7 @@ body.panning .cursor-ball { display: none !important; }
 
 /* greeting in the sidebar */
 .sidebar-greeting { padding: 14px 16px 4px; font-size: 13px; color: var(--accent); letter-spacing: 0.01em; }
+.founder-compliment { display: block; font-size: 11px; color: rgba(var(--ink-rgb), 0.55); font-style: italic; margin-top: 3px; letter-spacing: 0; line-height: 1.4; }
 .sidebar-xp { padding: 4px 16px 12px; font-size: 11px; color: rgba(var(--ink-rgb), 0.5); letter-spacing: 0.04em; }
 .sidebar-xp b { color: var(--accent); font-variant-numeric: tabular-nums; }
 /* your cache, as a character — name + level + title + XP toward the next level */
@@ -1266,14 +1267,20 @@ body.sidebar-open .sidebar { transform: none; }
           mask: url("av%20assets/THECACHE_LOGO_WHITE.png") left center / contain no-repeat;
   transition: background-color 0.2s ease;
 }
+.brand-name {
+  font-family: "Special Gothic Expanded One", system-ui, sans-serif;
+  font-size: 15px; letter-spacing: 0.02em; color: var(--ink); line-height: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px;
+}
 .brand-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 9px; vertical-align: middle; flex-shrink: 0; transition: background 0.2s ease; }
 .brand-dot[data-state="live"] { background: #3f8f4e; }
 .brand-dot[data-state="stale"] { background: #d6920f; }
 .brand-dot[data-state="down"] { background: #c9542e; }
 .sidebar-version {
-  padding: 12px 16px; font-size: 11px; letter-spacing: 0.04em; font-weight: 500;
-  color: var(--accent); border-top: 1px solid var(--edge-soft); flex-shrink: 0;
+  padding: 12px 16px; border-top: 1px solid var(--edge-soft); flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px;
 }
+.ver-url { font-size: 10px; letter-spacing: 0.04em; color: rgba(var(--ink-rgb), 0.4); }
 .sidebar-close { border: none; background: none; cursor: pointer; color: rgba(var(--ink-rgb), 0.45); font-size: 13px; padding: 4px 6px; border-radius: 6px; }
 .sidebar-close:hover { color: var(--accent); background: rgba(var(--ink-rgb), 0.06); }
 
@@ -1346,6 +1353,22 @@ body.sidebar-open .sidebar { transform: none; }
   border: 1px solid var(--edge); background: var(--panel); color: rgba(var(--ink-rgb), 0.7); white-space: nowrap; }
 .set-tier-opt:hover { border-color: var(--accent); color: var(--accent); }
 .set-tier-opt.on { background: var(--accent); color: var(--paper); border-color: var(--accent); font-weight: 600; }
+/* character ledger modal */
+.char-body { padding: 14px 16px 16px; }
+.char-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+.char-stat { text-align: center; background: var(--panel); border: 1px solid var(--edge-soft); border-radius: 10px; padding: 8px 4px; }
+.char-stat b { display: block; font-size: 15px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.char-stat span { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(var(--ink-rgb), 0.5); }
+.char-bar { height: 7px; border-radius: 999px; background: rgba(var(--ink-rgb), 0.12); overflow: hidden; }
+.char-bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.char-since { font-size: 10.5px; color: rgba(var(--ink-rgb), 0.5); margin: 6px 0 4px; font-variant-numeric: tabular-nums; }
+.char-sec { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(var(--ink-rgb), 0.5); margin: 12px 0 6px; }
+.char-ev { display: flex; align-items: baseline; gap: 9px; padding: 6px 0; border-bottom: 1px solid var(--edge-soft); font-size: 12.5px; }
+.char-ev:last-child { border-bottom: none; }
+.char-ev-i { flex-shrink: 0; }
+.char-ev-d { flex: 1; color: var(--ink); }
+.char-ev-t { color: rgba(var(--ink-rgb), 0.45); font-size: 10.5px; white-space: nowrap; }
+.char-empty { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.55); line-height: 1.6; padding: 8px 0; }
 .lib-label { flex: 1; }
 .lib-state { text-transform: uppercase; letter-spacing: 0.12em; font-size: 9px; color: rgba(var(--ink-rgb), 0.4); }
 

@@ -2063,6 +2063,25 @@ function guaranteedIncome(d) {
 }
 function ordinal(n) { const s = ["th", "st", "nd", "rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 function setProfile(p) { localStorage.setItem("money.profile", JSON.stringify(p)); updateGreeting(); }
+// Founder mode: a goofy compliment under the greeting, just for Cozy K Ace.
+function isFounder() {
+  if (localStorage.getItem("money.founder") === "1") return true;
+  const n = (getProfile().name || "").toLowerCase().trim();
+  return ["cozy k ace", "cozy", "king cozy", "cozyace", "cozy ace"].includes(n);
+}
+const FOUNDER_COMPLIMENTS = [
+  "your code slaps harder than your morning coffee ☕",
+  "certified menace to bad UX 😼",
+  "100% of caches surveyed agree: you're the GOAT 🐐",
+  "the dollar bills fear you 💸",
+  "built different, debugging differenter 🛠",
+  "your git history is basically poetry 📜",
+  "the bugs file restraining orders against you 🐛🚫",
+  "objectively too powerful for one menu pane ⚡",
+  "you could ship a feature in your sleep (please sleep tho) 😴",
+  "ssh… the widgets whisper your name",
+  "founder, artist, and full-time legend — no notes 👑",
+];
 function updateGreeting() {
   const g = document.getElementById("greeting");
   if (!g) return;
@@ -2070,8 +2089,11 @@ function updateGreeting() {
   const h = new Date().getHours();
   const part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
   const name = (p.name || "").trim().replace(/\b\w/g, (m) => m.toUpperCase());
-  g.textContent = name ? "Good " + part + ", " + name + "." : "";
-  g.style.display = name ? "" : "none";
+  if (!name) { g.textContent = ""; g.style.display = "none"; return; }
+  let html = "Good " + part + ", " + escapeHtml(name) + ".";
+  if (isFounder()) html += '<span class="founder-compliment">' + escapeHtml(FOUNDER_COMPLIMENTS[Math.floor(Math.random() * FOUNDER_COMPLIMENTS.length)]) + "</span>";
+  g.innerHTML = html;
+  g.style.display = "";
 }
 
 // ── Gamification: every click banks 1 EXP into your profile's stats ──
@@ -2093,6 +2115,8 @@ function getCacheName() {
 function setCacheName(n) {
   try { if (n && n.trim()) localStorage.setItem("money.cacheName", n.trim()); else localStorage.removeItem("money.cacheName"); } catch (e) {}
 }
+// the menu header shows the cache's name as text (free Google font); the logo lives in the footer
+function renderBrand() { const b = document.getElementById("brandName"); if (b) b.textContent = getCacheName(); }
 const CACHE_TITLES = ["Newcomer", "Tracker", "Saver", "Planner", "Strategist", "Steward", "Tactician", "Architect", "Sage", "Legend"];
 function cacheLevel(exp) {
   const base = 60, x = exp || 0;
@@ -2106,6 +2130,58 @@ function cacheLevel(exp) {
   };
 }
 let _charLevel = -1;
+// ── Cache character ledger: an append-only log of feats/events (what + when), so
+//    character-building is as rock-solid + auditable as the money ledger. ──
+const CHARLOG_KEY = "money.charLog", CHARSINCE_KEY = "money.charSince";
+function charLog() { try { return JSON.parse(localStorage.getItem(CHARLOG_KEY) || "[]"); } catch (e) { return []; } }
+function charSince() {
+  let s = localStorage.getItem(CHARSINCE_KEY);
+  if (!s) { s = String(Date.now()); localStorage.setItem(CHARSINCE_KEY, s); }
+  return +s;
+}
+function logChar(kind, detail) {
+  const log = charLog();
+  log.push({ k: kind, d: detail, t: Date.now() });
+  try { localStorage.setItem(CHARLOG_KEY, JSON.stringify(log.slice(-800))); } catch (e) {}
+}
+function agoStr(ts) {
+  const s = (Date.now() - ts) / 1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  if (s < 172800) return "yesterday";
+  if (s < 604800) return Math.floor(s / 86400) + "d ago";
+  return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+const CHAR_ICON = { level: "🎉", widget: "➕", sync: "🔌", feat: "⭐", note: "📌" };
+function openCharLog() {
+  const back = document.createElement("div"); back.className = "cat-backdrop";
+  const modal = document.createElement("div"); modal.className = "cat-modal char-modal";
+  const close = () => { back.remove(); modal.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  const L = cacheLevel(PROFILE_STATS.exp);
+  const log = charLog().slice().reverse();
+  const rows = log.length
+    ? log.map((ev) => '<div class="char-ev"><span class="char-ev-i">' + (CHAR_ICON[ev.k] || "•") + "</span>" +
+        '<span class="char-ev-d">' + escapeHtml(ev.d) + '</span><span class="char-ev-t">' + agoStr(ev.t) + "</span></div>").join("")
+    : '<div class="char-empty">Your journey is just beginning — do the work and it fills in here.</div>';
+  const since = new Date(charSince()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  modal.innerHTML =
+    '<div class="cat-head"><span>' + L.emoji + " " + escapeHtml(getCacheName()) + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="char-body">' +
+      '<div class="char-stats">' +
+        '<div class="char-stat"><b>Lvl ' + L.lvl + "</b><span>" + escapeHtml(L.title) + "</span></div>" +
+        '<div class="char-stat"><b>' + PROFILE_STATS.exp.toLocaleString() + "</b><span>EXP</span></div>" +
+        '<div class="char-stat"><b>' + (PROFILE_STATS.clicks || 0).toLocaleString() + "</b><span>interactions</span></div>" +
+        '<div class="char-stat"><b>' + log.length + "</b><span>feats logged</span></div>" +
+      "</div>" +
+      '<div class="char-bar"><span style="width:' + (L.pct * 100).toFixed(1) + '%"></span></div>' +
+      '<div class="char-since">since ' + since + " · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1) + "</div>" +
+      '<div class="char-sec">Your ledger</div>' + rows +
+    "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", close);
+}
 function renderCharacter() {
   const e = document.getElementById("sidebarXp");
   if (!e) return;
@@ -2119,18 +2195,24 @@ function renderCharacter() {
       '<div class="cc-bar"><span class="cc-fill" style="width:' + (L.pct * 100).toFixed(1) + '%"></span></div>' +
       '<div class="cc-xp"><b>' + PROFILE_STATS.exp.toLocaleString() + "</b> EXP · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1) + "</div>" +
     "</div>";
+  const card = e.querySelector(".cache-char");
+  if (card) { card.style.cursor = "pointer"; card.title = "open your character ledger"; card.addEventListener("click", openCharLog); }
   const nameBtn = e.querySelector(".cc-name");
-  if (nameBtn) nameBtn.addEventListener("click", () => {
+  if (nameBtn) nameBtn.addEventListener("click", (ev) => {
+    ev.stopPropagation();  // don't open the ledger when renaming
     const v = prompt("Name your cache (this is yours — call it whatever you want):", getCacheName());
     if (v === null) return;
-    setCacheName(v); renderCharacter();
+    setCacheName(v); renderCharacter(); renderBrand();
   });
 }
 function updateXp() {
   const e = document.getElementById("sidebarXp");
   if (e) {
     const L = cacheLevel(PROFILE_STATS.exp);
-    if (L.lvl !== _charLevel || !e.querySelector(".cache-char")) renderCharacter();  // level-up → rebuild
+    if (L.lvl !== _charLevel || !e.querySelector(".cache-char")) {  // level-up → rebuild + log the feat
+      if (_charLevel >= 1 && L.lvl > _charLevel) logChar("level", "Reached Lvl " + L.lvl + " — " + L.title);
+      renderCharacter();
+    }
     else {  // in place on every click — no thrash
       const fill = e.querySelector(".cc-fill"); if (fill) fill.style.width = (L.pct * 100).toFixed(1) + "%";
       const xp = e.querySelector(".cc-xp"); if (xp) xp.innerHTML = "<b>" + PROFILE_STATS.exp.toLocaleString() + "</b> EXP · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1);
@@ -3002,6 +3084,7 @@ function addSingleton(type) {
   springIn(nodes[type]);
   saveLayout();
   renderLibrary();
+  logChar("widget", "Added the " + ((def && def.title) || type) + " widget");
 }
 function placeSticker(name, x, y) {
   const id = "sticker-" + name + "-" + stickerSeq++;
@@ -4800,5 +4883,6 @@ updateGreeting();
 updateXp();
 renderTrust();
 applyTier();
+renderBrand();
 requestAnimationFrame(reflowBelowStats);  // once the stats bar has measured, clear the top band
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint
