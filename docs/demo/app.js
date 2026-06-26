@@ -569,6 +569,13 @@ const RENDERERS = {
         .then((d) => { if (d && d.months) { histData = d; if (Store.data) paint(Store.data); } })
         .catch(() => {});
     }
+    let workMonthly = null;   // { "YYYY-MM": hours }
+    function fetchWork() {
+      fetch("/api/work-monthly?t=" + Date.now())
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d && d.monthly_hours) { workMonthly = d.monthly_hours; if (Store.data) paint(Store.data); } })
+        .catch(() => {});
+    }
     // next N month labels after a "YYYY-MM"
     function nextLabels(lastYm, n) {
       const out = [];
@@ -600,7 +607,12 @@ const RENDERERS = {
       const other = new Array(Hn).fill(0); let hasOther = false;
       hsrc.forEach((hk) => { if (!matched.has(hk.key)) { hasOther = true; hk.monthly.forEach((v, m) => { other[m] += v; }); } });
       if (hasOther && other.some((v) => v > 0)) bands.push({ id: "__other__", name: "Other income", color: "#8a8678", proj: 0, hist: other, hidden: !!hidden["__other__"] });
-      renderLegend(bands);
+      // real-effort overlay (Toggl hours × gig rate, past → projected) for the hourly source
+      const gigSrc = sources.find((x) => x.mode === "hourly");
+      const hasEffort = !!(gigSrc && workMonthly && Object.keys(workMonthly).length && Hn);
+      const legendItems = bands.slice();
+      if (hasEffort) legendItems.push({ id: "__effort__", name: "real effort", color: "#0ea5e9", hidden: !!hidden["__effort__"] });
+      renderLegend(legendItems);
       const valAt = (b, c) => (c < Hn ? b.hist[c] : b.proj);
       const live = bands.filter((b) => !b.hidden);
       // y-scale from the tallest stacked column (+ headroom), keep the needed line on-screen
@@ -635,6 +647,16 @@ const RENDERERS = {
       const flabels = nextLabels(months.length ? months[months.length - 1].ym : null, Fn);
       const labels = months.map((m) => m.label).concat(flabels);
       labels.forEach((lb, c) => { if (C > 9 && c % 2 && c !== C - 1) return; s += '<text x="' + xAt(c).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" class="if-mlabel">' + lb + "</text>"; });
+      // real-effort line: solid over history (real hours × rate), dashed into the projection
+      if (hasEffort && !hidden["__effort__"]) {
+        const eff = (c) => (c < Hn ? (workMonthly[months[c].ym] || 0) * (gigSrc.rate || 0) : contribution(gigSrc));
+        let past = "", fut = "";
+        for (let c = 0; c < Hn; c++) past += (c ? "L" : "M") + xAt(c).toFixed(1) + " " + yAt(eff(c)).toFixed(1) + " ";
+        for (let c = Math.max(0, Hn - 1); c < C; c++) fut += (c === Math.max(0, Hn - 1) ? "M" : "L") + xAt(c).toFixed(1) + " " + yAt(eff(c)).toFixed(1) + " ";
+        s += '<path d="' + fut + '" class="if-effort if-effort-proj" />';
+        s += '<path d="' + past + '" class="if-effort" />';
+        for (let c = 0; c < Hn; c++) s += '<circle cx="' + xAt(c).toFixed(1) + '" cy="' + yAt(eff(c)).toFixed(1) + '" r="2.1" class="if-effort-dot" />';
+      }
       svg.innerHTML = s;
       const surplus = sources.reduce((a, x) => a + contribution(x), 0) - need, up = surplus >= 0;
       sub.innerHTML = (up ? '<b style="color:#3f8f4e">+' + fmtUSD(surplus) + "/mo</b> over needs" : '<b style="color:#c9542e">' + fmtUSD(-surplus) + "/mo</b> short") +
@@ -655,7 +677,7 @@ const RENDERERS = {
     function paint(d) {
       el.classList.toggle("if-mode-streams", mode === "streams");
       el.querySelectorAll(".if-modeopt").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
-      if (mode === "streams") { if (!histData) fetchHist(); paintStreams(d); }
+      if (mode === "streams") { if (!histData) fetchHist(); if (!workMonthly) fetchWork(); paintStreams(d); }
       else { legendWrap.innerHTML = ""; paintChart(d); }
     }
 

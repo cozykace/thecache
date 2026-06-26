@@ -87,6 +87,8 @@ class Handler(SimpleHTTPRequestHandler):
             qs = parse_qs(urlparse(self.path).query)
             months = int((qs.get("months") or ["12"])[0])
             return self._json(200, store.monthly_income_by_source(months_back=months))
+        if path == "/api/work-monthly":
+            return self._json(200, store.monthly_hours_history())
         if path == "/api/issues":
             return self._json(200, {"issues": store.find_issues()})
         if path == "/api/bugs":

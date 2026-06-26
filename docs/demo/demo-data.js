@@ -181,6 +181,7 @@
       { key: "freelance", name: "Freelance",       monthly: [400, 0, 420],      total: 820 },
     ],
   };
+  var workMonthly = { monthly_hours: { "2026-04": 28, "2026-05": 41, "2026-06": 30 } };
 
   // ── fetch interceptor ───────────────────────────────────────────────────────
   function J(obj) { return new Response(JSON.stringify(obj), { status: 200, headers: { "Content-Type": "application/json" } }); }
@@ -191,6 +192,7 @@
     if (url.indexOf("/api/ping") !== -1) return J({ ok: true });
     if (url.indexOf("/api/connect-status") !== -1) return J({ connected: true });
     if (url.indexOf("/api/summary") !== -1) return J(summary);
+    if (url.indexOf("/api/work-monthly") !== -1) return J(workMonthly);
     if (url.indexOf("/api/work") !== -1) return J(work);
     if (url.indexOf("/api/income-monthly") !== -1) return J(incomeMonthly);
     if (url.indexOf("/api/categories") !== -1) return J(categories);

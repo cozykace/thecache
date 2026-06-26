@@ -1227,6 +1227,14 @@ def work_summary():
     }
 
 
+def monthly_hours_history():
+    """Per-month Toggl hours ({'YYYY-MM': hours}) — drives the forecast's
+    real-effort overlay (hours × your gig rate vs the projection)."""
+    tg = _read(TOGGL, {})
+    mh = tg.get("monthly_hours", {}) if isinstance(tg, dict) else {}
+    return {"monthly_hours": mh if isinstance(mh, dict) else {}}
+
+
 # ── Recurrence detection (your real subscriptions, tagged or not) ──
 def detect_recurring(txns=None, min_months=3):
     """Merchants charging on a roughly monthly cadence across ALL accounts —

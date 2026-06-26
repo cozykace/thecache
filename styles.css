@@ -778,6 +778,9 @@ body.panning .cursor-ball { display: none !important; }
 .if-now { stroke: rgba(var(--ink-rgb), 0.55); stroke-width: 1.4; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .if-now-lbl { fill: rgba(var(--ink-rgb), 0.6); font-size: 8.5px; font-family: inherit; }
 .if-hatch { stroke: rgba(var(--ink-rgb), 0.35); }
+.if-effort { fill: none; stroke: #0ea5e9; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.if-effort-proj { stroke-dasharray: 3 3; opacity: 0.8; }
+.if-effort-dot { fill: #0ea5e9; stroke: var(--paper); stroke-width: 1; }
 .if-src-link { border: none; background: none; cursor: pointer; font-family: inherit; font-size: inherit; padding: 0;
   color: rgba(var(--ink-rgb), 0.5); text-decoration: underline; text-decoration-color: var(--edge); }
 .if-src-link:hover { color: var(--accent); }
