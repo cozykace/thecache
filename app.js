@@ -2399,6 +2399,27 @@ function openHealth() {
   modal.querySelector(".cat-close").addEventListener("click", close);
 }
 document.addEventListener("pointerdown", () => addExp(1), true);  // capture → counts every click
+// ── Anonymous, opt-in analytics (PostHog) — autocapture OFF so it can NEVER scoop
+//    your dollar amounts/merchant names; only named, safe events. Off by default. ──
+const PH_KEY = "phc_ttvrXfZjNFpSohYHsptHVV86QZXsQDiZJVpnmgMFogAr";
+const PH_HOST = "https://us.i.posthog.com";
+let _phLoaded = false;
+function analyticsOn() { return localStorage.getItem("money.analytics") === "1"; }
+function track(ev, props) { try { if (_phLoaded && window.posthog && window.posthog.capture) window.posthog.capture(ev, props || {}); } catch (e) {} }
+function initAnalytics() {
+  if (_phLoaded || !analyticsOn()) return;
+  _phLoaded = true;
+  !function (t, e) { var o, n, p, r; e.__SV || (window.posthog = e, e._i = [], e.init = function (i, s, a) { function g(t, e) { var o = e.split("."); 2 == o.length && (t = t[o[0]], e = o[1]), t[e] = function () { t.push([e].concat(Array.prototype.slice.call(arguments, 0))) } } (p = t.createElement("script")).type = "text/javascript", p.crossOrigin = "anonymous", p.async = !0, p.src = s.api_host.replace(".i.posthog.com", "-assets.i.posthog.com") + "/static/array.js", (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r); var u = e; for (void 0 !== a ? u = e[a] = [] : a = "posthog", u.people = u.people || [], u.toString = function (t) { var e = "posthog"; return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e }, u.people.toString = function () { return u.toString(1) + ".people (stub)" }, o = "init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty createPersonProfile opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug".split(" "), n = 0; n < o.length; n++)g(u, o[n]); e._i.push([i, s, a]) }, e.__SV = 1) }(document, window.posthog || []);
+  window.posthog.init(PH_KEY, {
+    api_host: PH_HOST,
+    autocapture: false,              // NEVER auto-grab DOM text (your financial data)
+    disable_session_recording: true, // never record the screen
+    capture_pageview: true,
+    persistence: "localStorage",
+    respect_dnt: true,
+  });
+  track("app_loaded", { widgets: Object.keys(layout || {}) });
+}
 // ── Click sparks: rapid clicking shoots theme-colored sparks from the cursor —
 //    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
 //    you click in quick succession. ──
@@ -2436,6 +2457,10 @@ document.addEventListener("pointerdown", (e) => {
   _clickTimes.push(now);
   if (_healthFull) { expSpark(e.clientX, e.clientY, 4, true); playShing(); }  // blessed → celebrate + a sword shing
   else if (_clickTimes.length >= 5) expSpark(e.clientX, e.clientY, Math.min(10, _clickTimes.length - 3));
+  if (!_healthFull && _clickTimes.length === 7) {  // likely a rage-click burst (not blessed spark-spam)
+    const el = e.target;
+    track("rage_click", { el: (el && (el.id || (typeof el.className === "string" ? el.className.split(" ")[0] : "") || el.tagName)) || "" });
+  }
 }, true);
 window.addEventListener("pagehide", saveStats);
 window.addEventListener("beforeunload", saveStats);
@@ -2553,6 +2578,8 @@ function openSettings() {
       '<div class="set-hint">blurs dollar amounts until you hover — good for screen-sharing</div>' +
       '<button class="set-toggle" id="setAutoPin" data-tier="2"><span>Auto-pin favorites</span><span class="set-state">on</span></button>' +
       '<div class="set-hint" data-tier="2">starred widgets &amp; dock items jump to the top · turn off to leave them where they are when starred</div>' +
+      '<button class="set-toggle" id="setAnalytics"><span>Share anonymous usage</span><span class="set-state">off</span></button>' +
+      '<div class="set-hint">helps improve the app — <b>opt-in &amp; anonymous</b>. Your financial data is <b>never</b> sent — only which widgets you use, rage-clicks, and errors.</div>' +
       '<div class="set-themes" id="setThemes"></div>' +
       '<div class="set-sec">Fonts</div>' +
       '<div class="set-fonts" id="setFonts"></div>' +
@@ -2602,6 +2629,17 @@ function openSettings() {
   pinBtn.addEventListener("click", () => {
     localStorage.setItem(AUTOPIN_KEY, autoPinOn() ? "0" : "1");
     paintPin(); renderLibrary(); renderDockMenu(); applyDockConfig(document.getElementById("dock"));
+  });
+
+  const anBtn = modal.querySelector("#setAnalytics");
+  const paintAn = () => { const on = analyticsOn(); anBtn.classList.toggle("on", on); anBtn.querySelector(".set-state").textContent = on ? "on" : "off"; };
+  paintAn();
+  anBtn.addEventListener("click", () => {
+    const on = !analyticsOn();
+    localStorage.setItem("money.analytics", on ? "1" : "0");
+    paintAn();
+    if (on) { initAnalytics(); track("opted_in"); }
+    else { try { if (window.posthog && window.posthog.opt_out_capturing) window.posthog.opt_out_capturing(); } catch (e) {} }
   });
 
   const tierHost = modal.querySelector("#setTier");
@@ -3250,6 +3288,7 @@ function addSingleton(type) {
   saveLayout();
   renderLibrary();
   logChar("widget", "Added the " + ((def && def.title) || type) + " widget");
+  track("widget_added", { widget: type });
 }
 function placeSticker(name, x, y) {
   const id = "sticker-" + name + "-" + stickerSeq++;
@@ -5109,5 +5148,7 @@ applyTier();
 renderBrand();
 renderHealth();
 Store.subscribe(document.getElementById("healthBadge"), () => renderHealth());  // health updates as data connects
+initAnalytics();  // no-op unless the user opted in (Settings → Share anonymous usage)
+window.addEventListener("error", (e) => track("client_error", { msg: String(e.message || "").slice(0, 140), src: (e.filename || "").split("/").pop() }));
 requestAnimationFrame(reflowBelowStats);  // once the stats bar has measured, clear the top band
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint
