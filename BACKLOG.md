@@ -28,7 +28,7 @@ _Last updated: 2026-06-25_
 - [x] Repo made PUBLIC (2026-06-25) — verified zero data/secrets ever committed (full-history scan); code-only, all data gitignored. Friend can clone + Update with no auth
 - [x] In-app **Report a bug or request** (Menu → ⚑) — type picker (bug / request / other), message + optional reply-email, sends straight to cozy@cozyace.com with app context; opens the reporter's mail app today, flips to silent auto-send once the Web3Forms key is set (2026-06-25)
 - [x] **Public live roadmap** — BACKLOG/FEATURES render live at cozykace.github.io/thecache, embedded in the Squarespace site at thecache.app; updates the moment a change is pushed (2026-06-25)
-- [x] **Public demo page** — self-contained dashboard mock with play numbers (docs/demo.html → cozykace.github.io/thecache/demo.html) for embedding on the Squarespace site; brand-themed, "every number is made up" disclaimer, no real data (2026-06-25)
+- [x] **Public demo — runs the real app on fake data** (docs/demo/ → cozykace.github.io/thecache/demo/) — boots the actual app.js/styles.css with a demo-data.js layer that seeds a curated board + answers every backend call with play numbers; fully interactive, always matches the app, no Python backend and no real data. `build-demo.sh` keeps it in sync. Replaces the old static mock (2026-06-25)
 - [ ] Set the Web3Forms key so bug/request reports auto-deliver without the reporter needing a mail app
 - [ ] Optional: an `install.command` that clones + sets up the auto-start LaunchAgent for a non-technical friend
 

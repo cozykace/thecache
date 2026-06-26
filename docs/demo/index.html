@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>THE CACHE — Live demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <!-- demo defaults to the brand theme; apply before paint to avoid a flash -->
+    <script>
+      try {
+        var t = localStorage.getItem("money.theme") || "cache";
+        document.documentElement.setAttribute("data-theme", t);
+        var bg = localStorage.getItem("money.bg");
+        if (bg) document.documentElement.setAttribute("data-bg", bg);
+      } catch (e) {}
+    </script>
+    <!-- seeds demo data + intercepts backend calls; MUST run before app.js -->
+    <script src="demo-data.js"></script>
+    <style>
+      /* demo-only chrome */
+      #demoBadge {
+        position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 9999;
+        background: var(--accent); color: #16140c; pointer-events: none;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; font-weight: 700;
+        letter-spacing: 0.12em; text-transform: uppercase; padding: 6px 13px; border-radius: 999px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+      }
+      /* "Update app" pulls from git — meaningless in the static demo */
+      #updateApp { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="demoBadge">Live demo · play numbers</div>
+
+    <!-- toggle: opens the sidebar -->
+    <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open menu">☰</button>
+
+    <!-- theme toggle: light / dark -->
+    <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode"></button>
+    <!-- backgrounds picker -->
+    <button id="bgToggle" class="theme-toggle bg-toggle" aria-label="Backgrounds"><i data-lucide="sparkles"></i></button>
+
+    <!-- the sliding pane: menu + libraries live here -->
+    <aside id="sidebar" class="sidebar">
+      <header class="sidebar-head">
+        <span class="brand"><span class="brand-dot"></span><span class="brand-logo" role="img" aria-label="THE CACHE"></span></span>
+        <button id="sidebarClose" class="sidebar-close" aria-label="Close menu">✕</button>
+      </header>
+
+      <div class="sidebar-scroll">
+        <div class="sidebar-greeting" id="greeting" style="display:none"></div>
+        <div class="sidebar-xp" id="sidebarXp"></div>
+        <section class="sidebar-section">
+          <div class="section-title">Widget Library</div>
+          <div id="library" class="library"></div>
+          <div class="section-hint">click to add / remove from the board</div>
+        </section>
+
+        <section class="sidebar-section" id="iconSection">
+          <button class="section-toggle" id="iconToggle" type="button">
+            <span class="section-title">Icon Library</span>
+            <span class="section-caret">▾</span>
+          </button>
+          <div class="section-body"><div class="section-body-inner">
+            <input id="iconSearch" class="icon-search" type="text" placeholder="search icons…" />
+            <div id="iconGrid" class="icon-grid"></div>
+            <div class="section-hint">drag an icon onto a widget to stamp it, or onto empty space for a sticker · powered by Lucide</div>
+          </div></div>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title">Menu</div>
+          <button class="menu-item" id="connectBank">⚡ Connect a bank</button>
+          <button class="menu-item" id="openSettings">⚙ Settings</button>
+          <button class="menu-item" id="manageCats">▦ Manage categories</button>
+          <button class="menu-item" id="reportBug">⚑ Report a bug or request</button>
+          <button class="menu-item" id="importStatement">↓ Import statement (CSV)</button>
+          <button class="menu-item" id="tidyLayout">↹ Tidy layout</button>
+          <button class="menu-item" id="resetLayout">↺ Reset layout</button>
+          <button class="menu-item" id="updateApp">⟳ Update app</button>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title">Saved views</div>
+          <div id="viewList" class="library"></div>
+          <button class="menu-item" id="saveView">+ Save current view</button>
+          <div class="section-hint">snapshot this layout to jump back to it anytime</div>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title">Dock</div>
+          <div id="dockMenu" class="library"></div>
+          <div class="section-hint">show / hide dock items · drag them in the dock to reorder</div>
+        </section>
+      </div>
+      <div class="sidebar-version">live demo · thecache.app</div>
+    </aside>
+
+    <!-- the board: a scroll viewport holding a scalable canvas of widgets -->
+    <div id="board" class="board"><div id="boardCanvas" class="board-canvas"></div></div>
+
+    <!-- zoom the sandbox -->
+    <div class="zoom-control">
+      <button id="zoomOut" aria-label="Zoom out">−</button>
+      <button id="zoomReset" aria-label="Reset zoom">100%</button>
+      <button id="zoomIn" aria-label="Zoom in">+</button>
+    </div>
+
+    <!-- data-sources slide-out -->
+    <div class="sources-panel" id="sourcesPanel"></div>
+
+    <!-- status / next-actions slide-out -->
+    <div class="sources-panel status-panel" id="statusPanel"></div>
+
+    <!-- bottom-right status: data sources + sync health -->
+    <div class="status-bar">
+      <button id="statusBtn" class="status-pill status-main" title="status & next actions"><span class="status-dot"></span><span class="status-text">…</span></button>
+      <button id="soundtrack" class="status-pill" title="soundtrack on / off"><span class="snd-note">♪</span></button>
+      <button id="roadmapBtn" class="status-pill" title="roadmap / backlog"><i data-lucide="map"></i>&nbsp;roadmap</button>
+      <button id="sourcesBtn" class="status-pill" title="data sources"><span class="src-count">…</span>&nbsp;sources</button>
+      <button id="serverBtn" class="status-pill server-pill" title="local backend status"><span class="goat-head" aria-hidden="true"></span><span class="server-text">…</span></button>
+      <button id="syncHealth" class="status-pill" title="click to sync now"><span class="sync-dot"></span><span class="sync-text">…</span></button>
+    </div>
+
+    <!-- hidden YouTube audio player for the soundtrack -->
+    <div id="ytAudio" class="yt-hidden"></div>
+
+    <!-- free icon library (Lucide) + our engine, both deferred so the page paints first -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script type="module">
+      // Motion One (tiny animation engine) → expose as window.Motion for app.js
+      try {
+        const m = await import("https://cdn.jsdelivr.net/npm/motion@latest/+esm");
+        window.Motion = m;
+      } catch (e) { /* app works fine without it */ }
+    </script>
+    <script defer src="https://unpkg.com/lucide@latest"></script>
+    <script defer src="app.js"></script>
+    <script defer src="cursor.js"></script>
+  </body>
+</html>
