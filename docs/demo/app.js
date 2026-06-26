@@ -3487,21 +3487,40 @@ function reflowBelowStats() {
   });
   if (changed) saveLayout();
 }
+// Tidy IN PLACE: keep widgets in the rows/order you put them, just clean it up —
+// align each row's tops, even out the gaps, and normalize widths so a row fits
+// pleasantly across the canvas. Doesn't reflow everything into reading order.
 function tidyLayout() {
-  const pad = 16, startX = 32, startY = Math.max(86, topInset());
-  const maxRight = window.innerWidth - 24;
-  let x = startX, y = startY, rowH = 0;
-  Object.keys(layout).forEach((id) => {
+  const gap = 16, startX = 32, startY = Math.max(86, topInset());
+  const zoom = (typeof boardZoom === "number" && boardZoom) ? boardZoom : 1;
+  const avail = Math.max(560, (board ? board.clientWidth : window.innerWidth) / zoom - startX * 2);
+  const items = Object.keys(layout).map((id) => {
     const node = nodes[id];
-    if (!node) return;
-    const w = node.offsetWidth, h = node.offsetHeight;
-    if (x + w > maxRight && x > startX) { x = startX; y += rowH + pad; rowH = 0; }
-    node.classList.add("tidying");
-    node.style.left = x + "px";
-    node.style.top = y + "px";
-    layout[id].x = x; layout[id].y = y;
-    x += w + pad;
-    rowH = Math.max(rowH, h);
+    return node ? { id, node, x: layout[id].x || 0, y: layout[id].y || 0, w: node.offsetWidth, h: node.offsetHeight } : null;
+  }).filter(Boolean);
+  if (!items.length) return;
+  // group into rows by vertical proximity (preserves which widgets sit together)
+  items.sort((a, b) => a.y - b.y || a.x - b.x);
+  const rows = [];
+  items.forEach((it) => {
+    const row = rows[rows.length - 1];
+    if (row && it.y < row.top + row.maxH * 0.6) { row.items.push(it); row.maxH = Math.max(row.maxH, it.h); }
+    else rows.push({ top: it.y, maxH: it.h, items: [it] });
+  });
+  let y = startY;
+  rows.forEach((row) => {
+    row.items.sort((a, b) => a.x - b.x);  // keep left→right order within the row
+    const n = row.items.length, sumW = row.items.reduce((a, it) => a + it.w, 0);
+    const scale = (avail - gap * (n - 1)) / (sumW || 1);  // fit the row to the canvas width
+    let x = startX, rowH = 0;
+    row.items.forEach((it) => {
+      const w = Math.max(240, Math.min(620, Math.round(it.w * scale)));  // similar, bounded widths
+      it.node.classList.add("tidying");
+      it.node.style.left = x + "px"; it.node.style.top = y + "px"; it.node.style.width = w + "px";
+      layout[it.id].x = x; layout[it.id].y = y; layout[it.id].w = w;
+      x += w + gap; rowH = Math.max(rowH, it.h);
+    });
+    y += rowH + gap;
   });
   saveLayout();
   setTimeout(() => Object.values(nodes).forEach((n) => n.classList.remove("tidying")), 480);
