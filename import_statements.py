@@ -3,7 +3,7 @@
 THE CACHE — import bank statements (CSV) into your local ledger.
 
 WHY: SimpleFIN auto-syncs your connected banks already. Use this only for
-accounts it can't reach (e.g. Petal) or for older history beyond ~90 days.
+accounts it can't reach (cards without SimpleFIN support) or for older history beyond ~90 days.
 
 TWO WAYS TO IMPORT:
   • In the dashboard: drag a .csv onto the board, or Menu → Import statement.
@@ -12,7 +12,7 @@ TWO WAYS TO IMPORT:
 It auto-detects the date / amount / description columns, dedups against what
 you already have (so re-running is safe), merges into the permanent ledger,
 and rebuilds the dashboard. The account name comes from the file name
-(petal.csv -> "Petal") unless the CSV has an Account column.
+(mycard.csv -> "Mycard") unless the CSV has an Account column.
 
 All of this stays on your Mac. data/ is gitignored — statements never leave.
 """

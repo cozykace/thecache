@@ -2,7 +2,7 @@
 
 A living, product-facing list of what THE CACHE does — kept current as we ship, ready for when this goes live to other people.
 
-_Last updated: 2026-06-20_
+_Last updated: 2026-06-25_
 
 ## Connect your money
 - **Automatic bank sync** — link real accounts (read-only) and pull balances + transactions on demand.
@@ -45,6 +45,7 @@ _Last updated: 2026-06-20_
 ## Stay on top of it
 - **Status & next actions** — one indicator surfaces the single most important thing to do next (sync, confirm income, categorize spending, mark subscriptions); click to see the full list.
 - **Roadmap** — see what's shipped and what's next, right in the app.
+- **Report a bug or request** — a built-in feedback button; your note (plus a little app context) goes straight to the maker, no email app required.
 - **Categorizer** — teach it how to label any merchant, once, and it sticks. Comes with sensible categories (including Utilities) and lets you **add your own** on the fly.
 
 ## Your data, owned

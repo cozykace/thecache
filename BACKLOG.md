@@ -1,6 +1,6 @@
 # THE CACHE — backlog
 
-Running list of your requests and ideas. Anything you toss out, I add here; I'll surface relevant items when they come up, and check them off as we ship. You can read/edit this file too.
+What's coming, what's in progress, and what's recently shipped in THE CACHE. New ideas get added as they come up and checked off as they land.
 
 _Last updated: 2026-06-25_
 
@@ -8,9 +8,9 @@ _Last updated: 2026-06-25_
 - [x] **Category Manager** (Menu → Manage categories) — lists every category + # of transactions; rename (server-stored label, ripples to every widget); delete → fold/merge into another category (batch); click a category → recategorize its merchants one-by-one; + new category. Backend: catmeta.json registry (labels+remap), categorize() applies remap (2026-06-22)
 - [x] **Recurrence detection** — detect_recurring() scans the whole ledger (all accounts incl. cards) for ~monthly clustered charges; Subscriptions widget now shows a "detected · not tracked" section with one-click "+ track" (found 16 untracked recurring) (2026-06-22)
 - [x] **Review inbox** (status pill → Review panel) — triage: possible duplicates (remove one), recurring-not-tracked (+ track), uncategorized (inline category select), untagged deposits (tag); every fix ripples via the Store. Pill updates cheaply from Store data; full list fetched on open. Added /api/issues, /api/categories, /api/recurring, /api/category, /api/delete-txn (2026-06-22)
-- [x] **Toggl work widget + auto-pull** — toggl_sync.py pulls time entries (token in gitignored .toggl), correct running-timer math; "Time worked" widget shows today/week/month hours + $ at your rate + by-project + live timer; LaunchAgent com.sufferinggoat.togglsync auto-pulls 4×/day + login. No AI (2026-06-22)
-- [ ] **Connect/CSV all cards** — connected cards already capture real purchases; for unconnected cards (Petal) the only fix for purchase visibility is connect-or-CSV (detail isn't in the checking batch payment)
-- [x] **Auto-sync** — LaunchAgent `com.sufferinggoat.sync` runs sync.py at 8am/2pm/8pm + on login; data stays fresh with no clicking or AI. Sources panel shows "auto-syncs 3×/day". Logs to data/sync.log (2026-06-22)
+- [x] **Toggl work widget + auto-pull** — toggl_sync.py pulls time entries (token in gitignored .toggl), correct running-timer math; "Time worked" widget shows today/week/month hours + $ at your rate + by-project + live timer; LaunchAgent com.thecache.togglsync auto-pulls 4×/day + login. No AI (2026-06-22)
+- [ ] **Connect/CSV all cards** — connected cards already capture real purchases; for cards without a SimpleFIN connection the only fix for purchase visibility is connect-or-CSV (detail isn't in the checking batch payment)
+- [x] **Auto-sync** — LaunchAgent `com.thecache.sync` runs sync.py at 8am/2pm/8pm + on login; data stays fresh with no clicking or AI. Sources panel shows "auto-syncs 3×/day". Logs to data/sync.log (2026-06-22)
 
 ## Features
 - [x] **"The Cache" brand theme** — a warm-dark color scheme with the brand gold (#FFD409) accent, now leading the theme picker; the masked wordmark logo tints to each theme's accent (gold on the brand theme) (2026-06-25)
@@ -18,7 +18,6 @@ _Last updated: 2026-06-25_
 - [x] Link income sources to Toggl projects — Money Map "money in" rows have a "→ link work" picker (your Toggl projects); once linked, the row shows that project's monthly hours so income lines up with the work that earns it. Durable in income_links.json (2026-06-23)
 - [x] Money-flow node map — "Money flow" widget: SVG account cascade (checking→savings→cards), credit-card toggle, income/spend + recurring-transfer bubbles (/api/transfers) (2026-06-23)
 - [x] Magnet snap for stickers / icon-nodes — stickers snap to the 24px grid by default; hover magnet toggle to free-place (accent when on), reuses the widget snap machinery (2026-06-23)
-- [ ] Audio bell on every turn-end (Stop hook) — optional, currently off
 
 ## Sharing / let a friend try it
 - [x] In-app **Connect a bank** coaching panel (Menu → ⚡) — step-by-step SimpleFIN setup + paste-your-token field → `/api/connect` claims it inline (server-safe, no CLI sys.exit) + first sync; **Load demo data** (real SimpleFIN demo claim URL) + **Import CSV** free paths; demo guarded by confirm so it can't clobber a live connection. Per-user (each person's own token, stays on their Mac) — no enterprise/aggregator plan, no shared tokens (2026-06-25)
@@ -46,9 +45,9 @@ _Last updated: 2026-06-25_
 - [x] Recurrence v2 — detect_recurring now flags **new** (first seen <10wk), **changed** (latest charge >10% off the usual), **dropped** (well past its usual gap). Shown as badges in the Money Map; dropped (tracked, not paused) surface in the Review inbox with "mark paused" to clear (2026-06-23)
 
 ## Parked / revisit
-- [ ] PDF statement import — native macOS PDFKit extraction works (no installs), but US Bank's layout scrambles date↔transaction mapping (≈99 amounts / 11 dates), unreliable for money. Use CSV export instead. Revisit only if a bank's PDF has a clean tabular layout.
-- [ ] Petal credit card — no SimpleFIN; import via CSV (drag onto board, or import_statements.py), or revisit a direct connect
-- [x] Commit income tagger + SOPs to git — pushed to github.com/cozykace/goat (data stays gitignored) (2026-06-23)
+- [ ] PDF statement import — native macOS PDFKit extraction works (no installs), but some bank PDF layouts scramble date↔transaction mapping (one tested layout gave ≈99 amounts / 11 dates), unreliable for money. Use CSV export instead. Revisit only if a bank's PDF has a clean tabular layout.
+- [ ] Cards without SimpleFIN support — import via CSV (drag onto board, or import_statements.py), or revisit a direct connect
+- [x] Commit income tagger + SOPs to git — pushed to github.com/cozykace/thecache (data stays gitignored) (2026-06-23)
 
 ## Shipped
 - [x] **Auto-clean merchant names** — `prettify_merchant()` turns raw bank descriptions into readable names for DISPLAY only (strips "Web Authorized Pmt", card/network noise, trailing state codes, collapses "Google Google" dupes, drops corp suffixes). Keys/tags untouched, so renames still override. Applied to recurring, deposits, income sources (2026-06-23)
@@ -64,12 +63,12 @@ _Last updated: 2026-06-25_
 - [x] The Dock — unified all bottom controls (scale, date/time, status, soundtrack, roadmap, sources, server, sync) into one cohesive bottom-center bar with a "dock" label; drag bubbles to reorder, toggle them in Menu → Dock (2026-06-22)
 - [x] Date/time bubble added to the dock (live clock + date) (2026-06-22)
 - [x] Version moved to the sidebar bottom in accent text; removed the conflicting footer (2026-06-22)
-- [x] Brand dot next to "SUFFERING GOAT" now mirrors live status (green/amber/red) like the dock server light (2026-06-22)
+- [x] Brand dot next to the THE CACHE wordmark now mirrors live status (green/amber/red) like the dock server light (2026-06-22)
 - [x] Categorizer window now opens centered, is draggable (by its header) and resizable (size persists) (2026-06-22)
 - [x] Widgets resize from any of the 4 corners (top edges re-anchor); bottom-right corner indicator rounded to match the widget (2026-06-22)
 - [x] Categorizer modal resizable (drag the corner, size persists) + auto-save hardened with saved/error feedback (2026-06-22)
 - [x] Goat: removed trotting sprite; 8-bit goat head lives in the server light — spins when live, eyes X-out when offline/stale (2026-06-22)
-- [x] Always-on server — moved app to ~/goat (out of TCC-locked Documents) + a LaunchAgent that auto-starts on login & self-heals (KeepAlive). No more manual starts (2026-06-22)
+- [x] Always-on server — moved the app out of TCC-locked Documents + a LaunchAgent that auto-starts on login & self-heals (KeepAlive). No more manual starts (2026-06-22)
 - [x] Restart button — click the HUD server light to restart the backend in place (/api/restart self-execs); reloads when it's back (2026-06-22)
 - [x] Inline income status edit — click the ✓/dot pip on a badge to confirm-income or mark-not-income, no modal (2026-06-22)
 - [x] Core subscriptions feed into The Gap / need (subs you mark core now count toward what you must cover) (2026-06-22)
@@ -89,7 +88,7 @@ _Last updated: 2026-06-25_
 - [x] Months redesign — bigger, labeled in/out bars with values + a hero net number (2026-06-21)
 - [x] Status pills — more padding from the corner so they're not jammed in (2026-06-21)
 - [x] Cursor — snappier follow (less lag) + smaller ball; Months widget — much larger bars & numbers (2026-06-21)
-- [x] Rebrand → SUFFERING GOAT wordmark (thick, expanded, AKIRA-style); fit-to-menu so it no longer clips (2026-06-21)
+- [x] Bold display wordmark (thick, expanded, AKIRA-style); fit-to-menu so it no longer clips (2026-06-21)
 - [x] Hold-space to pan the canvas — open-hand cursor that grabs closed on drag (2026-06-21)
 - [x] Fix: income tagger / categorizer "backend not running" message now points to restarting (start.command) — it fired on a stale server missing /api/deposits (2026-06-21)
 - [x] HUD backend light — live / restart-needed / offline status in the status bar, pinged every 8s; click for how to start (2026-06-21)
@@ -114,5 +113,4 @@ _Last updated: 2026-06-25_
 - [x] Subscriptions widget — aggregate + core/flex per sub (2026-06-20)
 - [x] Date ranges on windowed widgets (2026-06-20)
 - [x] Per-widget magnet snap, 24px grid (2026-06-20)
-- [x] Audio bell when I'm waiting on you (Notification hook) (2026-06-20)
 - [x] CLAUDE.md conventions + /new-widget skill (2026-06-20)
