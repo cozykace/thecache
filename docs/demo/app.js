@@ -4320,6 +4320,19 @@ function buildConstellation(svg, months) {
         '<text x="' + p.x.toFixed(0) + '" y="' + (p.y + r + 16).toFixed(0) + '" text-anchor="middle" font-size="10" fill="' + (pos ? "rgba(255,212,9,.85)" : "rgba(224,115,74,.9)") + '" font-family="ui-monospace,monospace">' + fmtCompact(net) + "</text>";
     }).join("");
 }
+// Songs you've approved to play inside the Ledger. Add more filenames here as you
+// approve them (drop the .mp3 in "av assets/"); one is picked at random per visit.
+const LEDGER_SONGS = ["av%20assets/ledger-1.mp3"];
+function fadeAudio(a, to, ms, then) {
+  if (!a) return;
+  const from = a.volume, t0 = performance.now();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - t0) / ms);
+    a.volume = Math.max(0, Math.min(1, from + (to - from) * k));
+    if (k < 1) requestAnimationFrame(step); else if (then) then();
+  };
+  step();
+}
 function openLedger() {
   if (document.getElementById("ledgerSpace")) return;
   const root = document.createElement("div"); root.id = "ledgerSpace"; root.className = "lg-space";
@@ -4335,6 +4348,7 @@ function openLedger() {
     "</div>" +
     '<div class="lg-flash"></div>';
   document.body.appendChild(root);
+  let song = null;
   const cv = root.querySelector(".lg-canvas"), ctx = cv.getContext("2d");
   let W, H, cx, cy;
   const size = () => { W = cv.width = innerWidth; H = cv.height = innerHeight; cx = W / 2; cy = H / 2; };
@@ -4360,11 +4374,20 @@ function openLedger() {
   setTimeout(() => flash.classList.add("on"), 1050);
   setTimeout(() => {
     intro.classList.add("lg-hidden"); led.classList.remove("lg-hidden"); mode = "idle"; target = 0.5; flash.classList.remove("on");
+    try {
+      song = new Audio(LEDGER_SONGS[Math.floor(Math.random() * LEDGER_SONGS.length)]);
+      song.loop = true; song.volume = 0;
+      song.play().then(() => fadeAudio(song, 0.4, 1800)).catch(() => { song = null; });  // graceful if no file yet
+    } catch (e) { song = null; }
     const head = root.querySelector("#lgHeadline"), svg = root.querySelector("#lgConst");
     fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
     fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
   }, 1450);
-  const close = () => { cancelAnimationFrame(raf); window.removeEventListener("resize", size); document.removeEventListener("keydown", onKey); root.remove(); };
+  const close = () => {
+    cancelAnimationFrame(raf); window.removeEventListener("resize", size); document.removeEventListener("keydown", onKey);
+    if (song) { const s = song; song = null; fadeAudio(s, 0, 450, () => { try { s.pause(); } catch (e) {} }); }
+    root.remove();
+  };
   const onKey = (e) => { if (e.key === "Escape") close(); };
   window.addEventListener("resize", size);
   document.addEventListener("keydown", onKey);
