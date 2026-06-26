@@ -2995,6 +2995,7 @@ document.getElementById("sidebarClose").addEventListener("click", () => setSideb
 // ── Theme (color profiles) ─────────────────────────────────
 const THEME_KEY = "money.theme";
 const THEMES = [
+  { id: "cache", label: "The Cache", bg: "#16140c", accent: "#FFD409" },
   { id: "light", label: "Oat Milk", bg: "#ece6d6", accent: "#c9542e" },
   { id: "dark", label: "Goblin Mode", bg: "#14130e", accent: "#e0734a" },
   { id: "terminal", label: "Gamer Sweat", bg: "#0c0f0a", accent: "#8fe388" },
@@ -3384,7 +3385,46 @@ board.addEventListener("wheel", (e) => {
   board.scrollTop += (before.y - after.y) * boardZoom;
 }, { passive: false });
 
-// ── Bug reports (logged to data/bugs.json) ─────────────────
+// ── Bug reports & requests ─────────────────────────────────
+// Reports go straight to cozy@cozyace.com via Web3Forms (a free client-side
+// form relay — the key only ever sends to that one inbox, safe to ship public).
+// Until the key is set we fall back to opening the reporter's mail app.
+const FEEDBACK_KEY = "";   // paste the Web3Forms access key here to enable auto-send
+const FEEDBACK_TO = "cozy@cozyace.com";
+function feedbackContext() {
+  let theme = "?";
+  try { theme = localStorage.getItem("money.theme") || "default"; } catch (e) {}
+  return "theme: " + theme + " · " + (window.innerWidth + "×" + window.innerHeight) +
+    " · " + navigator.userAgent;
+}
+// Returns a promise<boolean> — true if it was sent (or the mail app was opened).
+function sendFeedback(kind, text, email) {
+  const subject = "THE CACHE — " + kind + (email ? " — " + email : "");
+  if (!FEEDBACK_KEY) {
+    const body = text + "\n\n— kind: " + kind +
+      (email ? "\n— reply to: " + email : "") + "\n— " + feedbackContext();
+    window.location.href = "mailto:" + FEEDBACK_TO +
+      "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
+    return Promise.resolve(true);
+  }
+  return fetch("https://api.web3forms.com/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      access_key: FEEDBACK_KEY,
+      subject: subject,
+      from_name: "THE CACHE",
+      replyto: email || "",
+      Kind: kind,
+      Message: text,
+      Context: feedbackContext(),
+      botcheck: "",
+    }),
+  })
+    .then((r) => r.json())
+    .then((d) => !!d.success)
+    .catch(() => false);
+}
 function closeBugReport() {
   const m = document.querySelector(".bug-modal");
   const b = document.getElementById("bugBackdrop");
@@ -3425,10 +3465,17 @@ function openBugReport() {
   const modal = document.createElement("div");
   modal.className = "cat-modal bug-modal";
   modal.innerHTML =
-    '<div class="cat-head"><span>Bug reports</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="cat-head"><span>Report a bug or request</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="bug-new">' +
-      '<textarea class="bug-input" placeholder="What’s broken or weird? It gets logged locally."></textarea>' +
-      '<button class="bug-submit" type="button">Log it</button>' +
+      '<div class="bug-types">' +
+        '<button class="bug-type on" data-kind="bug" type="button">🐛 Bug</button>' +
+        '<button class="bug-type" data-kind="request" type="button">💡 Request</button>' +
+        '<button class="bug-type" data-kind="other" type="button">💬 Other</button>' +
+      "</div>" +
+      '<textarea class="bug-input" placeholder="What’s broken, or what would you love to see?"></textarea>' +
+      '<input class="bug-email" type="email" placeholder="your email (optional — so cozy can reply)" />' +
+      '<button class="bug-submit" type="button">Send to cozy</button>' +
+      '<div class="bug-msg" aria-live="polite"></div>' +
     "</div>" +
     '<div class="cat-list bug-list">loading…</div>';
   document.body.appendChild(back);
@@ -3436,18 +3483,43 @@ function openBugReport() {
   modal.querySelector(".cat-close").addEventListener("click", closeBugReport);
   const listEl = modal.querySelector(".bug-list");
   const input = modal.querySelector(".bug-input");
+  const emailEl = modal.querySelector(".bug-email");
+  const msgEl = modal.querySelector(".bug-msg");
+  const submit = modal.querySelector(".bug-submit");
+  let kind = "bug";
+  modal.querySelectorAll(".bug-type").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      kind = btn.dataset.kind;
+      modal.querySelectorAll(".bug-type").forEach((b) => b.classList.toggle("on", b === btn));
+    });
+  });
   function load() {
     fetch("/api/bugs?t=" + Date.now())
       .then((r) => { if (!r.ok) throw new Error("stale"); return r.json(); })
       .then((d) => renderBugList(listEl, d.bugs || []))
       .catch(() => { listEl.innerHTML = '<div class="cat-empty">backend stopped or out of date — restart it (double-click <b>start.command</b>)</div>'; });
   }
-  modal.querySelector(".bug-submit").addEventListener("click", () => {
+  submit.addEventListener("click", () => {
     const text = input.value.trim();
-    if (!text) return;
-    bugPost("/api/bug", { text })
-      .then((d) => { input.value = ""; renderBugList(listEl, d.bugs); })
-      .catch(() => flash("backend stopped or out of date — restart it (start.command)"));
+    if (!text) { input.focus(); return; }
+    const email = emailEl.value.trim();
+    submit.disabled = true;
+    msgEl.className = "bug-msg";
+    msgEl.textContent = "sending…";
+    sendFeedback(kind, text, email).then((ok) => {
+      submit.disabled = false;
+      if (ok) {
+        input.value = "";
+        msgEl.className = "bug-msg ok";
+        msgEl.textContent = FEEDBACK_KEY ? "Sent — thank you! 🎉" : "Opening your email app — just hit send 📨";
+        // best-effort local record (no-op for friends if backend is off)
+        bugPost("/api/bug", { text: "[" + kind + "] " + text + (email ? " (" + email + ")" : "") })
+          .then((d) => renderBugList(listEl, d.bugs)).catch(() => {});
+      } else {
+        msgEl.className = "bug-msg err";
+        msgEl.textContent = "Couldn’t send — check your connection and try again.";
+      }
+    });
   });
   input.focus();
   load();

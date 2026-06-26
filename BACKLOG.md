@@ -13,6 +13,7 @@ _Last updated: 2026-06-25_
 - [x] **Auto-sync** — LaunchAgent `com.sufferinggoat.sync` runs sync.py at 8am/2pm/8pm + on login; data stays fresh with no clicking or AI. Sources panel shows "auto-syncs 3×/day". Logs to data/sync.log (2026-06-22)
 
 ## Features
+- [x] **"The Cache" brand theme** — a warm-dark color scheme with the brand gold (#FFD409) accent, now leading the theme picker; the masked wordmark logo tints to each theme's accent (gold on the brand theme) (2026-06-25)
 - [x] **Custom stat trackers** in the stats bar — built-in streak ("Expenses streak": mark each month paid-on-time → "🔥 N mo" consecutive) plus user-built trackers: monthly streak, days-since-a-date, count of bank purchases matching a word (/api/match-count), or a manual +/- counter. Managed in Settings → Stats bar; toggle/drag into the top bar like the built-ins (2026-06-25)
 - [x] Link income sources to Toggl projects — Money Map "money in" rows have a "→ link work" picker (your Toggl projects); once linked, the row shows that project's monthly hours so income lines up with the work that earns it. Durable in income_links.json (2026-06-23)
 - [x] Money-flow node map — "Money flow" widget: SVG account cascade (checking→savings→cards), credit-card toggle, income/spend + recurring-transfer bubbles (/api/transfers) (2026-06-23)
@@ -25,6 +26,10 @@ _Last updated: 2026-06-25_
 - [x] Friend onboarding guide — `SETUP.md` (clone → start.command → demo data or own bank → Update app); each person runs their OWN local copy, data stays on their machine (2026-06-25)
 - [x] Fixed local git corruption — stray macOS dup refs `refs/heads/main 2` + `refs/remotes/origin/main 2` (zero-SHA) broke every fetch/pull; removed (2026-06-25)
 - [x] Repo made PUBLIC (2026-06-25) — verified zero data/secrets ever committed (full-history scan); code-only, all data gitignored. Friend can clone + Update with no auth
+- [x] In-app **Report a bug or request** (Menu → ⚑) — type picker (bug / request / other), message + optional reply-email, sends straight to cozy@cozyace.com with app context; opens the reporter's mail app today, flips to silent auto-send once the Web3Forms key is set (2026-06-25)
+- [x] **Public live roadmap** — BACKLOG/FEATURES render live at cozykace.github.io/thecache, embedded in the Squarespace site at thecache.app; updates the moment a change is pushed (2026-06-25)
+- [x] **Public demo page** — self-contained dashboard mock with play numbers (docs/demo.html → cozykace.github.io/thecache/demo.html) for embedding on the Squarespace site; brand-themed, "every number is made up" disclaimer, no real data (2026-06-25)
+- [ ] Set the Web3Forms key so bug/request reports auto-deliver without the reporter needing a mail app
 - [ ] Optional: an `install.command` that clones + sets up the auto-start LaunchAgent for a non-technical friend
 
 ## Mobile

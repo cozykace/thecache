@@ -54,6 +54,12 @@
   --panel: #271310;
   --accent: #ff5a36;
 }
+:root[data-theme="cache"] {        /* the brand theme — warm dark with #FFD409 gold */
+  --ink-rgb: 240, 233, 214;
+  --paper: #16140c;
+  --panel: #211e12;
+  --accent: #FFD409;
+}
 html { background: var(--paper); }
 
 * { box-sizing: border-box; }
@@ -1215,7 +1221,7 @@ body.sidebar-open .sidebar { transform: none; }
 .brand-logo {
   display: inline-block; flex-shrink: 0;
   height: 16px; width: 108px;   /* logo is 1500×222 → ~6.76:1 */
-  background-color: var(--ink);
+  background-color: var(--accent);   /* logo takes each theme's accent → yellow on the brand theme */
   -webkit-mask: url("av%20assets/THECACHE_LOGO_WHITE.png") left center / contain no-repeat;
           mask: url("av%20assets/THECACHE_LOGO_WHITE.png") left center / contain no-repeat;
   transition: background-color 0.2s ease;
@@ -1553,6 +1559,21 @@ a.src-link:hover .src-bankname { color: var(--accent); }
   border: 1px solid var(--edge); border-radius: 8px; padding: 8px 10px; resize: vertical; min-height: 56px; line-height: 1.4;
 }
 .bug-input:focus { outline: none; border-color: var(--accent); }
+.bug-types { display: flex; gap: 6px; }
+.bug-type {
+  font-family: inherit; font-size: 12px; padding: 6px 12px; cursor: pointer;
+  border: 1px solid var(--edge); border-radius: 999px; background: var(--paper);
+  color: rgba(var(--ink-rgb), 0.7);
+}
+.bug-type.on { background: var(--accent); color: var(--paper); border-color: var(--accent); font-weight: 600; }
+.bug-email {
+  font-family: inherit; font-size: 13px; color: var(--ink); background: var(--paper);
+  border: 1px solid var(--edge); border-radius: 8px; padding: 8px 10px;
+}
+.bug-email:focus { outline: none; border-color: var(--accent); }
+.bug-msg { font-size: 12px; min-height: 16px; color: rgba(var(--ink-rgb), 0.55); }
+.bug-msg.ok { color: #3f8f4e; }
+.bug-msg.err { color: #c9542e; }
 .bug-submit {
   align-self: flex-end; font-family: inherit; font-size: 12px; padding: 7px 16px;
   border-radius: 8px; cursor: pointer; background: var(--ink); color: var(--paper); border: none;
