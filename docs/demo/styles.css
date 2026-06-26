@@ -1320,6 +1320,16 @@ body.sidebar-open .sidebar { transform: none; }
 .gutter-ctrl { display: flex; align-items: center; gap: 10px; padding: 10px 2px 2px; }
 .gutter-label { font-size: 11px; color: rgba(var(--ink-rgb), 0.6); flex-shrink: 0; letter-spacing: 0.04em; }
 .gutter-slider { flex: 1; accent-color: var(--accent); cursor: pointer; height: 4px; }
+.gutter-ctrl + .section-hint { margin-bottom: 14px; }   /* breathing room before the widget list */
+/* Each mode gets a slightly different feel. Smooth Brain = bigger, calmer, roomier. */
+:root[data-menutier="1"] .menu-item { font-size: 14.5px; padding: 12px 14px; border-radius: 12px; }
+:root[data-menutier="1"] .lib-item { padding: 12px 12px; font-size: 14px; border-radius: 12px; }
+:root[data-menutier="1"] .section-title { font-size: 12px; letter-spacing: 0.12em; opacity: 0.8; }
+:root[data-menutier="1"] .sidebar-section { margin-bottom: 6px; }
+:root[data-menutier="1"] .cache-char { padding: 14px; }
+/* Galaxy Brain = denser, more technical. */
+:root[data-menutier="3"] .menu-item { font-size: 12px; padding: 7px 11px; }
+:root[data-menutier="3"] .lib-item { padding: 7px 10px; font-size: 12px; }
 /* click sparks — rapid clicking shoots theme-colored EXP sparks from the cursor */
 .exp-spark { position: fixed; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%;
   background: var(--accent); box-shadow: 0 0 6px var(--accent); pointer-events: none; z-index: 99999;

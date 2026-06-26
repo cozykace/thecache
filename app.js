@@ -2361,6 +2361,7 @@ const TIERS = [{ n: 1, label: "Smooth Brain" }, { n: 2, label: "Big Brain" }, { 
 function menuTier() { const t = parseInt(localStorage.getItem(TIER_KEY)); return (t >= 1 && t <= 3) ? t : 2; }
 function applyTier() {
   const t = menuTier();
+  document.documentElement.setAttribute("data-menutier", String(t));  // lets each mode get its own look
   document.querySelectorAll("[data-tier]").forEach((el) => { el.style.display = (+el.dataset.tier > t) ? "none" : ""; });
 }
 function openSettings() {
