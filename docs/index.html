@@ -68,9 +68,10 @@
 <script>
   var REPO = "cozykace/thecache", BRANCH = "main";
   var raw = function (f) { return "https://raw.githubusercontent.com/" + REPO + "/" + BRANCH + "/" + f + "?t=" + Date.now(); };
-  // dark/light: ?theme=dark, else follow the embedding page's scheme
+  // Default LIGHT so the embed matches a light Squarespace section regardless of
+  // the visitor's OS setting. For a dark section, embed with ?theme=dark.
   var q = new URLSearchParams(location.search), th = q.get("theme");
-  if (th === "dark" || (!th && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches))
+  if (th === "dark")
     document.documentElement.setAttribute("data-theme", "dark");
 
   function esc(s){ return s.replace(/[&<>]/g, function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c];}); }
