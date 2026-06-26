@@ -2146,7 +2146,61 @@ function addExp(n) {
   clearTimeout(_statsTimer);
   _statsTimer = setTimeout(saveStats, 700);
 }
+// ── Trust badge: a live, non-destructive proof the ledger is solid (/api/integrity) ──
+function renderTrust() {
+  const el = document.getElementById("trustBadge");
+  if (!el) return;
+  fetch("/api/integrity?t=" + Date.now()).then((r) => r.json()).then((d) => {
+    if (!d) { el.innerHTML = ""; return; }
+    el.innerHTML = '<button class="trust-chip ' + (d.ok ? "ok" : "warn") + '" title="how your data is protected">' +
+      "<span>" + (d.ok ? "🛡 data verified" : "⚠ check data") + "</span>" +
+      '<span class="trust-n">' + (d.count || 0).toLocaleString() + " txns</span></button>";
+    el.querySelector(".trust-chip").addEventListener("click", () => openTrust(d));
+  }).catch(() => { el.innerHTML = ""; });
+}
+function openTrust(d) {
+  const back = document.createElement("div"); back.className = "cat-backdrop";
+  const modal = document.createElement("div"); modal.className = "cat-modal trust-modal";
+  const close = () => { back.remove(); modal.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  const rows = (d.checks || []).map((c) =>
+    '<div class="trust-row"><span class="' + (c.ok ? "trust-pass" : "trust-fail") + '">' + (c.ok ? "✓" : "✗") + "</span>" +
+    '<span class="trust-name">' + escapeHtml(c.name) + "</span>" +
+    '<span class="trust-detail">' + escapeHtml(c.detail || "") + "</span></div>").join("");
+  modal.innerHTML =
+    '<div class="cat-head"><span>' + (d.ok ? "🛡 Your data is verified" : "⚠ Data needs attention") + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="trust-body">' +
+      '<div class="trust-lead">A live, non-destructive check of your ledger — proof it’s readable, complete, uncorrupted, and recoverable. Nothing leaves your machine.</div>' +
+      rows +
+      '<div class="trust-foot">' + (d.count || 0).toLocaleString() + " transactions · " + (d.backups || 0) + " daily backups" + (d.last_backup ? " · last " + escapeHtml(d.last_backup) : "") + "</div>" +
+    "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", close);
+}
 document.addEventListener("pointerdown", () => addExp(1), true);  // capture → counts every click
+// ── Click sparks: rapid clicking shoots theme-colored sparks from the cursor —
+//    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
+//    you click in quick succession. ──
+let _clickTimes = [];
+function expSpark(x, y, n) {
+  for (let i = 0; i < n; i++) {
+    const p = document.createElement("div");
+    p.className = "exp-spark";
+    const a = Math.random() * Math.PI * 2, d = 22 + Math.random() * 42;
+    p.style.left = x + "px"; p.style.top = y + "px";
+    p.style.setProperty("--dx", (Math.cos(a) * d).toFixed(1) + "px");
+    p.style.setProperty("--dy", (Math.sin(a) * d - 12).toFixed(1) + "px");  // bias up a touch
+    p.style.setProperty("--s", (0.5 + Math.random() * 0.8).toFixed(2));
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 680);
+  }
+}
+document.addEventListener("pointerdown", (e) => {
+  const now = performance.now();
+  _clickTimes = _clickTimes.filter((t) => now - t < 1200);
+  _clickTimes.push(now);
+  if (_clickTimes.length >= 5) expSpark(e.clientX, e.clientY, Math.min(10, _clickTimes.length - 3));
+}, true);
 window.addEventListener("pagehide", saveStats);
 window.addEventListener("beforeunload", saveStats);
 function applyPrivacy() {
@@ -4723,5 +4777,6 @@ drawIcons();
 applyPrivacy();
 updateGreeting();
 updateXp();
+renderTrust();
 requestAnimationFrame(reflowBelowStats);  // once the stats bar has measured, clear the top band
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint

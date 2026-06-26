@@ -193,6 +193,13 @@
     if (url.indexOf("/api/connect-status") !== -1) return J({ connected: true });
     if (url.indexOf("/api/summary") !== -1) return J(summary);
     if (url.indexOf("/api/work-monthly") !== -1) return J(workMonthly);
+    if (url.indexOf("/api/integrity") !== -1) return J({ ok: true, count: 142, backups: 8, last_backup: "2026-06-26", checks: [
+      { name: "ledger readable", ok: true, detail: "142 transactions" },
+      { name: "unique transaction ids", ok: true, detail: "142 ids · 142 unique" },
+      { name: "well-formed rows", ok: true, detail: "0 malformed" },
+      { name: "no corrupt lines on disk", ok: true, detail: "0 corrupt of 142" },
+      { name: "recoverable backup exists", ok: true, detail: "8 backup days" },
+    ] });
     if (url.indexOf("/api/work") !== -1) return J(work);
     if (url.indexOf("/api/income-monthly") !== -1) return J(incomeMonthly);
     if (url.indexOf("/api/categories") !== -1) return J(categories);

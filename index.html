@@ -37,6 +37,7 @@
       <div class="sidebar-scroll">
         <div class="sidebar-greeting" id="greeting" style="display:none"></div>
         <div class="sidebar-xp" id="sidebarXp"></div>
+        <div class="sidebar-trust" id="trustBadge"></div>
         <section class="sidebar-section">
           <div class="section-title">Menu</div>
           <button class="menu-item" id="connectBank">⚡ Connect a bank</button>
@@ -51,13 +52,13 @@
 
         <section class="sidebar-section">
           <div class="section-title">Widget Library</div>
-          <div id="library" class="library"></div>
-          <div class="section-hint">click to add / remove from the board</div>
           <div class="gutter-ctrl">
             <span class="gutter-label">Gutter</span>
             <input id="gutterSlider" type="range" min="4" max="48" step="2" class="gutter-slider" aria-label="Gutter between widgets" />
           </div>
           <div class="section-hint">spacing between widgets when tidied · drag to preview live</div>
+          <div id="library" class="library"></div>
+          <div class="section-hint">click to add / remove from the board</div>
         </section>
 
         <section class="sidebar-section" id="iconSection">
