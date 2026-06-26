@@ -2130,8 +2130,19 @@ function getCacheName() {
 function setCacheName(n) {
   try { if (n && n.trim()) localStorage.setItem("money.cacheName", n.trim()); else localStorage.removeItem("money.cacheName"); } catch (e) {}
 }
-// the menu header shows the cache's name as text (free Google font); the logo lives in the footer
-function renderBrand() { const b = document.getElementById("brandName"); if (b) b.textContent = getCacheName(); }
+// the menu header shows the cache's name as text (free Google font); click to rename it
+function renderBrand() {
+  const b = document.getElementById("brandName");
+  if (!b) return;
+  b.textContent = getCacheName();
+  b.style.cursor = "pointer";
+  b.title = "rename your cache";
+  b.onclick = () => {
+    const v = prompt("Name your cache (this is yours — call it whatever you want):", getCacheName());
+    if (v === null) return;
+    setCacheName(v); renderBrand(); if (typeof renderCharacter === "function") renderCharacter();
+  };
+}
 const CACHE_TITLES = ["Newcomer", "Tracker", "Saver", "Planner", "Strategist", "Steward", "Tactician", "Architect", "Sage", "Legend"];
 function cacheLevel(exp) {
   const base = 60, x = exp || 0;
@@ -2252,7 +2263,7 @@ function renderTrust() {
     if (!d) { el.innerHTML = ""; return; }
     _integrityOk = d.ok; renderHealth();  // integrity feeds cache health
     el.innerHTML = '<button class="trust-chip ' + (d.ok ? "ok" : "warn") + '" title="how your data is protected">' +
-      "<span>" + (d.ok ? "🛡 data verified" : "⚠ check data") + "</span>" +
+      "<span>" + (d.ok ? "🔒 Private &amp; verified" : "⚠ Check your data") + "</span>" +
       '<span class="trust-n">' + (d.ok ? "✓" : "!") + "</span></button>";
     el.querySelector(".trust-chip").addEventListener("click", () => openTrust(d));
   }).catch(() => { el.innerHTML = ""; });
@@ -2267,9 +2278,9 @@ function openTrust(d) {
     '<span class="trust-name">' + escapeHtml(c.name) + "</span>" +
     '<span class="trust-detail">' + escapeHtml(c.detail || "") + "</span></div>").join("");
   modal.innerHTML =
-    '<div class="cat-head"><span>' + (d.ok ? "🛡 Your data is verified" : "⚠ Data needs attention") + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="cat-head"><span>' + (d.ok ? "🔒 Private &amp; verified" : "⚠ Data needs attention") + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="trust-body">' +
-      '<div class="trust-lead">A live, non-destructive check of your ledger — proof it’s readable, complete, uncorrupted, and recoverable. Nothing leaves your machine.</div>' +
+      '<div class="trust-lead"><b>Your financial data never leaves this machine.</b> This is a live, non-destructive audit of your local ledger — proof it’s readable, complete, uncorrupted, and recoverable.</div>' +
       rows +
       '<div class="trust-foot">' + (d.count || 0).toLocaleString() + " transactions · " + (d.backups || 0) + " daily backups" + (d.last_backup ? " · last " + escapeHtml(d.last_backup) : "") + "</div>" +
     "</div>";
@@ -3246,7 +3257,8 @@ function makeResizable(node, grips, id) {
       if (corner.indexOf("s") >= 0) h = Math.max(MIN_H, sh + dy);
       if (corner.indexOf("n") >= 0) { h = Math.max(MIN_H, sh - dy); t = st + sh - h; }
       if (layout[id] && layout[id].snap) {
-        w = snapSize(w, MIN_W); h = snapSize(h, MIN_H);
+        // SIZE stays free — a custom resize wins even if it breaks the gutter grid;
+        // only the position snaps to the grid.
         if (corner.indexOf("w") >= 0) l = sl + sw - w;
         if (corner.indexOf("n") >= 0) t = st + sh - h;
         l = snapTo(l); t = snapTo(t);

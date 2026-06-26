@@ -960,8 +960,8 @@ body.panning .cursor-ball { display: none !important; }
 .cst-add:hover { border-color: var(--accent); color: var(--accent); }
 
 /* greeting in the sidebar */
-.sidebar-greeting { padding: 14px 16px 4px; font-size: 13px; color: var(--accent); letter-spacing: 0.01em; }
-.founder-compliment { display: block; font-size: 11px; color: rgba(var(--ink-rgb), 0.55); font-style: italic; margin-top: 3px; letter-spacing: 0; line-height: 1.4; }
+.sidebar-greeting { padding: 16px 16px 12px; font-size: 13px; color: var(--accent); letter-spacing: 0.01em; line-height: 1.5; }
+.founder-compliment { display: block; font-size: 11px; color: rgba(var(--ink-rgb), 0.55); font-style: italic; margin-top: 8px; letter-spacing: 0; line-height: 1.5; }
 .sidebar-xp { padding: 4px 16px 12px; font-size: 11px; color: rgba(var(--ink-rgb), 0.5); letter-spacing: 0.04em; }
 .sidebar-xp b { color: var(--accent); font-variant-numeric: tabular-nums; }
 /* your cache, as a character — name + level + title + XP toward the next level */
@@ -1306,11 +1306,12 @@ body.sidebar-open .sidebar { transform: none; }
 .library { display: flex; flex-direction: column; gap: 6px; }
 .lib-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 9px 11px; border: 1px solid var(--edge-soft); border-radius: 9px;
-  background: rgba(255, 255, 255, 0.16); cursor: pointer;
+  padding: 9px 11px; border: 1px solid transparent; border-radius: 10px;
+  background: transparent; cursor: pointer;
   font-size: 12px; text-align: left; color: var(--ink); transition: background 0.14s ease;
 }
-.lib-item:hover { background: rgba(255, 255, 255, 0.4); }
+.lib-item:hover { background: rgba(var(--ink-rgb), 0.07); }
+.lib-item.active { background: rgba(var(--ink-rgb), 0.05); }
 .lib-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--edge); flex-shrink: 0; }
 .lib-item.active .lib-dot { background: var(--accent); border-color: var(--accent); }
 .lib-star { flex-shrink: 0; cursor: pointer; font-size: 12px; line-height: 1; width: 14px; text-align: center;
@@ -1345,13 +1346,14 @@ body.sidebar-open .sidebar { transform: none; }
 /* trust badge — live ledger-integrity proof in the menu pane */
 .sidebar-trust { padding: 8px 16px 0; }
 .sidebar-trust:empty { display: none; }
-.trust-chip { display: inline-flex; align-items: center; gap: 7px; width: 100%; justify-content: space-between;
-  font-family: inherit; font-size: 11px; cursor: pointer; border: 1px solid var(--edge-soft); background: var(--panel);
-  border-radius: 999px; padding: 6px 12px; color: var(--ink); }
-.trust-chip.ok { border-color: rgba(63, 143, 78, 0.45); }
-.trust-chip.warn { border-color: rgba(201, 84, 46, 0.55); color: #c9542e; }
+.trust-chip { display: inline-flex; align-items: center; gap: 8px; width: 100%; justify-content: space-between;
+  font-family: inherit; font-size: 11.5px; font-weight: 500; letter-spacing: 0.02em; cursor: pointer;
+  border: 1px solid var(--edge); background: rgba(63, 143, 78, 0.08); border-radius: 10px; padding: 9px 13px; color: var(--ink); }
+.trust-chip.ok { border-color: rgba(63, 143, 78, 0.5); }
+.trust-chip.ok .trust-n { color: #3f8f4e; }
+.trust-chip.warn { background: rgba(201, 84, 46, 0.08); border-color: rgba(201, 84, 46, 0.55); color: #c9542e; }
 .trust-chip:hover { border-color: var(--accent); }
-.trust-n { color: rgba(var(--ink-rgb), 0.45); font-variant-numeric: tabular-nums; }
+.trust-n { color: rgba(var(--ink-rgb), 0.45); font-variant-numeric: tabular-nums; font-weight: 700; }
 .trust-body { padding: 12px 16px 16px; }
 .trust-lead { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.7); line-height: 1.55; margin-bottom: 12px; }
 .trust-row { display: flex; align-items: baseline; gap: 9px; padding: 6px 0; border-bottom: 1px solid var(--edge-soft); font-size: 12px; }
@@ -1438,11 +1440,11 @@ body.sidebar-open .sidebar { transform: none; }
 
 .menu-item {
   display: block; width: 100%; text-align: left;
-  padding: 9px 11px; border: 1px solid var(--edge-soft); border-radius: 9px;
-  background: rgba(255, 255, 255, 0.16); color: var(--ink);
-  font-family: inherit; font-size: 12px; cursor: pointer;
+  padding: 9px 11px; border: 1px solid transparent; border-radius: 10px;
+  background: transparent; color: var(--ink);
+  font-family: inherit; font-size: 12px; cursor: pointer; transition: background 0.14s ease;
 }
-.menu-item:hover { background: rgba(255, 255, 255, 0.4); }
+.menu-item:hover { background: rgba(var(--ink-rgb), 0.07); }
 
 /* ── bottom-right status: sources + sync ─────────── */
 .status-bar { position: fixed; bottom: 24px; right: 24px; z-index: 55; display: flex; gap: 11px; }
@@ -1665,16 +1667,13 @@ a.src-link:hover .src-bankname { color: var(--accent); }
 .server-pill .goat-head {
   width: 17px; height: 17px; margin-right: 5px; flex-shrink: 0; display: inline-block;
   background-color: var(--ink);
-  -webkit-mask: url(goat-head.png) center / contain no-repeat;
-  mask: url(goat-head.png) center / contain no-repeat;
-  transform-origin: center; transform-style: preserve-3d;
+  -webkit-mask: url("av%20assets/goat-pixel.png") center / contain no-repeat;
+  mask: url("av%20assets/goat-pixel.png") center / contain no-repeat;
+  transform-origin: center;
 }
-/* live → flips forward vertically (over a horizontal axis), not spinning flat */
-.server-pill[data-state="live"] .goat-head { animation: goatFlip 2.6s linear infinite; }
-@keyframes goatFlip {
-  from { transform: perspective(70px) rotateX(0deg); }
-  to   { transform: perspective(70px) rotateX(360deg); }
-}
+/* live → the goat spins flat + very slowly, like a record on a turntable */
+.server-pill[data-state="live"] .goat-head { animation: goatSpin 11s linear infinite; }
+@keyframes goatSpin { to { transform: rotate(360deg); } }
 .server-pill[data-state="down"], .server-pill[data-state="stale"] { color: var(--accent); }
 .server-pill[data-state="down"] .goat-head, .server-pill[data-state="stale"] .goat-head {
   background-color: var(--accent); opacity: 0.6;

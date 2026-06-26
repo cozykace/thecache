@@ -22,8 +22,9 @@ cp "$HERE/goat-head.png"   "$DEST/goat-head.png"
 cp "$HERE/goat-sprite.png" "$DEST/goat-sprite.png"
 cp "$HERE/av assets/THECACHE_LOGO_WHITE.png" "$DEST/av assets/THECACHE_LOGO_WHITE.png"
 cp "$HERE/av assets/THECACHE_LOGO_BLACK.png" "$DEST/av assets/THECACHE_LOGO_BLACK.png"
+cp "$HERE/av assets/goat-pixel.png" "$DEST/av assets/goat-pixel.png"
 
 # drop anything stale that isn't part of the lean set
-find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECACHE_LOGO_BLACK.png" -delete
+find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECACHE_LOGO_BLACK.png" ! -name "goat-pixel.png" -delete
 
 echo "demo refreshed → $DEST"
