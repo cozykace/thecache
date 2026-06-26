@@ -3487,27 +3487,73 @@ document.getElementById("resetLayout").addEventListener("click", () => {
 });
 
 // pull the latest pushed code from GitHub and reload (works for anyone running a git clone)
-function updateApp() {
-  flash("Checking for updates…");
+function _fmtBytes(b) { return b < 1024 ? b + " B" : b < 1048576 ? Math.round(b / 1024) + " KB" : (b / 1048576).toFixed(1) + " MB"; }
+// actually pull + restart + reload (only after the user opts in)
+function runUpdate(closeFn) {
+  if (closeFn) closeFn();
+  flash("Updating — I'll reload when it's ready…");
   fetch("/api/update", { method: "POST" })
     .then((r) => r.json())
     .then((d) => {
       if (!d || !d.ok) { flash("Update failed: " + ((d && (d.error || d.message)) || "is this a git checkout?")); return; }
       if (!d.changed) { flash("Already up to date ✓"); return; }
-      flash("Updating " + d.before + " → " + d.after + " — reloading…");
-      // server is restarting with the new code; wait for it, then reload
       setTimeout(() => {
         let tries = 0;
         const iv = setInterval(() => {
           tries++;
-          fetch("/api/ping?t=" + Date.now()).then((r) => {
-            if (r.ok) { clearInterval(iv); location.reload(); }
-          }).catch(() => {});
+          fetch("/api/ping?t=" + Date.now()).then((r) => { if (r.ok) { clearInterval(iv); location.reload(); } }).catch(() => {});
           if (tries > 30) { clearInterval(iv); flash("Updated — refresh to load it"); }
         }, 400);
       }, 1100);
     })
     .catch(() => flash("Update failed — backend down?"));
+}
+// full-transparency preview: what changes, why, how big, which version — decide before anything happens
+function openUpdate(d) {
+  const back = document.createElement("div");
+  back.className = "cat-backdrop"; back.id = "updBackdrop";
+  const modal = document.createElement("div");
+  modal.className = "cat-modal upd-modal";
+  const close = () => { back.remove(); modal.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  const changes = (d.changes || []).map((c) => "<li>" + escapeHtml(c) + "</li>").join("") || "<li>(no description provided)</li>";
+  modal.innerHTML =
+    '<div class="cat-head"><span>Update available</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="upd-body">' +
+      '<div class="upd-lead">' + d.behind + " update" + (d.behind > 1 ? "s" : "") + " ready — here's exactly what changes.</div>" +
+      '<div class="upd-sec">What’s new</div><ul class="upd-changes">' + changes + "</ul>" +
+      '<div class="upd-meta">' +
+        "<span>📦 download <b>" + _fmtBytes(d.size_bytes || 0) + "</b></span>" +
+        "<span>📄 <b>" + (d.files || 0) + "</b> files</span>" +
+        "<span>🔖 <b>" + d.current + "</b> → <b>" + d.latest + "</b></span>" +
+      "</div>" +
+      (d.stat ? '<div class="upd-stat">' + escapeHtml(d.stat) + "</div>" : "") +
+      '<div class="upd-actions">' +
+        '<button class="upd-skip" type="button">Skip this update</button>' +
+        '<button class="upd-later" type="button">Not now</button>' +
+        '<button class="upd-go" type="button">Update now</button>' +
+      "</div>" +
+      '<div class="upd-note">Nothing happens until you choose. <b>Skip</b> hides this version for good — no pop-ups, no nagging. <b>Not now</b> just closes; you can check again anytime.</div>' +
+    "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", close);
+  modal.querySelector(".upd-later").addEventListener("click", close);
+  modal.querySelector(".upd-skip").addEventListener("click", () => {
+    try { localStorage.setItem("money.skipUpdate", d.latest_full || d.latest); } catch (e) {}
+    close(); flash("Skipped — I won't bring this one up again.");
+  });
+  modal.querySelector(".upd-go").addEventListener("click", () => runUpdate(close));
+}
+function updateApp() {
+  flash("Checking for updates…");
+  fetch("/api/update-check?t=" + Date.now())
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d || !d.ok) { flash("Update check failed — " + ((d && d.error) || "is this a git checkout?")); return; }
+      if (!d.available) { flash("You're up to date ✓"); return; }
+      openUpdate(d);
+    })
+    .catch(() => flash("Update check failed — backend down?"));
 }
 document.getElementById("updateApp").addEventListener("click", () => { updateApp(); setSidebar(false); });
 

@@ -214,6 +214,7 @@
     if (url.indexOf("/api/import") !== -1) return J({ ok: false, error: "Import isn’t available in the demo." });
     if (url.indexOf("/api/sync") !== -1) return J({ ok: true, updated: iso, transactions: 0, ledger: {} });
     if (url.indexOf("/api/connect") !== -1) return J({ ok: false, error: "This is the live demo — connect a real bank in your own copy of THE CACHE." });
+    if (url.indexOf("/api/update-check") !== -1) return J({ ok: true, available: false, current: "demo" });
     if (url.indexOf("/api/update") !== -1) return J({ ok: true, changed: false, message: "The demo is always up to date." });
     if (url.indexOf("/api/restart") !== -1) return J({ ok: true });
     return J({ ok: true });

@@ -1614,6 +1614,21 @@ a.src-link:hover .src-bankname { color: var(--accent); }
 .bug-msg { font-size: 12px; min-height: 16px; color: rgba(var(--ink-rgb), 0.55); }
 .bug-msg.ok { color: #3f8f4e; }
 .bug-msg.err { color: #c9542e; }
+/* transparent "update available" preview modal */
+.upd-body { padding: 12px 16px 16px; }
+.upd-lead { font-size: 13px; color: var(--ink); margin-bottom: 10px; line-height: 1.5; }
+.upd-sec { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(var(--ink-rgb), 0.5); margin: 8px 0 4px; }
+.upd-changes { margin: 0 0 12px; padding-left: 18px; }
+.upd-changes li { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.85); line-height: 1.5; margin-bottom: 3px; }
+.upd-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11.5px; color: rgba(var(--ink-rgb), 0.6); margin-bottom: 6px; }
+.upd-meta b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.upd-stat { font-size: 11px; color: rgba(var(--ink-rgb), 0.5); font-variant-numeric: tabular-nums; margin-bottom: 12px; }
+.upd-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.upd-actions button { font-family: inherit; font-size: 12px; padding: 8px 14px; border-radius: 8px; cursor: pointer; border: 1px solid var(--edge); background: var(--panel); color: var(--ink); }
+.upd-go { background: var(--accent); color: var(--paper); border-color: var(--accent); font-weight: 600; }
+.upd-skip { color: rgba(var(--ink-rgb), 0.6); }
+.upd-skip:hover { border-color: #c9542e; color: #c9542e; }
+.upd-note { font-size: 10.5px; color: rgba(var(--ink-rgb), 0.45); margin-top: 10px; line-height: 1.5; }
 .bug-submit {
   align-self: flex-end; font-family: inherit; font-size: 12px; padding: 7px 16px;
   border-radius: 8px; cursor: pointer; background: var(--ink); color: var(--paper); border: none;

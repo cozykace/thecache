@@ -91,6 +91,31 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, store.monthly_hours_history())
         if path == "/api/integrity":
             return self._json(200, store.verify_ledger())
+        if path == "/api/update-check":
+            # read-only preview of a pending update: what changes, size, version —
+            # so the user sees everything before deciding (the pull is a separate POST).
+            import subprocess
+
+            def _git(*a):
+                return subprocess.run(["git", "-C", HERE] + list(a), capture_output=True, text=True, timeout=60)
+            try:
+                cur = _git("rev-parse", "HEAD").stdout.strip()
+                _git("fetch", "origin", "main")
+                latest = _git("rev-parse", "origin/main").stdout.strip()
+                if not cur or not latest:
+                    return self._json(200, {"ok": False, "error": "not a git checkout"})
+                n = int(_git("rev-list", "--count", "HEAD..origin/main").stdout.strip() or "0")
+                if n == 0:
+                    return self._json(200, {"ok": True, "available": False, "current": cur[:7]})
+                subjects = [s for s in _git("log", "HEAD..origin/main", "--pretty=%s").stdout.splitlines() if s.strip()]
+                stat = _git("diff", "--shortstat", "HEAD..origin/main").stdout.strip()
+                files = [f for f in _git("diff", "--name-only", "HEAD..origin/main").stdout.split() if f]
+                size = len(_git("diff", "HEAD..origin/main").stdout.encode("utf-8"))
+                return self._json(200, {"ok": True, "available": True, "behind": n,
+                                        "current": cur[:7], "latest": latest[:7], "latest_full": latest,
+                                        "changes": subjects, "stat": stat, "files": len(files), "size_bytes": size})
+            except Exception as e:
+                return self._json(200, {"ok": False, "error": str(e)})
         if path == "/api/issues":
             return self._json(200, {"issues": store.find_issues()})
         if path == "/api/bugs":
