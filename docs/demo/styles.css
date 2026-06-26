@@ -1420,22 +1420,33 @@ body.blessed .cursor-ball {
 .char-ev-d { flex: 1; color: var(--ink); }
 .char-ev-t { color: rgba(var(--ink-rgb), 0.45); font-size: 10.5px; white-space: nowrap; }
 .char-empty { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.55); line-height: 1.6; padding: 8px 0; }
-/* journey / tech tree / unlocks (inside the character view) */
-.jn-arcs { display: flex; flex-direction: column; gap: 6px; }
-.jn-arc { border: 1px solid var(--edge-soft); border-radius: 9px; padding: 8px 10px; }
-.jn-arc.now { border-color: var(--accent); background: rgba(var(--ink-rgb), 0.04); }
-.jn-arc.lock { opacity: 0.45; }
-.jn-arc-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 5px; }
-.jn-arc.done .jn-arc-head span:first-child::after { content: " ✓"; color: #3f8f4e; }
-.jn-arc-lvl { font-weight: 400; color: rgba(var(--ink-rgb), 0.45); font-size: 10px; }
-.jn-feats { display: flex; flex-wrap: wrap; gap: 4px; }
-.jn-feat { font-size: 10px; color: rgba(var(--ink-rgb), 0.6); border: 1px solid var(--edge-soft); border-radius: 999px; padding: 2px 7px; }
-.jn-skills { display: flex; flex-direction: column; gap: 6px; }
-.jn-skill { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.jn-skill.lock { opacity: 0.55; }
-.jn-skill.got .jn-skill-i { color: var(--accent); }
-.jn-skill-n { color: var(--ink); font-weight: 500; }
-.jn-skill-r { margin-left: auto; font-size: 10px; color: rgba(var(--ink-rgb), 0.45); }
+/* Skills & unlocks — unleashable pills */
+.sk-pills { display: flex; flex-wrap: wrap; gap: 7px; }
+.sk-pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 6px 12px; font-size: 11.5px;
+  font-family: inherit; border: 1px solid var(--edge); background: var(--panel); color: rgba(var(--ink-rgb), 0.45); cursor: default; }
+.sk-pill.got { background: var(--accent); color: var(--paper); border-color: var(--accent); cursor: pointer; }
+.sk-pill.got:hover { filter: brightness(1.06); }
+.sk-i { font-size: 11px; }
+.sk-go { font-size: 8px; text-transform: uppercase; letter-spacing: 0.09em; opacity: 0.85; }
+.sk-req { font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.6; }
+.sk-pill.unleash { animation: sk-unleash 0.55s ease-out; }
+@keyframes sk-unleash { 0% { box-shadow: 0 0 0 0 rgba(255, 212, 9, 0.7); } 100% { box-shadow: 0 0 0 14px rgba(255, 212, 9, 0); } }
+/* Journey — StarCraft-style tech tree: a spine with node dots + branching feats */
+.tt-tree { position: relative; padding-left: 16px; }
+.tt-tree::before { content: ""; position: absolute; left: 4px; top: 9px; bottom: 12px; width: 2px; background: var(--edge); }
+.tt-tier { position: relative; margin-bottom: 14px; }
+.tt-tier::before { content: ""; position: absolute; left: -12px; top: 10px; width: 12px; height: 2px; background: var(--edge); }
+.tt-tier::after { content: ""; position: absolute; left: -16px; top: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--panel); border: 2px solid var(--edge); }
+.tt-tier.done::after { background: #3f8f4e; border-color: #3f8f4e; }
+.tt-tier.now::after { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 9px var(--accent); }
+.tt-node { display: inline-flex; align-items: baseline; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.tt-tier.lock .tt-node { color: rgba(var(--ink-rgb), 0.4); }
+.tt-tier.done .tt-arc::after { content: " ✓"; color: #3f8f4e; font-weight: 700; }
+.tt-lvl { font-weight: 400; font-size: 10px; color: rgba(var(--ink-rgb), 0.45); }
+.tt-branch { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.tt-feat { font-size: 10px; color: rgba(var(--ink-rgb), 0.65); border: 1px solid var(--edge-soft); border-radius: 6px; padding: 3px 8px; }
+.tt-tier.now .tt-feat { border-color: rgba(255, 212, 9, 0.4); }
+.tt-tier.lock .tt-feat { opacity: 0.5; }
 /* King Cozy — founder-only retro-futuristic phosphor console */
 .king-modal { background: #0b0e08; border: 1px solid rgba(143, 227, 136, 0.32);
   box-shadow: 0 0 44px rgba(143, 227, 136, 0.16), inset 0 0 70px rgba(0, 0, 0, 0.55); }

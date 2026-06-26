@@ -2243,14 +2243,15 @@ function openCharLog() {
   const curArc = Math.min(JOURNEY.length - 1, Math.floor((L.lvl - 1) / 2));
   const arcs = JOURNEY.map((a, i) => {
     const st = i < curArc ? "done" : i === curArc ? "now" : "lock";
-    return '<div class="jn-arc ' + st + '"><div class="jn-arc-head"><span>' + escapeHtml(a.arc) + '</span><span class="jn-arc-lvl">Lvl ' + a.lvls + "</span></div>" +
-      '<div class="jn-feats">' + a.feats.map((f) => '<span class="jn-feat">' + escapeHtml(f) + "</span>").join("") + "</div></div>";
+    return '<div class="tt-tier ' + st + '"><div class="tt-node"><span class="tt-arc">' + escapeHtml(a.arc) + '</span><span class="tt-lvl">Lvl ' + a.lvls + "</span></div>" +
+      '<div class="tt-branch">' + a.feats.map((f) => '<span class="tt-feat">' + escapeHtml(f) + "</span>").join("") + "</div></div>";
   }).join("");
   const skills = [
     { name: "Blessed clicks", req: "max cache health", got: _healthFull },
+    { name: "Sword shing", req: "max cache health", got: _healthFull },
     { name: "Cursor magnification", req: "coming soon", got: false },
     { name: "Art backgrounds", req: "coming soon", got: false },
-  ].map((s) => '<div class="jn-skill ' + (s.got ? "got" : "lock") + '"><span class="jn-skill-i">' + (s.got ? "✦" : "🔒") + '</span><span class="jn-skill-n">' + escapeHtml(s.name) + '</span><span class="jn-skill-r">' + escapeHtml(s.req) + "</span></div>").join("");
+  ].map((s) => '<button class="sk-pill ' + (s.got ? "got" : "lock") + '"' + (s.got ? "" : " disabled") + '><span class="sk-i">' + (s.got ? "✦" : "🔒") + "</span>" + escapeHtml(s.name) + (s.got ? '<span class="sk-go">unleashed</span>' : '<span class="sk-req">' + escapeHtml(s.req) + "</span>") + "</button>").join("");
   modal.innerHTML =
     '<div class="cat-head"><span>' + L.emoji + " " + escapeHtml(getCacheName()) + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="char-body">' +
@@ -2262,12 +2263,15 @@ function openCharLog() {
       "</div>" +
       '<div class="char-bar"><span style="width:' + (L.pct * 100).toFixed(1) + '%"></span></div>' +
       '<div class="char-since">since ' + since + " · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1) + "</div>" +
-      '<div class="char-sec">Journey</div><div class="jn-arcs">' + arcs + "</div>" +
-      '<div class="char-sec">Skills &amp; unlocks</div><div class="jn-skills">' + skills + "</div>" +
+      '<div class="char-sec">Skills &amp; unlocks</div><div class="sk-pills">' + skills + "</div>" +
+      '<div class="char-sec">Journey · tech tree</div><div class="tt-tree">' + arcs + "</div>" +
       '<div class="char-sec">Your ledger</div>' + rows +
     "</div>";
   document.body.appendChild(back); document.body.appendChild(modal);
   modal.querySelector(".cat-close").addEventListener("click", close);
+  modal.querySelectorAll(".sk-pill.got").forEach((b) => b.addEventListener("click", () => {  // "unleash" pulse
+    b.classList.remove("unleash"); void b.offsetWidth; b.classList.add("unleash");
+  }));
 }
 function renderCharacter() {
   const e = document.getElementById("sidebarXp");
