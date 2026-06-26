@@ -21,6 +21,8 @@ const snapTo = (v) => Math.round(v / SNAP) * SNAP;
 // grid-adjacent widgets get a little breathing room instead of touching
 const GUTTER = 8;
 const snapSize = (v, min) => Math.max(min || MIN_W, Math.round(v / SNAP) * SNAP - GUTTER);
+// global gutter between widgets when tidying (a live slider sets this) — Squarespace-style spacing
+const gutterVal = () => { const g = parseInt(localStorage.getItem("money.gutter")); return isNaN(g) ? 16 : Math.max(4, Math.min(48, g)); };
 
 const fmtUSD = (n) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -3610,8 +3612,9 @@ function reflowBelowStats() {
 // Tidy IN PLACE: keep widgets in the rows/order you put them, just clean it up —
 // align each row's tops, even out the gaps, and normalize widths so a row fits
 // pleasantly across the canvas. Doesn't reflow everything into reading order.
-function tidyLayout() {
-  const gap = 16, startX = 32, startY = Math.max(86, topInset());
+function tidyLayout(animate) {
+  if (animate === undefined) animate = true;
+  const gap = gutterVal(), startX = 32, startY = Math.max(86, topInset());
   const zoom = (typeof boardZoom === "number" && boardZoom) ? boardZoom : 1;
   const avail = Math.max(560, (board ? board.clientWidth : window.innerWidth) / zoom - startX * 2);
   const items = Object.keys(layout).map((id) => {
@@ -3635,7 +3638,7 @@ function tidyLayout() {
     let x = startX, rowH = 0;
     row.items.forEach((it) => {
       const w = Math.max(240, Math.min(620, Math.round(it.w * scale)));  // similar, bounded widths
-      it.node.classList.add("tidying");
+      if (animate) it.node.classList.add("tidying");
       it.node.style.left = x + "px"; it.node.style.top = y + "px"; it.node.style.width = w + "px";
       layout[it.id].x = x; layout[it.id].y = y; layout[it.id].w = w;
       x += w + gap; rowH = Math.max(rowH, it.h);
@@ -3643,9 +3646,15 @@ function tidyLayout() {
     y += rowH + gap;
   });
   saveLayout();
-  setTimeout(() => Object.values(nodes).forEach((n) => n.classList.remove("tidying")), 480);
+  if (animate) setTimeout(() => Object.values(nodes).forEach((n) => n.classList.remove("tidying")), 480);
 }
 document.getElementById("tidyLayout").addEventListener("click", () => { tidyLayout(); setSidebar(false); });
+(function () {
+  const gs = document.getElementById("gutterSlider");
+  if (!gs) return;
+  gs.value = gutterVal();
+  gs.addEventListener("input", () => { localStorage.setItem("money.gutter", gs.value); tidyLayout(false); });  // live re-space, no animation
+})();
 document.getElementById("saveView").addEventListener("click", () => {
   const name = prompt("Name this view (e.g. ‘daily’, ‘work mode’):");
   if (name && name.trim()) { saveView(name.trim()); flash("saved “" + name.trim() + "”"); }
