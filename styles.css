@@ -728,6 +728,74 @@ body.panning .cursor-ball { display: none !important; }
   border-radius: 999px; background: var(--paper); border: 1px solid var(--edge); white-space: nowrap;
   font-variant-numeric: tabular-nums; color: rgba(var(--ink-rgb), 0.75); pointer-events: none; }
 
+/* Income forecast — slider tilts a 6-month cushion projection */
+.if-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* fixed-height chart (never resizes as you slide) that lets the line bleed up over the head */
+.if-chart { flex: 1 1 auto; min-height: 96px; margin: 6px 0 2px; overflow: visible; }
+.if-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.if-line { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke;
+  stroke-linejoin: round; stroke-linecap: round; transition: d 0.12s ease; }
+.if-base { stroke: rgba(var(--ink-rgb), 0.28); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.if-zero { stroke: rgba(var(--ink-rgb), 0.2); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.if-mlabel { fill: rgba(var(--ink-rgb), 0.45); font-size: 9px; font-family: inherit; }
+.if-grid { stroke: rgba(var(--ink-rgb), 0.09); stroke-width: 1; vector-effect: non-scaling-stroke; }
+/* goal chip + "+ source" button + the scrolling list of per-source sliders */
+.if-goal { margin-left: auto; border: 1px solid var(--edge); background: var(--panel); cursor: pointer;
+  font-family: inherit; font-size: 10px; color: rgba(var(--ink-rgb), 0.78); padding: 4px 9px; border-radius: 999px;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.if-goal:hover { border-color: var(--accent); color: var(--accent); }
+.if-add { margin-left: 6px; border: 1px solid var(--edge); background: var(--panel); cursor: pointer;
+  font-family: inherit; font-size: 10px; color: rgba(var(--ink-rgb), 0.7); padding: 4px 9px; border-radius: 999px; white-space: nowrap; }
+.if-add:hover { border-color: var(--accent); color: var(--accent); }
+/* the goal target line + label + crossing marker */
+.if-goal-line { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; opacity: 0.65; }
+.if-goal-label { fill: var(--accent); font-size: 8.5px; font-family: inherit; opacity: 0.9; }
+.if-goal-hit { fill: var(--accent); stroke: var(--paper); stroke-width: 2; }
+.if-sources { flex: 0 0 auto; overflow: visible; margin-top: 4px; display: flex; flex-direction: column; gap: 14px; }
+.if-src-top { display: flex; align-items: baseline; gap: 8px; }
+.if-src-name { flex: 1; min-width: 0; font-size: 12px; color: var(--ink); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.if-src-name:hover { color: var(--accent); }
+.if-src-val { flex-shrink: 0; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); }
+.if-src-x { flex-shrink: 0; width: 16px; border: none; background: none; cursor: pointer;
+  font-size: 14px; line-height: 1; color: rgba(var(--ink-rgb), 0.3); padding: 0; }
+.if-src-x:hover { color: #c9542e; }
+.if-src-hint { font-size: 9.5px; color: rgba(var(--ink-rgb), 0.45); margin-top: 1px; font-variant-numeric: tabular-nums; }
+.if-src-hint .if-src-hours { color: var(--accent); font-weight: 600; }
+.if-src-rate { border: none; background: none; cursor: pointer; font-family: inherit; font-size: inherit; padding: 0;
+  color: rgba(var(--ink-rgb), 0.55); text-decoration: underline dotted; text-underline-offset: 2px; }
+.if-src-rate:hover { color: var(--accent); }
+/* this widget runs its content a bit wider than the default body padding */
+.widget-body.is-forecast { padding-left: clamp(7px, 3cqmin, 13px); padding-right: clamp(7px, 3cqmin, 13px); }
+.if-sources, .if-src { min-width: 0; }
+/* per-source sliders: full width, but pad by the thumb radius so the chunky thumb
+   never pokes past the row edge (it stays inside the widget when resized small) */
+.if-src-slider { height: 38px; width: 100%; padding: 0 17px; }
+.if-src-slider::-webkit-slider-thumb { width: 34px; height: 34px; margin-top: -9px; border-width: 4px; }
+.if-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 46px; background: transparent;
+  outline: none; cursor: pointer; }
+/* WebKit: fat rounded track that fills with accent as you drag */
+.if-slider::-webkit-slider-runnable-track { height: 20px; border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) var(--fill, 0%), rgba(var(--ink-rgb), 0.1) var(--fill, 0%));
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.15); }
+.if-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 42px; height: 42px;
+  margin-top: -11px; border-radius: 50%; background: var(--accent); border: 5px solid var(--paper);
+  box-shadow: 0 6px 16px -3px rgba(0, 0, 0, 0.5), inset 0 -3px 4px rgba(0, 0, 0, 0.18), inset 0 2px 3px rgba(255, 255, 255, 0.35);
+  cursor: grab; transition: transform 0.16s cubic-bezier(0.34, 1.75, 0.5, 1); }
+.if-slider:hover::-webkit-slider-thumb { transform: scale(1.09); }
+.if-slider:active::-webkit-slider-thumb { transform: scale(0.86); cursor: grabbing; }
+/* Firefox */
+.if-slider::-moz-range-track { height: 20px; border-radius: 999px; background: rgba(var(--ink-rgb), 0.1);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.15); }
+.if-slider::-moz-range-progress { height: 20px; border-radius: 999px; background: var(--accent); }
+.if-slider::-moz-range-thumb { width: 42px; height: 42px; border-radius: 50%; background: var(--accent);
+  border: 5px solid var(--paper); box-shadow: 0 6px 16px -3px rgba(0, 0, 0, 0.5); cursor: grab;
+  transition: transform 0.16s cubic-bezier(0.34, 1.75, 0.5, 1); }
+.if-slider:hover::-moz-range-thumb { transform: scale(1.09); }
+.if-slider:active::-moz-range-thumb { transform: scale(0.86); cursor: grabbing; }
+/* the wording changes as you slide → make it the flexible, scrolling part so it
+   absorbs length changes WITHOUT nudging the slider above it */
+
 /* What's next widget */
 .wn-deadline { font-size: 12px; color: var(--ink); padding: 7px 10px; margin: 4px 0 4px;
   background: rgba(var(--ink-rgb), 0.045); border-radius: 9px; text-align: center; }
@@ -1524,3 +1592,41 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 }
 .jelly-hover { transform: scale(0.97); }
 .jelly-down { transform: scale(0.9); }
+
+/* ════════════ Mobile: the freeform board becomes one scroll of full-width widgets ════════════ */
+@media (max-width: 640px) {
+  .board { overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .board-canvas {
+    position: static !important; transform: none !important;
+    width: 100% !important; height: auto !important; min-height: 100%;
+    display: flex; flex-direction: column; gap: 14px; box-sizing: border-box;
+    padding: calc(58px + env(safe-area-inset-top)) 10px calc(94px + env(safe-area-inset-bottom));
+  }
+  /* every widget: full width, natural height, no absolute positioning or transforms */
+  .widget {
+    position: static !important; left: auto !important; top: auto !important;
+    width: 100% !important; height: auto !important; min-height: 88px;
+    transform: none !important; flex: 0 0 auto;
+    container-type: inline-size !important;   /* width-based container queries keep working with auto height */
+  }
+  .widget-resize { display: none !important; }   /* no resizing on touch */
+  .sticker { display: none !important; }          /* hide free-floating decor in a stack */
+  .zoom-control { display: none !important; }     /* no zoom in stack mode */
+  /* SVG-chart widgets need an explicit height (height:100% collapses inside an auto-height stack) */
+  .if-chart { height: 150px !important; flex: none !important; }
+  .af-wrap  { height: 300px !important; flex: none !important; }
+
+  /* floating chrome: keep it, fit the narrow screen, scroll if crowded */
+  .stats-bar { top: 0; padding: calc(6px + env(safe-area-inset-top)) 8px 0; }
+  .stats { max-width: 100%; }
+  .dock-bar { padding: 0 8px calc(8px + env(safe-area-inset-bottom)); }
+  .dock { max-width: calc(100vw - 16px); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .dock::-webkit-scrollbar { display: none; }
+  .dock-bar > #syncHealth { position: static; }   /* fold sync into the dock row instead of pinning it */
+  .sidebar { width: min(92vw, 360px); }
+}
+
+/* touch devices of any size: reveal controls desktop only shows on hover */
+@media (hover: none) {
+  .sticker-close, .sticker-magnet, .widget-resize { opacity: 1; }
+}

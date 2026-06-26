@@ -99,6 +99,35 @@ class Handler(SimpleHTTPRequestHandler):
                 os.execv(sys.executable, [sys.executable, os.path.join(HERE, "server.py")])
             threading.Thread(target=_go, daemon=True).start()
             return
+        if self.path == "/api/update":
+            # pull the latest pushed code from GitHub, then restart to load it.
+            # --ff-only so a friend's checkout updates cleanly or fails safely (no merge mess).
+            import subprocess
+            import sys
+            import time
+            import threading
+
+            def _git(*a):
+                return subprocess.run(["git", "-C", HERE] + list(a),
+                                      capture_output=True, text=True, timeout=90)
+            try:
+                before = _git("rev-parse", "HEAD").stdout.strip()
+                pull = _git("pull", "--ff-only", "origin", "main")
+                after = _git("rev-parse", "HEAD").stdout.strip()
+                ok = pull.returncode == 0
+                changed = bool(before) and bool(after) and before != after
+                msg = (pull.stdout + pull.stderr).strip()
+                self._json(200, {"ok": ok, "changed": changed,
+                                 "before": before[:7], "after": after[:7],
+                                 "message": msg[-400:]})
+                if ok and changed:
+                    def _restart():
+                        time.sleep(0.5)
+                        os.execv(sys.executable, [sys.executable, os.path.join(HERE, "server.py")])
+                    threading.Thread(target=_restart, daemon=True).start()
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)})
+            return
         if self.path == "/api/categorize":
             try:
                 n = int(self.headers.get("Content-Length", 0))
@@ -201,5 +230,12 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"Money running at http://localhost:{PORT}  (Ctrl-C to stop)")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    # Default: localhost only (this machine). Opt in to LAN access with
+    #   GOAT_HOST=0.0.0.0 python3 server.py
+    # ⚠ 0.0.0.0 exposes the app (no login) to everyone on your network — only do
+    # it on a trusted home wifi for a quick test. For "anywhere" access, leave this
+    # on 127.0.0.1 and put it on your private Tailscale tailnet instead (tailscale serve).
+    HOST = os.environ.get("GOAT_HOST", "127.0.0.1")
+    where = "your network" if HOST == "0.0.0.0" else "localhost"
+    print(f"Money running on {HOST}:{PORT}  ({where})  (Ctrl-C to stop)")
+    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

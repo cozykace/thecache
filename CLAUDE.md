@@ -26,6 +26,22 @@ A local, private finance cockpit. Plain HTML/CSS/JS served by a Python stdlib ba
 - **Persistence.** UI state → `localStorage` (keys namespaced `money.*`). Layout → `saveLayout()`. Backend writes are atomic.
 - **Shared helpers in app.js:** `fmtUSD`, `fmtUSDk`, `windowRange`, `escapeHtml`, `incomeBubbles`, `drawIcons`, `springIn`. Reuse them.
 
+## Mobile-friendly (SOP)
+
+The board is desktop-first today (drag / zoom / pan), but build everything new so it survives a phone. Apply by default:
+
+1. **Touch targets ≥ 44×44px.** Buttons, toggles, pips, slider thumbs, close ×. If the glyph must stay small (a 16px ×), pad the *hit area* to ~44px with padding/`::before`, not the glyph.
+2. **No hover-only anything.** Controls revealed on `:hover` (sticker magnet/×, row actions) are invisible on touch — mirror every reveal with `@media (hover: none){ … opacity:1 }`. Never put essential info only in a `title=` tooltip.
+3. **Fluid, not fixed.** Size with `%`, `fr`, `clamp()`, container units (`cqmin`) — never hardcoded desktop px widths. Every flex child holding text/inputs gets `min-width:0`; lean on the global `box-sizing:border-box`. A widget must never overflow its own box at any size (the body is `overflow:hidden`). Inputs/sliders: `width:100%` + pad chunky controls by their own radius so the thumb can't poke past the edge when the widget shrinks.
+4. **Container queries over media queries.** Widgets adapt to their OWN width (`container-type:size` is on `.widget`), so a narrow widget == a narrow phone. **Shrinking a widget is your mobile test** since I can't see the screen.
+5. **`touch-action` on gestures.** Draggables/resizers `touch-action:none`; sliders/scroll regions `pan-y`/`manipulation`. We already use Pointer Events — keep it, don't add mouse-only listeners.
+6. **Thumb-friendly inputs.** `type="number"` + `inputmode="decimal"` for money, `type="date"` for dates → correct mobile keyboard. Prefer inline editors over `prompt()` for anything new.
+7. **Modals → bottom sheets under ~480px.** Fixed desktop popovers (settings, pickers, period/clock menus) become full-width, bottom-anchored, scrollable sheets; always tap-outside + visible-close dismissible.
+8. **Readable minimums.** Body/number text ≥ 12–13px; never let an 8–9px label be the only carrier of essential info.
+9. **Respect safe areas.** Anything fixed/full-bleed (dock, stats bar, sheets) pads with `env(safe-area-inset-*)` so notches/home bars don't clip it.
+10. **Board needs an edit mode (deferred).** Drag-to-move + pinch-zoom fight one-finger scroll on touch. Until there's an explicit arrange toggle (or long-press-to-drag), treat the board as view-mostly on phones — widgets must be useful without rearranging.
+11. **Verify at a real width.** Ask the user to check ~375px (iPhone) and at the widget's container breakpoints. Lightweight still rules — no heavy reflow/JS on scroll.
+
 ## Data contract
 
 **`data/balances.json`** (the snapshot every widget reads):

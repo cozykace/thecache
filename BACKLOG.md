@@ -18,6 +18,22 @@ _Last updated: 2026-06-23_
 - [x] Magnet snap for stickers / icon-nodes — stickers snap to the 24px grid by default; hover magnet toggle to free-place (accent when on), reuses the widget snap machinery (2026-06-23)
 - [ ] Audio bell on every turn-end (Stop hook) — optional, currently off
 
+## Sharing / let a friend try it
+- [x] In-app **Update app** button (Menu → ⟳) — `/api/update` does `git pull --ff-only origin main` then restarts; works for anyone running a clone, so pushed updates land with one click (2026-06-25)
+- [x] Friend onboarding guide — `SETUP.md` (clone → start.command → demo data or own bank → Update app); each person runs their OWN local copy, data stays on their machine (2026-06-25)
+- [x] Fixed local git corruption — stray macOS dup refs `refs/heads/main 2` + `refs/remotes/origin/main 2` (zero-SHA) broke every fetch/pull; removed (2026-06-25)
+- [ ] DECISION: make the code repo public (no data in it — safe) OR add friend as collaborator, so their clone + Update button can pull without auth friction
+- [ ] Optional: an `install.command` that clones + sets up the auto-start LaunchAgent for a non-technical friend
+
+## Mobile
+- [x] Mobile-friendly SOPs added to the process stack (CLAUDE.md → "Mobile-friendly (SOP)") — touch targets, no hover-only, fluid/container-query sizing, touch-action, sheets-under-480px, safe areas (2026-06-25)
+- [x] Mobile stacked layout — under 640px the freeform board becomes one vertical scroll of full-width widgets; drag/resize/zoom disabled so a finger scrolls (board stays freeform on desktop). Chart widgets get explicit heights; stats bar/dock fit + scroll; safe-area insets respected (2026-06-25)
+- [x] Hover-only audit — sticker controls/resize grips now show on coarse-pointer (touch) devices via `@media (hover:none)` (2026-06-25)
+- [x] Remote access path — server takes `GOAT_HOST` (default localhost; opt-in LAN); Tailscale `serve` for private "anywhere" access (2026-06-25)
+- [ ] Drag-to-arrange on touch — phones are view/scroll only; rearranging still desktop-only (an explicit arrange mode could add it later, probably unnecessary)
+- [ ] Convert fixed desktop popovers (settings, period/clock menus, pickers) to bottom-sheets under ~480px
+- [ ] Per-source slider: optional hourly-vs-monthly choice when adding (currently monthly default)
+
 ## Smarter / more robust
 - [x] Recurrence v2 — detect_recurring now flags **new** (first seen <10wk), **changed** (latest charge >10% off the usual), **dropped** (well past its usual gap). Shown as badges in the Money Map; dropped (tracked, not paused) surface in the Review inbox with "mark paused" to clear (2026-06-23)
 

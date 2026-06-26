@@ -349,6 +349,9 @@ function fmtBusy(b) {
     hhmm(b.start) + "–" + hhmm(b.end) + " · " + b.label;
 }
 const DRAG_IGNORE = ".widget-close,.widget-toggle,.widget-magnet,.widget-help,.sticker-close,.sticker-magnet,.widget-resize,.sticker-resize";
+// On a phone the board becomes a vertical stack — drag/resize/pan are disabled so
+// one finger scrolls instead of grabbing widgets. Matches the CSS breakpoint.
+const isMobile = () => window.matchMedia("(max-width: 640px)").matches;
 
 // ── How each widget type renders ───────────────────────────
 // classify an account by its name so we can split cash into checking / savings
@@ -527,6 +530,172 @@ const RENDERERS = {
     fetch("/api/transfers?t=" + Date.now()).then((r) => r.json())
       .then((t) => { transfers = t.transfers || []; if (Store.data) render(Store.data); }).catch(() => {});
     if (window.ResizeObserver) new ResizeObserver(() => { if (Store.data) requestAnimationFrame(() => redraw(Store.data)); }).observe(el);
+  },
+  incomeforecast(el) {
+    el.classList.add("is-breakdown", "is-forecast");
+    el.innerHTML =
+      '<div class="bd-head"><div class="bd-top"><span class="fc-label">income forecast</span>' +
+        '<button class="if-goal" type="button" title="set a savings goal to aim for">🎯 <span class="if-goal-amt">…</span></button>' +
+        '<button class="if-add" type="button" title="add an income source (a client, a gig…)">+ source</button></div>' +
+        '<div class="big bd-avg if-big">…</div>' +
+        '<div class="fc-sub if-sub"></div>' +
+      "</div>" +
+      '<div class="if-chart"><svg class="if-svg" viewBox="0 0 320 150" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"></svg></div>' +
+      '<div class="if-sources"></div>';
+    const big = el.querySelector(".if-big");
+    const sub = el.querySelector(".if-sub");
+    const svg = el.querySelector(".if-svg");
+    const srcWrap = el.querySelector(".if-sources");
+    const SRC_KEY = "money.forecastSources";
+    let sources = null;
+
+    const persist = () => { try { localStorage.setItem(SRC_KEY, JSON.stringify(sources)); } catch (e) {} };
+    // a source contributes $/mo: hourly = hrs/wk × rate × (52/12); monthly = the value itself
+    const contribution = (s) => s.mode === "hourly" ? (s.value || 0) * (52 / 12) * (s.rate || 0) : (s.value || 0);
+    const fillPct = (sl) => ((sl.value - sl.min) / ((sl.max - sl.min) || 1) * 100).toFixed(1) + "%";
+    const needOf = (S) => S.bills.reduce((a, t) => a + t.amt, 0) + ((S.estimates.find((t) => t.key === "__food__") || { amt: 0 }).amt);
+    const GOAL_KEY = "money.forecastGoal";
+    const getGoal = (need) => { const g = parseFloat(localStorage.getItem(GOAL_KEY)); return g > 0 ? g : Math.max(500, Math.round((need || 1000) / 50) * 50); };
+
+    // header + graph ONLY — never rebuilds the slider DOM, so a drag is never interrupted
+    function paintChart(d) {
+      const S = planSummary(d, 0);
+      if (!S || !sources) return;
+      const need = needOf(S), cash = S.cash || 0;
+      const income = sources.reduce((a, s) => a + contribution(s), 0);
+      const surplus = income - need, up = surplus >= 0, col = up ? "#3f8f4e" : "#c9542e";
+      const N = 6;
+      const goal = getGoal(need);
+      const goalAmt = el.querySelector(".if-goal-amt"); if (goalAmt) goalAmt.textContent = fmtUSD(goal);
+      big.textContent = fmtUSD(income) + "/mo";
+      // months to reach the goal at this pace
+      let goalMsg;
+      if (cash >= goal) goalMsg = '🎯 <b style="color:#3f8f4e">goal met</b>';
+      else if (surplus > 0) { const m = (goal - cash) / surplus; goalMsg = "🎯 hit it in <b>" + (m <= 0.9 ? "<1" : Math.ceil(m)) + "&nbsp;mo</b>"; }
+      else goalMsg = '🎯 <b style="color:#c9542e">slide up to reach it</b>';
+      sub.innerHTML = (up ? '<b style="color:#3f8f4e">+' + fmtUSD(surplus) + "/mo</b> over needs"
+        : '<b style="color:#c9542e">' + fmtUSD(-surplus) + "/mo</b> short") + " · " + goalMsg;
+      const pts = [];
+      for (let m = 0; m <= N; m++) pts.push(cash + surplus * m);
+      const W = 320, H = 150, padL = 8, padR = 8, padB = 20, top = 12, bot = H - padB - 2;
+      // scale anchored to cash (low) and the GOAL (near the top) — both stable, so sliding
+      // only tilts the line while the goal stays at a fixed, visible height to climb toward.
+      const ymin = Math.min(0, cash);
+      const ymax = Math.max(goal * 1.12, cash + Math.max(need, 600) * 0.6, cash + 1);
+      const scale = (bot - top) / ((ymax - ymin) || 1);
+      const X = (m) => padL + (m / N) * (W - padL - padR);
+      const Y = (v) => bot - (v - ymin) * scale;
+      const line = pts.map((v, m) => (m ? "L" : "M") + X(m).toFixed(1) + " " + Y(v).toFixed(1)).join(" ");
+      // fill only the wedge between the line and today's cash (the gain/loss) — can't bleed onto the sliders
+      const baseLineY = Y(cash).toFixed(1);
+      const area = "M " + X(0).toFixed(1) + " " + baseLineY + " " +
+        pts.map((v, m) => "L " + X(m).toFixed(1) + " " + Y(v).toFixed(1)).join(" ") +
+        " L " + X(N).toFixed(1) + " " + baseLineY + " Z";
+      let s = "";
+      // faint vertical line for each month (drawn first → sits behind everything)
+      for (let g = 0; g <= N; g++) s += '<line x1="' + X(g).toFixed(1) + '" y1="' + top + '" x2="' + X(g).toFixed(1) + '" y2="' + (H - padB) + '" class="if-grid" />';
+      const goalY = Y(goal);
+      s += '<line x1="' + padL + '" y1="' + goalY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + goalY.toFixed(1) + '" class="if-goal-line" />';
+      s += '<text x="' + (W - padR) + '" y="' + (goalY - 4).toFixed(1) + '" text-anchor="end" class="if-goal-label">goal ' + fmtUSD(goal) + "</text>";
+      s += '<line x1="' + padL + '" y1="' + Y(cash).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + Y(cash).toFixed(1) + '" class="if-base" />';
+      s += '<path d="' + area + '" style="fill:' + col + ';opacity:0.12" />';
+      s += '<path d="' + line + '" class="if-line" style="stroke:' + col + '" />';
+      s += '<circle cx="' + X(N).toFixed(1) + '" cy="' + Y(pts[N]).toFixed(1) + '" r="3.5" style="fill:' + col + '" />';
+      if (surplus > 0 && cash < goal) {
+        const m = (goal - cash) / surplus;
+        if (m > 0 && m <= N) {
+          const near = Math.round(m);
+          const snapped = Math.abs(m - near) <= 0.15 ? near : m;  // tiny magnet onto the month lines
+          s += '<circle cx="' + X(snapped).toFixed(1) + '" cy="' + goalY.toFixed(1) + '" r="4.5" class="if-goal-hit" />';
+        }
+      }
+      const nowD = new Date();
+      for (let m = 0; m <= N; m++) {
+        const anchor = m === 0 ? "start" : m === N ? "end" : "middle";
+        const lbl = new Date(nowD.getFullYear(), nowD.getMonth() + m, 1).toLocaleDateString("en-US", { month: "short" });
+        s += '<text x="' + X(m).toFixed(1) + '" y="' + (H - 5) + '" text-anchor="' + anchor + '" class="if-mlabel">' + lbl + "</text>";
+      }
+      svg.innerHTML = s;
+    }
+
+    // build the slider rows ONCE (on load / add / remove / rename) — not during a drag
+    function renderSources() {
+      srcWrap.innerHTML = sources.map((s) => {
+        const hint = s.mode === "hourly"
+          ? '<span class="if-src-hours">' + (s.value || 0) + '</span> hrs/wk @ <button class="if-src-rate" data-id="' + escapeHtml(s.id) + '" title="set your effective $/hr (after gas)">' + fmtUSD(s.rate || 0) + "/hr</button>"
+          : "drag to set $/mo";
+        return '<div class="if-src" data-id="' + escapeHtml(s.id) + '">' +
+          '<div class="if-src-top"><span class="if-src-name" title="click to rename">' + escapeHtml(s.name) + "</span>" +
+            '<span class="if-src-val">' + fmtUSD(contribution(s)) + "/mo</span>" +
+            '<button class="if-src-x" title="remove this source">×</button></div>' +
+          '<input type="range" class="if-slider if-src-slider" min="0" max="' + s.max + '" step="' + (s.mode === "hourly" ? 1 : 25) + '" value="' + (s.value || 0) + '" data-id="' + escapeHtml(s.id) + '" />' +
+          '<div class="if-src-hint">' + hint + "</div>" +
+        "</div>";
+      }).join("");
+      srcWrap.querySelectorAll(".if-src-slider").forEach((sl) => {
+        sl.style.setProperty("--fill", fillPct(sl));
+        const row = sl.closest(".if-src");
+        const s = sources.find((x) => x.id === sl.dataset.id);
+        sl.addEventListener("input", () => {
+          s.value = parseFloat(sl.value) || 0;
+          sl.style.setProperty("--fill", fillPct(sl));
+          row.querySelector(".if-src-val").textContent = fmtUSD(contribution(s)) + "/mo";
+          if (s.mode === "hourly") row.querySelector(".if-src-hours").textContent = s.value;
+          persist();
+          if (Store.data) paintChart(Store.data);  // tilt the graph, leave the sliders alone
+        });
+      });
+      srcWrap.querySelectorAll(".if-src-x").forEach((b) => b.addEventListener("click", () => {
+        const id = b.closest(".if-src").dataset.id;
+        sources = sources.filter((x) => x.id !== id); persist();
+        renderSources(); if (Store.data) paintChart(Store.data);
+      }));
+      srcWrap.querySelectorAll(".if-src-name").forEach((n) => n.addEventListener("click", () => {
+        const s = sources.find((x) => x.id === n.closest(".if-src").dataset.id);
+        const nm = prompt("Rename source:", s.name);
+        if (nm && nm.trim()) { s.name = nm.trim(); persist(); renderSources(); }
+      }));
+      srcWrap.querySelectorAll(".if-src-rate").forEach((b) => b.addEventListener("click", () => {
+        const s = sources.find((x) => x.id === b.dataset.id);
+        const v = prompt("Effective $/hr for " + s.name + " (after gas — keep it conservative for slow nights):", s.rate || 20);
+        if (v === null) return;
+        const n = parseFloat((v || "").replace(/[^0-9.]/g, ""));
+        if (n > 0) { s.rate = Math.round(n); persist(); renderSources(); if (Store.data) paintChart(Store.data); }
+      }));
+    }
+
+    function ensureSources(d) {
+      if (sources) return;
+      try { sources = JSON.parse(localStorage.getItem(SRC_KEY)); } catch (e) {}
+      if (!Array.isArray(sources)) {  // first run only — an empty list (you cleared them) is respected
+        const S = planSummary(d, 0);
+        const base = Math.round(guaranteedIncome(d) || 0);
+        const rate = parseFloat(localStorage.getItem("money.rate")) || 20;  // conservative default for slow nights
+        const gap = S ? Math.max(0, needOf(S) - base) : 0;
+        const hrs = Math.max(0, Math.min(40, Math.round(gap / (rate * 52 / 12))));
+        sources = [
+          { id: "jpg", name: "John Page Guitars", mode: "monthly", value: base || 2000, max: Math.max(5000, (base || 2000) * 2) },
+          { id: "instacart", name: "Instacart", mode: "hourly", rate: rate, value: hrs, max: 40 },
+        ];
+        persist();
+      }
+      renderSources();
+    }
+    el.querySelector(".if-add").addEventListener("click", () => {
+      const nm = prompt("New income source — a client, gig, or anything (you'll slide its $/mo):");
+      if (!nm || !nm.trim()) return;
+      sources.push({ id: "src-" + Date.now(), name: nm.trim(), mode: "monthly", value: 0, max: 5000 });
+      persist(); renderSources(); if (Store.data) paintChart(Store.data);
+    });
+    el.querySelector(".if-goal").addEventListener("click", () => {
+      const cur = parseFloat(localStorage.getItem(GOAL_KEY)) || "";
+      const v = prompt("Savings goal — the cushion ($) you want to build toward:", cur);
+      if (v === null) return;
+      const n = parseFloat((v || "").replace(/[^0-9.]/g, ""));
+      if (n > 0) localStorage.setItem(GOAL_KEY, String(Math.round(n))); else localStorage.removeItem(GOAL_KEY);
+      if (Store.data) paintChart(Store.data);
+    });
+    Store.subscribe(el, (d) => { if (!d || !d.spending) { big.textContent = "…"; return; } ensureSources(d); paintChart(d); });
   },
   clock(el) {
     el.classList.add("is-clock");
@@ -2049,6 +2218,7 @@ const LIBRARY = [
   { type: "coreflex", title: "Core vs flex", w: 300, h: 300 },
   { type: "subscriptions", title: "Money Map", w: 320, h: 340 },
   { type: "accountflow", title: "Money flow", w: 320, h: 380 },
+  { type: "incomeforecast", title: "Income forecast", w: 340, h: 340 },
   { type: "work", title: "Work planner", w: 300, h: 210 },
   { type: "averages", title: "Averages", w: 300, h: 260 },
   { type: "worklog", title: "Time worked", w: 300, h: 270 },
@@ -2238,6 +2408,11 @@ const WIDGET_INFO = {
     "<p><b>money in</b> = your monthly income · <b>money out</b> = your monthly spending (the bubbles on those lines).</p>" +
     "<p><b>Bubbles on the connectors</b> = recurring transfers detected from your ledger (exact amounts). They appear once you have transfers that repeat.</p>" +
     "<p><b>hide cards</b> collapses credit cards for a cash-only view. Card balances show in red (debt owed).</p>",
+  incomeforecast:
+    "<p><b>Slide to see the future.</b> Drag the slider to set how many hours of side work (Instacart) you'd do per week — the chart re-tilts live.</p>" +
+    "<p>The line is your <b>cushion over the next 6 months</b>, starting from your cash now. Its slope = your monthly surplus: <b>income − needs</b>. Rising green = you're building savings; falling red = you're draining.</p>" +
+    "<p><b>Income</b> = your guaranteed base + (hours/wk × your $/hr rate, set in Budget → build). <b>Needs</b> = the essentials you must clear — your must-pay bills + food — not discretionary spending.</p>" +
+    "<p>The dashed line marks today's cash. It opens on the hours that break even — slide up from there to watch your cushion grow.</p>",
   clock: "<p>Your device's local time, formatted however you set it in the dock’s date/time popover.</p>",
   date: "<p>Today's date from your device. No financial data.</p>",
   note: "<p>A free-text note you type — saved locally in your browser. No financial data.</p>",
@@ -2429,6 +2604,7 @@ function makeDraggable(node, handle, id) {
   let sx = 0, sy = 0, ox = 0, oy = 0, drag = false;
   handle.addEventListener("pointerdown", (e) => {
     if (e.target.closest(DRAG_IGNORE)) return;
+    if (isMobile()) return;  // stacked layout → let the finger scroll the page
     drag = true;
     handle.setPointerCapture(e.pointerId);
     node.style.zIndex = ++zTop;
@@ -2465,6 +2641,7 @@ function makeResizable(node, grips, id) {
   grips.forEach(({ el, corner }) => {
     let sx = 0, sy = 0, sw = 0, sh = 0, sl = 0, st = 0, sizing = false;
     el.addEventListener("pointerdown", (e) => {
+      if (isMobile()) return;  // no resizing in the stacked phone layout
       e.stopPropagation();
       sizing = true;
       el.setPointerCapture(e.pointerId);
@@ -2971,6 +3148,31 @@ document.getElementById("resetLayout").addEventListener("click", () => {
   localStorage.removeItem(LAYOUT_KEY);
   location.reload();
 });
+
+// pull the latest pushed code from GitHub and reload (works for anyone running a git clone)
+function updateApp() {
+  flash("Checking for updates…");
+  fetch("/api/update", { method: "POST" })
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d || !d.ok) { flash("Update failed: " + ((d && (d.error || d.message)) || "is this a git checkout?")); return; }
+      if (!d.changed) { flash("Already up to date ✓"); return; }
+      flash("Updating " + d.before + " → " + d.after + " — reloading…");
+      // server is restarting with the new code; wait for it, then reload
+      setTimeout(() => {
+        let tries = 0;
+        const iv = setInterval(() => {
+          tries++;
+          fetch("/api/ping?t=" + Date.now()).then((r) => {
+            if (r.ok) { clearInterval(iv); location.reload(); }
+          }).catch(() => {});
+          if (tries > 30) { clearInterval(iv); flash("Updated — refresh to load it"); }
+        }, 400);
+      }, 1100);
+    })
+    .catch(() => flash("Update failed — backend down?"));
+}
+document.getElementById("updateApp").addEventListener("click", () => { updateApp(); setSidebar(false); });
 
 // tidy: snap everything into a clean left-to-right grid
 // the top stats bar floats over the board — reserve the canvas band beneath it so

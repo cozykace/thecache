@@ -38,6 +38,7 @@ _Last updated: 2026-06-20_
 - **Themes** — multiple named palettes (light and dark), each star-able so your favorites stand out.
 - **Clock your way** — click the dock's date/time to set time zone, 12/24-hour, seconds, and date format.
 - **Icon stickers** — decorate the board from a large icon library; they snap to the grid (toggle off to free-place).
+- **Works on your phone** — on a small screen the freeform board becomes a clean single-column scroll of full-width widgets, so you can check in from anywhere (privately, over your own Tailscale network — never the public internet).
 - **Custom cursor and optional soundtrack** — small touches that make it feel like yours.
 
 ## Stay on top of it
