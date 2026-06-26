@@ -4060,11 +4060,15 @@ document.getElementById("tidyLayout").addEventListener("click", () => { tidyLayo
       spans[id] = { cw: Math.round((n.offsetWidth + g) / SNAP) * SNAP, ch: Math.round((n.offsetHeight + g) / SNAP) * SNAP };
     });
   };
+  const DETENTS = [6, 18, 30, 42];                       // 4 Apple-style detents
+  const softSnap = (v) => { for (const d of DETENTS) if (Math.abs(v - d) <= 3) return d; return v; };  // magnetic, but free between
   gs.addEventListener("pointerdown", snapshot);
   gs.addEventListener("input", () => {
     if (!spans) snapshot();
-    localStorage.setItem("money.gutter", gs.value);
-    const g = gutterVal();
+    const v = softSnap(parseInt(gs.value, 10) || 18);
+    gs.value = v;                                         // pull the thumb to the detent when close
+    localStorage.setItem("money.gutter", v);
+    const g = v;
     Object.keys(spans).forEach((id) => {
       const n = nodes[id];
       if (!n) return;

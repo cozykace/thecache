@@ -57,10 +57,14 @@
         <section class="sidebar-section">
           <div class="section-title">Widget Library</div>
           <div class="gutter-ctrl" data-tier="2">
-            <span class="gutter-label">Gutter</span>
-            <input id="gutterSlider" type="range" min="4" max="48" step="2" class="gutter-slider" aria-label="Gutter between widgets" />
+            <span class="gutter-end">less</span>
+            <span class="gutter-track-wrap">
+              <input id="gutterSlider" type="range" min="6" max="42" step="1" class="gutter-slider" aria-label="Widget spacing" />
+              <i class="gt-tick" style="left:0%"></i><i class="gt-tick" style="left:33.33%"></i><i class="gt-tick" style="left:66.66%"></i><i class="gt-tick" style="left:100%"></i>
+            </span>
+            <span class="gutter-end">more</span>
           </div>
-          <div class="section-hint" data-tier="2">spacing between widgets when tidied · drag to preview live</div>
+          <div class="section-hint" data-tier="2">spacing between widgets · snaps to 4 sizes, or drag freely between</div>
           <div id="library" class="library"></div>
           <div class="section-hint">click to add / remove from the board</div>
         </section>

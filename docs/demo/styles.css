@@ -1322,9 +1322,11 @@ body.sidebar-open .sidebar { transform: none; }
   color: rgba(var(--ink-rgb), 0.3); transition: color 0.15s, transform 0.1s; }
 .lib-star:hover { color: var(--accent); transform: scale(1.2); }
 .lib-item.fav .lib-star { color: var(--accent); }
-.gutter-ctrl { display: flex; align-items: center; gap: 10px; padding: 10px 2px 2px; }
-.gutter-label { font-size: 11px; color: rgba(var(--ink-rgb), 0.6); flex-shrink: 0; letter-spacing: 0.04em; }
-.gutter-slider { flex: 1; accent-color: var(--accent); cursor: pointer; height: 4px; }
+.gutter-ctrl { display: flex; align-items: center; gap: 9px; padding: 10px 2px 2px; }
+.gutter-end { font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(var(--ink-rgb), 0.4); flex-shrink: 0; }
+.gutter-track-wrap { position: relative; flex: 1; display: flex; align-items: center; height: 16px; }
+.gutter-slider { flex: 1; accent-color: var(--accent); cursor: pointer; height: 4px; margin: 0; position: relative; z-index: 1; background: transparent; }
+.gt-tick { position: absolute; top: 50%; width: 2px; height: 9px; margin: -4.5px 0 0 -1px; background: rgba(var(--ink-rgb), 0.25); border-radius: 1px; pointer-events: none; }
 .gutter-ctrl + .section-hint { margin-bottom: 14px; }   /* breathing room before the widget list */
 /* Smooth Brain = luxurious: roomy padding, airy letter-spacing, big calm targets */
 :root[data-menutier="1"] .menu-item { font-size: 15px; padding: 14px 16px; border-radius: 13px; letter-spacing: 0.04em; line-height: 1.3; }
