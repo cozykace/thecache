@@ -30,6 +30,10 @@
       }
       /* "Update app" pulls from git — meaningless in the static demo */
       #updateApp { display: none; }
+      /* Hide scrollbars in the embed (still scrollable — just no visible bar) */
+      html, body, .board, .board-canvas { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+      html::-webkit-scrollbar, body::-webkit-scrollbar,
+      .board::-webkit-scrollbar, .board-canvas::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
       /* Embed showcase mode on narrow screens: hide the app's floating chrome
          (menu/theme/bg toggles, zoom, status + stats + dock bars) so the embed
          reads as a clean, scrollable board of widgets instead of a cramped app.
