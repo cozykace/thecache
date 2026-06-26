@@ -961,8 +961,21 @@ body.panning .cursor-ball { display: none !important; }
 
 /* greeting in the sidebar */
 .sidebar-greeting { padding: 14px 16px 4px; font-size: 13px; color: var(--accent); letter-spacing: 0.01em; }
-.sidebar-xp { padding: 0 16px 12px; font-size: 11px; color: rgba(var(--ink-rgb), 0.5); letter-spacing: 0.04em; }
+.sidebar-xp { padding: 4px 16px 12px; font-size: 11px; color: rgba(var(--ink-rgb), 0.5); letter-spacing: 0.04em; }
 .sidebar-xp b { color: var(--accent); font-variant-numeric: tabular-nums; }
+/* your cache, as a character — name + level + title + XP toward the next level */
+.cache-char { padding: 11px 13px; border: 1px solid var(--edge-soft); border-radius: 12px; background: var(--panel); }
+.cc-top { display: flex; align-items: center; gap: 8px; }
+.cc-emoji { font-size: 18px; line-height: 1; }
+.cc-name { border: none; background: none; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 700;
+  color: var(--ink); padding: 0; text-align: left; letter-spacing: 0.02em; }
+.cc-name:hover { color: var(--accent); }
+.cc-meta { font-size: 9.5px; color: rgba(var(--ink-rgb), 0.6); margin: 5px 0 6px; text-transform: uppercase; letter-spacing: 0.09em; }
+.cc-meta b { color: var(--accent); }
+.cc-bar { height: 6px; border-radius: 999px; background: rgba(var(--ink-rgb), 0.12); overflow: hidden; }
+.cc-fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.4s ease; }
+.cc-xp { font-size: 9.5px; color: rgba(var(--ink-rgb), 0.5); margin-top: 5px; font-variant-numeric: tabular-nums; }
+.cc-xp b { color: rgba(var(--ink-rgb), 0.78); }
 
 /* privacy blur — hide amounts until hovered (for screen-sharing) */
 .privacy-on .big, .privacy-on .bal-line-amt, .privacy-on .acct-bal, .privacy-on .bd-amt,

@@ -2080,10 +2080,60 @@ function saveStats() {
   p.stats = PROFILE_STATS;
   try { localStorage.setItem("money.profile", JSON.stringify(p)); } catch (e) {}
 }
+// ── Your cache: it's named (yours), and it levels up as you do the work ──
+// (one cache character for now; multi-cache + a combined profile character are
+//  the north-star — see money vision. No shop: EXP auto-applies, the game is real life.)
+function getCacheName() {
+  try { const n = localStorage.getItem("money.cacheName"); if (n && n.trim()) return n.trim(); } catch (e) {}
+  const nm = (getProfile().name || "").trim();
+  return nm ? nm.replace(/\b\w/g, (m) => m.toUpperCase()) + "’s Cache" : "THE CACHE";
+}
+function setCacheName(n) {
+  try { if (n && n.trim()) localStorage.setItem("money.cacheName", n.trim()); else localStorage.removeItem("money.cacheName"); } catch (e) {}
+}
+const CACHE_TITLES = ["Newcomer", "Tracker", "Saver", "Planner", "Strategist", "Steward", "Tactician", "Architect", "Sage", "Legend"];
+function cacheLevel(exp) {
+  const base = 60, x = exp || 0;
+  const lvl = Math.max(1, Math.floor(Math.sqrt(x / base)) + 1);
+  const start = base * Math.pow(lvl - 1, 2), next = base * Math.pow(lvl, 2);
+  const into = x - start, span = next - start;
+  return {
+    lvl, into, span, next, pct: span ? Math.max(0, Math.min(1, into / span)) : 0,
+    title: CACHE_TITLES[Math.min(lvl - 1, CACHE_TITLES.length - 1)],
+    emoji: lvl >= 9 ? "👑" : lvl >= 7 ? "💠" : lvl >= 5 ? "🗝️" : lvl >= 3 ? "🔑" : "🌱",
+  };
+}
+let _charLevel = -1;
+function renderCharacter() {
+  const e = document.getElementById("sidebarXp");
+  if (!e) return;
+  const L = cacheLevel(PROFILE_STATS.exp);
+  _charLevel = L.lvl;
+  e.innerHTML =
+    '<div class="cache-char">' +
+      '<div class="cc-top"><span class="cc-emoji">' + L.emoji + "</span>" +
+        '<button class="cc-name" title="rename your cache">' + escapeHtml(getCacheName()) + "</button></div>" +
+      '<div class="cc-meta">Lvl <b class="cc-lvl">' + L.lvl + "</b> · " + escapeHtml(L.title) + "</div>" +
+      '<div class="cc-bar"><span class="cc-fill" style="width:' + (L.pct * 100).toFixed(1) + '%"></span></div>' +
+      '<div class="cc-xp"><b>' + PROFILE_STATS.exp.toLocaleString() + "</b> EXP · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1) + "</div>" +
+    "</div>";
+  const nameBtn = e.querySelector(".cc-name");
+  if (nameBtn) nameBtn.addEventListener("click", () => {
+    const v = prompt("Name your cache (this is yours — call it whatever you want):", getCacheName());
+    if (v === null) return;
+    setCacheName(v); renderCharacter();
+  });
+}
 function updateXp() {
   const e = document.getElementById("sidebarXp");
-  if (e) e.innerHTML = "⭐ <b>" + PROFILE_STATS.exp.toLocaleString() + "</b> EXP";
-  // update just the EXP chip in place (no full re-render → no thrash on every click)
+  if (e) {
+    const L = cacheLevel(PROFILE_STATS.exp);
+    if (L.lvl !== _charLevel || !e.querySelector(".cache-char")) renderCharacter();  // level-up → rebuild
+    else {  // in place on every click — no thrash
+      const fill = e.querySelector(".cc-fill"); if (fill) fill.style.width = (L.pct * 100).toFixed(1) + "%";
+      const xp = e.querySelector(".cc-xp"); if (xp) xp.innerHTML = "<b>" + PROFILE_STATS.exp.toLocaleString() + "</b> EXP · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1);
+    }
+  }
   const chip = document.querySelector('.stat-chip[data-stat="exp"] .stat-val');
   if (chip) chip.textContent = "⭐ " + PROFILE_STATS.exp.toLocaleString();
 }
