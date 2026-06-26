@@ -1341,7 +1341,7 @@ body.sidebar-open .sidebar { transform: none; }
 :root[data-menutier="3"] .section-hint { font-size: 8.5px; }
 /* click sparks — rapid clicking shoots theme-colored EXP sparks from the cursor */
 .exp-spark { position: fixed; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 0 6px var(--accent); pointer-events: none; z-index: 99999;
+  background: var(--accent); pointer-events: none; z-index: 99999; will-change: transform, opacity;
   animation: exp-spark-fly 0.68s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
 @keyframes exp-spark-fly {
   0% { transform: translate(0, 0) scale(var(--s, 1)); opacity: 1; }
@@ -1350,9 +1350,9 @@ body.sidebar-open .sidebar { transform: none; }
 /* BLESSED — cache health maxed → the cursor upgrades (Mario-style) + clicks erupt gold */
 body.blessed .cursor-ball {
   background: radial-gradient(circle at 35% 30%, #fff7cc, var(--accent) 58%, #b8930a) !important;
-  box-shadow: 0 0 9px var(--accent), 0 0 20px rgba(255, 212, 9, 0.55) !important;
+  box-shadow: 0 0 8px var(--accent) !important;   /* single, smaller glow — keeps the layer light + snappy */
 }
-.exp-spark.blessed { width: 10px; height: 10px; box-shadow: 0 0 10px var(--accent), 0 0 4px #fff; animation-duration: 0.85s; }
+.exp-spark.blessed { width: 9px; height: 9px; background: radial-gradient(circle, #fff7cc, var(--accent) 70%); animation-duration: 0.8s; }
 /* trust badge — live ledger-integrity proof in the menu pane */
 .sidebar-trust { padding: 8px 16px 0; }
 .sidebar-trust:empty { display: none; }
@@ -1451,6 +1451,11 @@ body.blessed .cursor-ball {
 .king-tile b { display: block; font-size: 23px; color: #8fe388; font-variant-numeric: tabular-nums; text-shadow: 0 0 11px rgba(143, 227, 136, 0.4); line-height: 1.1; }
 .king-tile span { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(143, 227, 136, 0.55); }
 .king-foot { margin-top: 14px; font-size: 10px; color: rgba(143, 227, 136, 0.45); position: relative; letter-spacing: 0.03em; }
+/* "built on THE CACHE" badge — bottom-right; becomes "Community Cache" later in the hub */
+.built-on { display: inline-flex; align-items: center; gap: 7px; font-size: 9.5px; letter-spacing: 0.07em;
+  text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); background: var(--panel);
+  border: 1px solid var(--edge-soft); border-radius: 999px; padding: 5px 11px; white-space: nowrap; }
+.built-logo { height: 11px; width: 74px; }
 /* font packs — each chip previews in its own typeface */
 .set-fonts { display: flex; flex-wrap: wrap; gap: 6px; }
 .font-chip { font-size: 13px; cursor: pointer; padding: 7px 12px; border-radius: 8px;

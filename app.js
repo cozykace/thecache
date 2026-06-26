@@ -2164,6 +2164,7 @@ function saveStats() {
 //  the north-star — see money vision. No shop: EXP auto-applies, the game is real life.)
 function getCacheName() {
   try { const n = localStorage.getItem("money.cacheName"); if (n && n.trim()) return n.trim(); } catch (e) {}
+  if (isFounder()) return "King Cozy Cache";  // the founder's cache — built + tested on his own life
   const nm = (getProfile().name || "").trim();
   return nm ? nm.replace(/\b\w/g, (m) => m.toUpperCase()) + "’s Cache" : "THE CACHE";
 }
@@ -2402,7 +2403,20 @@ document.addEventListener("pointerdown", () => addExp(1), true);  // capture →
 //    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
 //    you click in quick succession. ──
 let _clickTimes = [];
+// a sword "shing" on blessed clicks — throttled so rapid clicks don't machine-gun it
+let _shing = null, _shingT = 0;
+function playShing() {
+  const now = performance.now();
+  if (now - _shingT < 110) return;
+  _shingT = now;
+  try {
+    if (!_shing) _shing = new Audio("av%20assets/shing.wav");
+    const a = _shing.cloneNode(); a.volume = 0.3; a.play().catch(() => {});
+  } catch (e) {}
+}
+let _sparkAlive = 0;
 function expSpark(x, y, n, blessed) {
+  n = Math.min(n, Math.max(0, 28 - _sparkAlive));  // cap concurrent sparks so rapid clicks never flood the main thread
   for (let i = 0; i < n; i++) {
     const p = document.createElement("div");
     p.className = "exp-spark" + (blessed ? " blessed" : "");
@@ -2412,14 +2426,15 @@ function expSpark(x, y, n, blessed) {
     p.style.setProperty("--dy", (Math.sin(a) * d - 12).toFixed(1) + "px");  // bias up a touch
     p.style.setProperty("--s", (0.5 + Math.random() * 0.8).toFixed(2));
     document.body.appendChild(p);
-    setTimeout(() => p.remove(), 680);
+    _sparkAlive++;
+    setTimeout(() => { p.remove(); _sparkAlive--; }, 680);
   }
 }
 document.addEventListener("pointerdown", (e) => {
   const now = performance.now();
   _clickTimes = _clickTimes.filter((t) => now - t < 1200);
   _clickTimes.push(now);
-  if (_healthFull) expSpark(e.clientX, e.clientY, 6, true);  // blessed → every click celebrates, gold + big
+  if (_healthFull) { expSpark(e.clientX, e.clientY, 4, true); playShing(); }  // blessed → celebrate + a sword shing
   else if (_clickTimes.length >= 5) expSpark(e.clientX, e.clientY, Math.min(10, _clickTimes.length - 3));
 }, true);
 window.addEventListener("pagehide", saveStats);
