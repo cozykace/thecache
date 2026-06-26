@@ -1272,10 +1272,14 @@ body.sidebar-open .sidebar { transform: none; }
   font-size: 15px; letter-spacing: 0.02em; color: var(--ink); line-height: 1;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px;
 }
-.brand-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 9px; vertical-align: middle; flex-shrink: 0; transition: background 0.2s ease; }
-.brand-dot[data-state="live"] { background: #3f8f4e; }
-.brand-dot[data-state="stale"] { background: #d6920f; }
-.brand-dot[data-state="down"] { background: #c9542e; }
+/* status "dot" is the pixel goat, tinted by live/stale/down state */
+.brand-dot { display: inline-block; width: 15px; height: 15px; margin-right: 9px; vertical-align: middle; flex-shrink: 0;
+  background-color: var(--accent); transition: background-color 0.2s ease;
+  -webkit-mask: url("av%20assets/goat-pixel.png") center / contain no-repeat;
+  mask: url("av%20assets/goat-pixel.png") center / contain no-repeat; }
+.brand-dot[data-state="live"] { background-color: #3f8f4e; }
+.brand-dot[data-state="stale"] { background-color: #d6920f; }
+.brand-dot[data-state="down"] { background-color: #c9542e; }
 .sidebar-version {
   padding: 12px 16px; border-top: 1px solid var(--edge-soft); flex-shrink: 0;
   display: flex; align-items: center; gap: 10px;
@@ -1343,6 +1347,12 @@ body.sidebar-open .sidebar { transform: none; }
   0% { transform: translate(0, 0) scale(var(--s, 1)); opacity: 1; }
   100% { transform: translate(var(--dx, 0), var(--dy, 0)) scale(0); opacity: 0; }
 }
+/* BLESSED — cache health maxed → the cursor upgrades (Mario-style) + clicks erupt gold */
+body.blessed .cursor-ball {
+  background: radial-gradient(circle at 35% 30%, #fff7cc, var(--accent) 58%, #b8930a) !important;
+  box-shadow: 0 0 9px var(--accent), 0 0 20px rgba(255, 212, 9, 0.55) !important;
+}
+.exp-spark.blessed { width: 10px; height: 10px; box-shadow: 0 0 10px var(--accent), 0 0 4px #fff; animation-duration: 0.85s; }
 /* trust badge — live ledger-integrity proof in the menu pane */
 .sidebar-trust { padding: 8px 16px 0; }
 .sidebar-trust:empty { display: none; }
@@ -1410,6 +1420,22 @@ body.sidebar-open .sidebar { transform: none; }
 .char-ev-d { flex: 1; color: var(--ink); }
 .char-ev-t { color: rgba(var(--ink-rgb), 0.45); font-size: 10.5px; white-space: nowrap; }
 .char-empty { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.55); line-height: 1.6; padding: 8px 0; }
+/* journey / tech tree / unlocks (inside the character view) */
+.jn-arcs { display: flex; flex-direction: column; gap: 6px; }
+.jn-arc { border: 1px solid var(--edge-soft); border-radius: 9px; padding: 8px 10px; }
+.jn-arc.now { border-color: var(--accent); background: rgba(var(--ink-rgb), 0.04); }
+.jn-arc.lock { opacity: 0.45; }
+.jn-arc-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 5px; }
+.jn-arc.done .jn-arc-head span:first-child::after { content: " ✓"; color: #3f8f4e; }
+.jn-arc-lvl { font-weight: 400; color: rgba(var(--ink-rgb), 0.45); font-size: 10px; }
+.jn-feats { display: flex; flex-wrap: wrap; gap: 4px; }
+.jn-feat { font-size: 10px; color: rgba(var(--ink-rgb), 0.6); border: 1px solid var(--edge-soft); border-radius: 999px; padding: 2px 7px; }
+.jn-skills { display: flex; flex-direction: column; gap: 6px; }
+.jn-skill { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.jn-skill.lock { opacity: 0.55; }
+.jn-skill.got .jn-skill-i { color: var(--accent); }
+.jn-skill-n { color: var(--ink); font-weight: 500; }
+.jn-skill-r { margin-left: auto; font-size: 10px; color: rgba(var(--ink-rgb), 0.45); }
 /* font packs — each chip previews in its own typeface */
 .set-fonts { display: flex; flex-wrap: wrap; gap: 6px; }
 .font-chip { font-size: 13px; cursor: pointer; padding: 7px 12px; border-radius: 8px;

@@ -2180,6 +2180,13 @@ function agoStr(ts) {
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 const CHAR_ICON = { level: "🎉", widget: "➕", sync: "🔌", feat: "⭐", note: "📌" };
+const JOURNEY = [
+  { arc: "Awakening", lvls: "1–2", feats: ["Connect a bank", "Name your cache", "Tag your income"] },
+  { arc: "Foundation", lvls: "3–4", feats: ["Mark must-pays", "Build a budget", "Categorize a month"] },
+  { arc: "Momentum", lvls: "5–6", feats: ["First on-time month", "Link work to income", "Goal in sight"] },
+  { arc: "Mastery", lvls: "7–8", feats: ["Multi-month streak", "Positive net trend", "Full data coverage"] },
+  { arc: "Legend", lvls: "9–10", feats: ["Long streak", "Real cushion", "Verified vault"] },
+];
 function openCharLog() {
   const back = document.createElement("div"); back.className = "cat-backdrop";
   const modal = document.createElement("div"); modal.className = "cat-modal char-modal";
@@ -2192,6 +2199,17 @@ function openCharLog() {
         '<span class="char-ev-d">' + escapeHtml(ev.d) + '</span><span class="char-ev-t">' + agoStr(ev.t) + "</span></div>").join("")
     : '<div class="char-empty">Your journey is just beginning — do the work and it fills in here.</div>';
   const since = new Date(charSince()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const curArc = Math.min(JOURNEY.length - 1, Math.floor((L.lvl - 1) / 2));
+  const arcs = JOURNEY.map((a, i) => {
+    const st = i < curArc ? "done" : i === curArc ? "now" : "lock";
+    return '<div class="jn-arc ' + st + '"><div class="jn-arc-head"><span>' + escapeHtml(a.arc) + '</span><span class="jn-arc-lvl">Lvl ' + a.lvls + "</span></div>" +
+      '<div class="jn-feats">' + a.feats.map((f) => '<span class="jn-feat">' + escapeHtml(f) + "</span>").join("") + "</div></div>";
+  }).join("");
+  const skills = [
+    { name: "Blessed clicks", req: "max cache health", got: _healthFull },
+    { name: "Cursor magnification", req: "coming soon", got: false },
+    { name: "Art backgrounds", req: "coming soon", got: false },
+  ].map((s) => '<div class="jn-skill ' + (s.got ? "got" : "lock") + '"><span class="jn-skill-i">' + (s.got ? "✦" : "🔒") + '</span><span class="jn-skill-n">' + escapeHtml(s.name) + '</span><span class="jn-skill-r">' + escapeHtml(s.req) + "</span></div>").join("");
   modal.innerHTML =
     '<div class="cat-head"><span>' + L.emoji + " " + escapeHtml(getCacheName()) + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="char-body">' +
@@ -2203,6 +2221,8 @@ function openCharLog() {
       "</div>" +
       '<div class="char-bar"><span style="width:' + (L.pct * 100).toFixed(1) + '%"></span></div>' +
       '<div class="char-since">since ' + since + " · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1) + "</div>" +
+      '<div class="char-sec">Journey</div><div class="jn-arcs">' + arcs + "</div>" +
+      '<div class="char-sec">Skills &amp; unlocks</div><div class="jn-skills">' + skills + "</div>" +
       '<div class="char-sec">Your ledger</div>' + rows +
     "</div>";
   document.body.appendChild(back); document.body.appendChild(modal);
@@ -2222,7 +2242,7 @@ function renderCharacter() {
       '<div class="cc-xp"><b>' + PROFILE_STATS.exp.toLocaleString() + "</b> EXP · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1) + "</div>" +
     "</div>";
   const card = e.querySelector(".cache-char");
-  if (card) { card.style.cursor = "pointer"; card.title = "open your character ledger"; card.addEventListener("click", openCharLog); }
+  if (card) { card.style.cursor = "pointer"; card.title = "view your journey, skills & ledger"; card.addEventListener("click", openCharLog); }
   const nameBtn = e.querySelector(".cc-name");
   if (nameBtn) nameBtn.addEventListener("click", (ev) => {
     ev.stopPropagation();  // don't open the ledger when renaming
@@ -2310,6 +2330,7 @@ function renderHealth() {
   if (!el) return;
   const h = cacheHealth();
   _healthFull = h.score >= 100;
+  document.body.classList.toggle("blessed", _healthFull);  // blessed clicks: cursor + celebration upgrade
   el.innerHTML = '<button class="health-chip' + (_healthFull ? " full" : "") + '" style="--p:' + h.score + '" title="cache health — connect everything to max it (+10% EXP when full)">' +
     '<span class="health-ring"></span><span class="health-lbl">cache health</span><span class="health-pct">' + h.score + "%</span></button>";
   el.querySelector(".health-chip").addEventListener("click", openHealth);
@@ -2341,10 +2362,10 @@ document.addEventListener("pointerdown", () => addExp(1), true);  // capture →
 //    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
 //    you click in quick succession. ──
 let _clickTimes = [];
-function expSpark(x, y, n) {
+function expSpark(x, y, n, blessed) {
   for (let i = 0; i < n; i++) {
     const p = document.createElement("div");
-    p.className = "exp-spark";
+    p.className = "exp-spark" + (blessed ? " blessed" : "");
     const a = Math.random() * Math.PI * 2, d = 22 + Math.random() * 42;
     p.style.left = x + "px"; p.style.top = y + "px";
     p.style.setProperty("--dx", (Math.cos(a) * d).toFixed(1) + "px");
@@ -2358,7 +2379,8 @@ document.addEventListener("pointerdown", (e) => {
   const now = performance.now();
   _clickTimes = _clickTimes.filter((t) => now - t < 1200);
   _clickTimes.push(now);
-  if (_clickTimes.length >= 5) expSpark(e.clientX, e.clientY, Math.min(10, _clickTimes.length - 3));
+  if (_healthFull) expSpark(e.clientX, e.clientY, 6, true);  // blessed → every click celebrates, gold + big
+  else if (_clickTimes.length >= 5) expSpark(e.clientX, e.clientY, Math.min(10, _clickTimes.length - 3));
 }, true);
 window.addEventListener("pagehide", saveStats);
 window.addEventListener("beforeunload", saveStats);
