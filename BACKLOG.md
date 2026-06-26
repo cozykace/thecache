@@ -13,6 +13,8 @@ _Last updated: 2026-06-25_
 - [x] **Auto-sync** — LaunchAgent `com.thecache.sync` runs sync.py at 8am/2pm/8pm + on login; data stays fresh with no clicking or AI. Sources panel shows "auto-syncs 3×/day". Logs to data/sync.log (2026-06-22)
 
 ## Features
+- [x] **Tidy layout, in place** (2026-06-26) — keeps widgets in their existing rows + order, aligns tops, evens gaps, and normalizes widths to fit the canvas (was: reflowed everything to reading order / "flew to random places").
+- [ ] **Develop a specific design aesthetic** — use Claude's design tooling to define a stronger visual identity beyond the current themes (type scale, spacing system, component styling, motion, brand voice). Requested 2026-06-26.
 - [ ] **Category budgets — goal vs actual, week/month toggle** — set a spending target per category; a view lists every category with its budget vs actual spend (progress bar, over/under), toggleable between a **monthly** and a **weekly** window (weekly target = monthly ÷ 4.33, or set its own). Builds on the period logic + category data (coreflex/breakdown). Requested 2026-06-26.
 - [x] **Income forecast → stacked streams view** (2026-06-26) — stacked income-by-source over time: real per-month history from the ledger (`/api/income-monthly`) → flat slider projection, "needed" line, "now" divider, per-source legend toggles + history-link, and a `streams | cushion` mode switch. Plus a real-effort overlay: Toggl hours × gig rate (`/api/work-monthly`, `toggl_sync` banks monthly hours) drawn over history → projection.
 - [x] **"The Cache" brand theme** — a warm-dark color scheme with the brand gold (#FFD409) accent, now leading the theme picker; the masked wordmark logo tints to each theme's accent (gold on the brand theme) (2026-06-25)
@@ -33,6 +35,8 @@ _Last updated: 2026-06-25_
 - [x] **Public demo — runs the real app on fake data** (docs/demo/ → cozykace.github.io/thecache/demo/) — boots the actual app.js/styles.css with a demo-data.js layer that seeds a curated board + answers every backend call with play numbers; fully interactive, always matches the app, no Python backend and no real data. `build-demo.sh` keeps it in sync. Replaces the old static mock (2026-06-25)
 - [x] Web3Forms key set — bug/request reports now auto-deliver to cozy@cozyace.com with no mail app needed; the public demo's button is stubbed so it can't be a spam vector (2026-06-25)
 - [ ] Optional: an `install.command` that clones + sets up the auto-start LaunchAgent for a non-technical friend
+- [ ] **Download button on thecache.app** — a clear "get THE CACHE" path: repo ZIP (github.com/cozykace/thecache/archive/refs/heads/main.zip) + SETUP.md, or a one-click installer. Requested 2026-06-26.
+- [ ] **Code protection? ("dfos" — Spencer's idea, needs clarification)** — the repo is currently PUBLIC so friends can clone + Update. Protecting the code (license, obfuscation, private distribution) trades against that open model. Pin down what "protect" means + what dfos is before acting. Requested 2026-06-26.
 
 ## Mobile
 - [x] Mobile-friendly SOPs added to the process stack (CLAUDE.md → "Mobile-friendly (SOP)") — touch targets, no hover-only, fluid/container-query sizing, touch-action, sheets-under-480px, safe areas (2026-06-25)
@@ -42,6 +46,10 @@ _Last updated: 2026-06-25_
 - [ ] Drag-to-arrange on touch — phones are view/scroll only; rearranging still desktop-only (an explicit arrange mode could add it later, probably unnecessary)
 - [ ] Convert fixed desktop popovers (settings, period/clock menus, pickers) to bottom-sheets under ~480px
 - [ ] Per-source slider: optional hourly-vs-monthly choice when adding (currently monthly default)
+
+## Trust & durability (PRIORITY)
+- [ ] **Rock-solid data ledger — security + redundancy** — make the local ledger bulletproof so people fully trust it. Audit + harden: confirm atomic writes + anti-wipe/shrink-guard hold under every failure path; multiple rotating backups + a tested restore; integrity check (checksum/line-validation) on load with auto-recovery from the newest good backup; guard against partial/corrupt syncs; a one-command self-check that proves every widget agrees. Optional: at-rest protection for `data/`. Goal: trust + cohesiveness across the whole app. Requested 2026-06-26.
+- [ ] **Widget reliability pass** — every widget rock-solid: no stale/empty states, graceful when the backend is mid-restart, consistent numbers everywhere (already one-Store, but re-verify). Requested 2026-06-26.
 
 ## Smarter / more robust
 - [x] Recurrence v2 — detect_recurring now flags **new** (first seen <10wk), **changed** (latest charge >10% off the usual), **dropped** (well past its usual gap). Shown as badges in the Money Map; dropped (tracked, not paused) surface in the Review inbox with "mark paused" to clear (2026-06-23)
