@@ -53,9 +53,27 @@ The board is desktop-first today (drag / zoom / pan), but build everything new s
 
 **Other data files** (`data/`, all gitignored): `transactions.json` (30d window `{updated, window_days, transactions:[{id, posted, amount, description, account}]}`), `ledger.json` (permanent `{key: txn}`), `monthly.json` (`{updated, months:[{ym, label, income, spending, net, count, live, imported, categories}]}`), `coverage.json` (`{updated, accounts:[{account, count, first, last, live, imported, source}], live_first, live_last, total}`), `categories.json` (`{substring: category}`), `income.json` (`{source_key: "income"|"ignore"}`), `bugs.json` (`[{id, text, status, created, solved?}]`), `history.json`, `synclog.json`.
 
-**API** (`server.py`, 127.0.0.1): GET `/api/ping` `/api/merchants` `/api/other-merchants` `/api/deposits` `/api/bugs`; POST `/api/categorize` `/api/income` `/api/sync` `/api/import` `/api/bug` `/api/bug-status`.
+**API** (`server.py`, 127.0.0.1) — GET: `ping` `connect-status` `summary` `categories` `recurring` `transfers` `deposits` `merchants` `other-merchants` `averages` `work` `income-monthly` `work-monthly` `integrity` `issues` `subs` `income-links` `match-count` `bugs` `update-check`. POST: `categorize` `income` `category` `sync` `import` `bug` `bug-status` `subs` `income-links` `delete-txn` `connect` `update` `restart`.
 
-**localStorage registry** (all `money.*`): `layout.v2` (board), `theme`, `bg`, `sidebar`, `sidebarWidth`, `note`, `reserve`, `need`, `core` (category core/flex), `subcore` (per-sub core/flex), `subnames` (sub aliases), `cats` (custom categories), `zoom`, `balExpanded`, `soundtrack`, `clock` (12/24h).
+**localStorage registry** (all `money.*`) — keep CURRENT when you add a key:
+- *board/layout*: `layout.v2` `zoom` `gutter` `views` `pinned` `sidebar` `sidebarWidth` `icons.collapsed` `dockHidden` `dockOrder`
+- *identity/character*: `profile` `cacheName` `founder` `charLog` `charSince` `customStats` `statsHidden` `statsOrder`
+- *look*: `theme` `themeStars` `bg` `font` `menuTier` `privacy`
+- *money config*: `reserve` `need` `core` `guaranteedIncome` `rate` `rent` `rentAccount` `period` `mustpayOrder` `planNextOpen` `balExpanded` `balNet`
+- *subs/categories*: `subcore` `subnames` `subpaused` `subcadence` `subsMigrated` `cats` `catMgr` `catModal` `flowCards`
+- *income forecast*: `forecastSources` `forecastGoal` `forecastMode`
+- *misc/ui*: `favorites` `autoPinFavorites` `soundtrack` `clock24` `clockSecs` `dateFmt` `tz` `note` `skipUpdate` `settings` `connect`
+
+**Systems map** (added since the original CLAUDE.md — where the new stuff lives in `app.js`):
+- *Character* — `cacheLevel()`/`renderCharacter()` (sidebar card), `logChar()`/`openCharLog()` (journey arcs `JOURNEY` + skills + activity ledger), `getCacheName()` (founder → "King Cozy Cache").
+- *Cache health* — `cacheHealth()`/`renderHealth()`/`openHealth()`; at 100% `_healthFull` → `body.blessed` (gold cursor + `expSpark(...,true)` + `playShing()` from `av assets/shing.wav`); gives +10% EXP in `addExp()`.
+- *Trust badge* — `renderTrust()` ← `/api/integrity` ← `store.verify_ledger()` (fsync + integrity checks).
+- *Settings tiers* — `menuTier()`/`applyTier()`: `data-tier="N"` hides below tier; `data-menutier` on `<html>` restyles Smooth(1)/Big(2)/Galaxy(3).
+- *Fonts* — `applyFont()`/`FONTS` → `--font-ui` (loads Google font on demand).
+- *Founder* — `isFounder()` (name = Cozy K Ace, or `money.founder`), `openKingCozy()` (retro console), `FOUNDER_COMPLIMENTS` vs public `PUBLIC_JOKES`.
+- *Favorites* — `favs()`/`toggleFav()`/`autoPinOn()` (star → pin to top of library/dock).
+
+**Where context lives** (so a reset is safe): `BACKLOG.md` = every ask (shipped `[x]`, in-progress `[~]`, open `[ ]`) + the public roadmap. `FEATURES.md` = shipped product list. Agent **memory** holds the north-star: `money-vision` (cache-as-character, Community Cache + wealth-redistribution, King Cozy = primary user), `money-cockpit-project`, `data-safety`, `user-profile`.
 
 ## Workflow
 
