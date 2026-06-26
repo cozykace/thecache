@@ -535,7 +535,8 @@ const RENDERERS = {
     el.classList.add("is-breakdown", "is-forecast");
     el.innerHTML =
       '<div class="bd-head"><div class="bd-top"><span class="fc-label">income forecast</span>' +
-        '<button class="if-modebtn" type="button" title="switch view">⇄ <span class="if-mode-lbl">streams</span></button>' +
+        '<span class="if-modeseg"><button class="if-modeopt" type="button" data-mode="streams">streams</button>' +
+          '<button class="if-modeopt" type="button" data-mode="cushion">cushion</button></span>' +
         '<button class="if-goal" type="button" title="set a savings goal to aim for">🎯 <span class="if-goal-amt">…</span></button>' +
         '<button class="if-add" type="button" title="add an income source (a client, a gig…)">+ source</button></div>' +
         '<div class="big bd-avg if-big">…</div>' +
@@ -653,7 +654,7 @@ const RENDERERS = {
     // dispatch to the active view; toggle which header controls show
     function paint(d) {
       el.classList.toggle("if-mode-streams", mode === "streams");
-      const lbl = el.querySelector(".if-mode-lbl"); if (lbl) lbl.textContent = mode === "streams" ? "streams" : "cushion";
+      el.querySelectorAll(".if-modeopt").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
       if (mode === "streams") { if (!histData) fetchHist(); paintStreams(d); }
       else { legendWrap.innerHTML = ""; paintChart(d); }
     }
@@ -813,11 +814,11 @@ const RENDERERS = {
       if (n > 0) localStorage.setItem(GOAL_KEY, String(Math.round(n))); else localStorage.removeItem(GOAL_KEY);
       if (Store.data) paint(Store.data);
     });
-    el.querySelector(".if-modebtn").addEventListener("click", () => {
-      mode = mode === "streams" ? "cushion" : "streams";
+    el.querySelectorAll(".if-modeopt").forEach((b) => b.addEventListener("click", () => {
+      mode = b.dataset.mode;
       localStorage.setItem(MODE_KEY, mode);
       if (Store.data) paint(Store.data);
-    });
+    }));
     Store.subscribe(el, (d) => { if (!d || !d.spending) { big.textContent = "…"; return; } ensureSources(d); paint(d); });
   },
   clock(el) {

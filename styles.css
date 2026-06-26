@@ -758,9 +758,12 @@ body.panning .cursor-ball { display: none !important; }
 .if-goal-label { fill: var(--accent); font-size: 8.5px; font-family: inherit; opacity: 0.9; }
 .if-goal-hit { fill: var(--accent); stroke: var(--paper); stroke-width: 2; }
 /* streams view: mode toggle, legend, stacked-area strokes + labels */
-.if-modebtn { margin-left: auto; border: 1px solid var(--edge); background: var(--panel); cursor: pointer;
-  font-family: inherit; font-size: 10px; color: rgba(var(--ink-rgb), 0.7); padding: 4px 9px; border-radius: 999px; white-space: nowrap; }
-.if-modebtn:hover { border-color: var(--accent); color: var(--accent); }
+.if-modeseg { margin-left: auto; display: inline-flex; border: 1px solid var(--edge); border-radius: 999px; overflow: hidden; }
+.if-modeopt { border: none; background: var(--panel); cursor: pointer; font-family: inherit; font-size: 10px;
+  color: rgba(var(--ink-rgb), 0.6); padding: 4px 11px; white-space: nowrap; }
+.if-modeopt:hover { color: var(--accent); }
+.if-modeopt.on { background: var(--accent); color: var(--paper); font-weight: 600; }
+.if-modeopt.on:hover { color: var(--paper); }
 .if-goal { margin-left: 6px; }                /* mode button now holds margin-left:auto */
 .if-mode-streams .if-goal { display: none; }  /* goal target is cushion-only */
 .if-legend { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 12px 0; }
