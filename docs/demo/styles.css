@@ -1436,6 +1436,21 @@ body.blessed .cursor-ball {
 .jn-skill.got .jn-skill-i { color: var(--accent); }
 .jn-skill-n { color: var(--ink); font-weight: 500; }
 .jn-skill-r { margin-left: auto; font-size: 10px; color: rgba(var(--ink-rgb), 0.45); }
+/* King Cozy — founder-only retro-futuristic phosphor console */
+.king-modal { background: #0b0e08; border: 1px solid rgba(143, 227, 136, 0.32);
+  box-shadow: 0 0 44px rgba(143, 227, 136, 0.16), inset 0 0 70px rgba(0, 0, 0, 0.55); }
+.king-head { background: linear-gradient(180deg, rgba(143, 227, 136, 0.12), transparent); border-bottom: 1px solid rgba(143, 227, 136, 0.25); }
+.king-head span { color: #8fe388; letter-spacing: 0.16em; font-weight: 700; text-shadow: 0 0 9px rgba(143, 227, 136, 0.55); }
+.king-head .cat-close { color: rgba(143, 227, 136, 0.7); }
+.king-body { padding: 14px 16px 16px; position: relative; }
+.king-body::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(143, 227, 136, 0.045) 0 1px, transparent 1px 3px); }
+.king-sub { color: rgba(143, 227, 136, 0.6); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 14px; position: relative; }
+.king-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; position: relative; }
+.king-tile { border: 1px solid rgba(143, 227, 136, 0.22); border-radius: 8px; padding: 13px 8px; text-align: center; background: rgba(143, 227, 136, 0.04); }
+.king-tile b { display: block; font-size: 23px; color: #8fe388; font-variant-numeric: tabular-nums; text-shadow: 0 0 11px rgba(143, 227, 136, 0.4); line-height: 1.1; }
+.king-tile span { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(143, 227, 136, 0.55); }
+.king-foot { margin-top: 14px; font-size: 10px; color: rgba(143, 227, 136, 0.45); position: relative; letter-spacing: 0.03em; }
 /* font packs — each chip previews in its own typeface */
 .set-fonts { display: flex; flex-wrap: wrap; gap: 6px; }
 .font-chip { font-size: 13px; cursor: pointer; padding: 7px 12px; border-radius: 8px;

@@ -2110,6 +2110,46 @@ function updateGreeting() {
   g.innerHTML = html;
   g.style.display = "";
 }
+// King Cozy console — founder/developer-only retro-futuristic dashboard of the build,
+// by the numbers. (Idea: make this an unlockable achievement later — logged in BACKLOG.)
+function openKingCozy() {
+  const back = document.createElement("div"); back.className = "cat-backdrop";
+  const modal = document.createElement("div"); modal.className = "cat-modal king-modal";
+  const close = () => { back.remove(); modal.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  const days = Math.max(1, Math.round((Date.now() - charSince()) / 86400000));
+  const tile = (id, label) => '<div class="king-tile"><b id="' + id + '">…</b><span>' + label + "</span></div>";
+  modal.innerHTML =
+    '<div class="cat-head king-head"><span>👑 KING&nbsp;COZY // SYSTEM</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="king-body">' +
+      '<div class="king-sub">founder &amp; developer console · the build, by the numbers</div>' +
+      '<div class="king-grid">' +
+        tile("kc-shipped", "features shipped") +
+        tile("kc-progress", "in progress") +
+        tile("kc-planned", "planned") +
+        tile("kc-fixes", "fixes logged") +
+        tile("kc-stars", "stars") +
+        tile("kc-forks", "forks") +
+        tile("kc-downloads", "downloads") +
+        '<div class="king-tile"><b>' + PROFILE_STATS.exp.toLocaleString() + "</b><span>project EXP</span></div>" +
+        '<div class="king-tile"><b>' + days + "</b><span>days building</span></div>" +
+      "</div>" +
+      '<div class="king-foot">live from the public repo · downloads track once you cut a Release</div>' +
+    "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", close);
+  const set = (id, n) => { const e = document.getElementById(id); if (e) e.textContent = (n == null ? "—" : n.toLocaleString ? n.toLocaleString() : n); };
+  fetch("https://raw.githubusercontent.com/cozykace/thecache/main/BACKLOG.md?t=" + Date.now())
+    .then((r) => r.text()).then((md) => {
+      set("kc-shipped", (md.match(/^- \[x\]/gim) || []).length);
+      set("kc-progress", (md.match(/^- \[~\]/gim) || []).length);
+      set("kc-planned", (md.match(/^- \[ \]/gim) || []).length);
+      set("kc-fixes", (md.match(/\bfix(?:ed|es)?\b/gi) || []).length);
+    }).catch(() => {});
+  fetch("https://api.github.com/repos/cozykace/thecache")
+    .then((r) => r.json()).then((d) => { set("kc-stars", d.stargazers_count); set("kc-forks", d.forks_count); set("kc-downloads", 0); })
+    .catch(() => {});
+}
 
 // ── Gamification: every click banks 1 EXP into your profile's stats ──
 let PROFILE_STATS = (function () { const p = getProfile(); return Object.assign({ exp: 0, clicks: 0 }, p.stats || {}); })();
@@ -4142,6 +4182,10 @@ function openBugReport() {
 }
 document.getElementById("connectBank").addEventListener("click", () => { openConnect(); setSidebar(false); });
 document.getElementById("openSettings").addEventListener("click", () => { openSettings(); setSidebar(false); });
+(function () {  // King Cozy console — founder only
+  const k = document.getElementById("kingCozy");
+  if (k && isFounder()) { k.style.display = ""; k.addEventListener("click", () => { openKingCozy(); setSidebar(false); }); }
+})();
 document.getElementById("manageCats").addEventListener("click", () => { openCategoryManager(); setSidebar(false); });
 document.getElementById("reportBug").addEventListener("click", () => { openBugReport(); setSidebar(false); });
 
