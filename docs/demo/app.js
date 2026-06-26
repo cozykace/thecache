@@ -4296,6 +4296,81 @@ function openWiki() {
       .catch(() => { body.innerHTML = '<p class="wk-p">Couldn’t load the guide right now — it ships with the app as WIKI.md.</p>'; }));
 }
 document.getElementById("helpWiki").addEventListener("click", () => { openWiki(); setSidebar(false); });
+
+// ── Enter the Ledger — a full-screen hyperspace warp into a separate cosmic space
+//    that visualizes your real financial life as a constellation. ──
+function fmtCompact(n) {
+  const a = Math.abs(n);
+  return (n < 0 ? "-" : "+") + "$" + (a >= 1000 ? (a / 1000).toFixed(1).replace(/\.0$/, "") + "k" : Math.round(a));
+}
+function buildConstellation(svg, months) {
+  if (!months.length) { svg.innerHTML = '<text x="500" y="160" text-anchor="middle" fill="rgba(255,255,255,.4)" font-size="15" font-family="ui-monospace,monospace">your constellation fills in as the months accumulate</text>'; return; }
+  const W = 1000, H = 320, pad = 64, n = months.length;
+  const xAt = (i) => pad + i * (W - 2 * pad) / Math.max(1, n - 1);
+  const maxA = Math.max(1, ...months.map((m) => Math.abs(m.net || 0)));
+  const yAt = (net, i) => H / 2 - (net / maxA) * 88 + Math.sin(i * 0.8) * 8;
+  const nodes = months.map((m, i) => ({ x: xAt(i), y: yAt(m.net || 0, i), m }));
+  let path = "";
+  nodes.forEach((p, i) => { path += (i ? "L" : "M") + p.x.toFixed(0) + " " + p.y.toFixed(0) + " "; });
+  svg.innerHTML = '<path d="' + path + '" fill="none" stroke="rgba(180,130,255,.45)" stroke-width="1.5"/>' +
+    nodes.map((p, i) => {
+      const net = p.m.net || 0, pos = net >= 0, r = 6 + Math.min(14, Math.abs(net) / maxA * 14);
+      return '<circle cx="' + p.x.toFixed(0) + '" cy="' + p.y.toFixed(0) + '" r="' + r.toFixed(0) + '" fill="' + (pos ? "#FFD409" : "#e0734a") + '" opacity="0.9"><animate attributeName="opacity" values="0.55;1;0.55" dur="' + (2 + i * 0.25).toFixed(1) + 's" repeatCount="indefinite"/></circle>' +
+        '<text x="' + p.x.toFixed(0) + '" y="' + (p.y - r - 8).toFixed(0) + '" text-anchor="middle" font-size="11" fill="#fff" opacity="0.8" font-family="ui-monospace,monospace">' + escapeHtml(p.m.label || "") + "</text>" +
+        '<text x="' + p.x.toFixed(0) + '" y="' + (p.y + r + 16).toFixed(0) + '" text-anchor="middle" font-size="10" fill="' + (pos ? "rgba(255,212,9,.85)" : "rgba(224,115,74,.9)") + '" font-family="ui-monospace,monospace">' + fmtCompact(net) + "</text>";
+    }).join("");
+}
+function openLedger() {
+  if (document.getElementById("ledgerSpace")) return;
+  const root = document.createElement("div"); root.id = "ledgerSpace"; root.className = "lg-space";
+  root.innerHTML =
+    '<canvas class="lg-canvas"></canvas>' +
+    '<div class="lg-intro lg-scene"><div class="lg-eyebrow">' + escapeHtml(getCacheName()) + '</div><div class="lg-cta">ENTERING THE LEDGER</div></div>' +
+    '<div class="lg-ledger lg-scene lg-hidden">' +
+      '<div class="lg-eyebrow lg-gold">⟢ The Ledger ⟣</div>' +
+      '<div class="lg-title">YOUR LIFE, IN DATA</div>' +
+      '<div class="lg-headline" id="lgHeadline"></div>' +
+      '<svg class="lg-const" id="lgConst" viewBox="0 0 1000 320" preserveAspectRatio="xMidYMid meet"></svg>' +
+      '<button class="lg-back">↩ back to the cache</button>' +
+    "</div>" +
+    '<div class="lg-flash"></div>';
+  document.body.appendChild(root);
+  const cv = root.querySelector(".lg-canvas"), ctx = cv.getContext("2d");
+  let W, H, cx, cy;
+  const size = () => { W = cv.width = innerWidth; H = cv.height = innerHeight; cx = W / 2; cy = H / 2; };
+  size();
+  const N = 420, stars = [];
+  const rs = (s) => { s.x = (Math.random() - 0.5) * W * 1.2; s.y = (Math.random() - 0.5) * H * 1.2; s.z = Math.random() * W; s.pz = s.z; };
+  for (let i = 0; i < N; i++) { const s = {}; rs(s); stars.push(s); }
+  let speed = 2, target = 11, mode = "warp", raf;
+  const loop = () => {
+    ctx.fillStyle = "rgba(6,4,15," + (mode === "warp" ? 0.2 : 0.36) + ")"; ctx.fillRect(0, 0, W, H);
+    speed += (target - speed) * 0.06;
+    for (const s of stars) {
+      s.pz = s.z; s.z -= speed * (mode === "idle" ? 2.2 : 24); if (s.z < 1) { rs(s); s.pz = s.z; }
+      const k = 140 / s.z, px = cx + s.x * k, py = cy + s.y * k, pk = 140 / s.pz, ppx = cx + s.x * pk, ppy = cy + s.y * pk;
+      const a = Math.min(1, (1 - s.z / W) * 1.3), lw = Math.max(0.4, (1 - s.z / W) * 2.6);
+      ctx.strokeStyle = "rgba(205,214,255," + a + ")"; ctx.lineWidth = lw;
+      ctx.beginPath(); ctx.moveTo(ppx, ppy); ctx.lineTo(px, py); ctx.stroke();
+    }
+    raf = requestAnimationFrame(loop);
+  };
+  loop();
+  const flash = root.querySelector(".lg-flash"), intro = root.querySelector(".lg-intro"), led = root.querySelector(".lg-ledger");
+  setTimeout(() => flash.classList.add("on"), 1050);
+  setTimeout(() => {
+    intro.classList.add("lg-hidden"); led.classList.remove("lg-hidden"); mode = "idle"; target = 0.5; flash.classList.remove("on");
+    const head = root.querySelector("#lgHeadline"), svg = root.querySelector("#lgConst");
+    fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
+    fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
+  }, 1450);
+  const close = () => { cancelAnimationFrame(raf); window.removeEventListener("resize", size); document.removeEventListener("keydown", onKey); root.remove(); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  window.addEventListener("resize", size);
+  document.addEventListener("keydown", onKey);
+  root.querySelector(".lg-back").addEventListener("click", close);
+}
+document.getElementById("ledgerBtn").addEventListener("click", openLedger);
 document.getElementById("manageCats").addEventListener("click", () => { openCategoryManager(); setSidebar(false); });
 document.getElementById("reportBug").addEventListener("click", () => { openBugReport(); setSidebar(false); });
 
