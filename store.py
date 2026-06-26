@@ -86,13 +86,29 @@ def _read(path, default):
         return default
 
 
+def _fsync_dir(d):
+    # flush the directory entry so a rename survives power loss, not just the file bytes
+    try:
+        fd = os.open(d, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
 def _write(path, obj):
-    # atomic: write a temp file then rename, so readers never see a half file
+    # atomic + crash-durable: write temp, fsync the bytes, rename, fsync the dir — a
+    # power loss or panic mid-write can never leave a half file or lose the data.
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(obj, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp, path)
+    _fsync_dir(os.path.dirname(path))
     try:
         os.chmod(path, 0o600)
     except OSError:
@@ -712,7 +728,10 @@ def _rewrite_ledger(led):
     with open(tmp, "w") as f:
         for t in led.values():
             f.write(json.dumps(t) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp, LEDGER)
+    _fsync_dir(os.path.dirname(LEDGER))
     _chmod600(LEDGER)
 
 
@@ -792,8 +811,52 @@ def merge_ledger(txns):
         with open(LEDGER, "a") as f:  # pure append — history is never rewritten
             for ln in new_lines:
                 f.write(ln + "\n")
+            f.flush()
+            os.fsync(f.fileno())  # the append is durably on disk before we report success
         _chmod600(LEDGER)
     return len(led)
+
+
+def verify_ledger():
+    """Non-destructive integrity check — proves the ledger is readable, internally
+    consistent, free of corrupt lines, and recoverable from a backup. Powers the
+    in-app 'data verified' trust badge and check.sh. Reads only; never writes."""
+    res = {"ok": True, "count": 0, "backups": 0, "last_backup": None, "checks": []}
+
+    def add(name, ok, detail=""):
+        res["checks"].append({"name": name, "ok": bool(ok), "detail": detail})
+        if not ok:
+            res["ok"] = False
+    try:
+        led = load_ledger()
+    except Exception as e:
+        add("ledger readable", False, str(e)[:120])
+        return res
+    txns = list(led.values()) if isinstance(led, dict) else []
+    res["count"] = len(txns)
+    add("ledger readable", isinstance(led, dict), "%d transactions" % len(txns))
+    ids = [t.get("id") for t in txns if t.get("id")]
+    add("unique transaction ids", len(ids) == len(set(ids)), "%d ids · %d unique" % (len(ids), len(set(ids))))
+    malformed = sum(1 for t in txns if not (t.get("id") and t.get("posted") is not None and "amount" in t))
+    add("well-formed rows", malformed == 0, "%d malformed" % malformed)
+    corrupt = lines = 0
+    if os.path.exists(LEDGER):
+        with open(LEDGER) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                lines += 1
+                try:
+                    json.loads(line)
+                except Exception:
+                    corrupt += 1
+    add("no corrupt lines on disk", corrupt == 0, "%d corrupt of %d" % (corrupt, lines))
+    days = sorted(d for d in os.listdir(BACKUPS) if os.path.isdir(os.path.join(BACKUPS, d))) if os.path.isdir(BACKUPS) else []
+    res["backups"] = len(days)
+    res["last_backup"] = days[-1] if days else None
+    add("recoverable backup exists", _restore_ledger_from_backup() is not None, "%d backup days" % len(days))
+    return res
 
 
 def append_synclog(accounts, transactions, cap=50):

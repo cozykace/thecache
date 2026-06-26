@@ -89,6 +89,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, store.monthly_income_by_source(months_back=months))
         if path == "/api/work-monthly":
             return self._json(200, store.monthly_hours_history())
+        if path == "/api/integrity":
+            return self._json(200, store.verify_ledger())
         if path == "/api/issues":
             return self._json(200, {"issues": store.find_issues()})
         if path == "/api/bugs":
