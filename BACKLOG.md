@@ -2,7 +2,7 @@
 
 Running list of your requests and ideas. Anything you toss out, I add here; I'll surface relevant items when they come up, and check them off as we ship. You can read/edit this file too.
 
-_Last updated: 2026-06-23_
+_Last updated: 2026-06-25_
 
 ## The accuracy engine (fix-in-UI, no AI; all ripples via the Store)
 - [x] **Category Manager** (Menu → Manage categories) — lists every category + # of transactions; rename (server-stored label, ripples to every widget); delete → fold/merge into another category (batch); click a category → recategorize its merchants one-by-one; + new category. Backend: catmeta.json registry (labels+remap), categorize() applies remap (2026-06-22)
