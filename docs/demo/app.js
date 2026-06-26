@@ -2237,8 +2237,9 @@ function updateXp() {
   if (chip) chip.textContent = "⭐ " + PROFILE_STATS.exp.toLocaleString();
 }
 function addExp(n) {
-  PROFILE_STATS.exp += n;
   PROFILE_STATS.clicks += n;
+  if (_healthFull) { _expAcc += n * 0.1; if (_expAcc >= 1) { const b = Math.floor(_expAcc); n += b; _expAcc -= b; } }  // +10% EXP at full health
+  PROFILE_STATS.exp += n;
   updateXp();
   clearTimeout(_statsTimer);
   _statsTimer = setTimeout(saveStats, 700);
@@ -2249,6 +2250,7 @@ function renderTrust() {
   if (!el) return;
   fetch("/api/integrity?t=" + Date.now()).then((r) => r.json()).then((d) => {
     if (!d) { el.innerHTML = ""; return; }
+    _integrityOk = d.ok; renderHealth();  // integrity feeds cache health
     el.innerHTML = '<button class="trust-chip ' + (d.ok ? "ok" : "warn") + '" title="how your data is protected">' +
       "<span>" + (d.ok ? "🛡 data verified" : "⚠ check data") + "</span>" +
       '<span class="trust-n">' + (d.ok ? "✓" : "!") + "</span></button>";
@@ -2270,6 +2272,55 @@ function openTrust(d) {
       '<div class="trust-lead">A live, non-destructive check of your ledger — proof it’s readable, complete, uncorrupted, and recoverable. Nothing leaves your machine.</div>' +
       rows +
       '<div class="trust-foot">' + (d.count || 0).toLocaleString() + " transactions · " + (d.backups || 0) + " daily backups" + (d.last_backup ? " · last " + escapeHtml(d.last_backup) : "") + "</div>" +
+    "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", close);
+}
+// ── Cache health: how fully connected/solid your cache is. Max it → +10% EXP per click. ──
+let _integrityOk = null;   // last /api/integrity result (set by renderTrust)
+let _healthFull = false, _expAcc = 0;
+function cacheHealth() {
+  const d = Store.data || {};
+  const has = (k) => { const v = localStorage.getItem(k); return v != null && v !== ""; };
+  const cores = (Store.recurring || []).filter((r) => isSubCore(r.key) && !isSubPaused(r.key)).length;
+  const items = [
+    { label: "Bank connected", action: "Menu → Connect a bank", ok: !!(d.accounts && d.accounts.length) },
+    { label: "Income tagged", action: "Money Map → tag deposits", ok: !!(d.income && d.income.untagged === 0 && d.income.sources && d.income.sources.length) },
+    { label: "Must-pay bills starred", action: "Money Map → star bills", ok: cores > 0 },
+    { label: "Reserve set", action: "Settings → Safety buffer", ok: has("money.reserve") },
+    { label: "Monthly need set", action: "Budget → build", ok: has("money.need") || has("money.guaranteedIncome") },
+    { label: "Data verified", action: "auto — integrity check", ok: _integrityOk === true },
+  ];
+  const done = items.filter((i) => i.ok).length;
+  return { score: Math.round(done / items.length * 100), done, total: items.length, items };
+}
+function renderHealth() {
+  const el = document.getElementById("healthBadge");
+  if (!el) return;
+  const h = cacheHealth();
+  _healthFull = h.score >= 100;
+  el.innerHTML = '<button class="health-chip' + (_healthFull ? " full" : "") + '" style="--p:' + h.score + '" title="cache health — connect everything to max it (+10% EXP when full)">' +
+    '<span class="health-ring"></span><span class="health-lbl">cache health</span><span class="health-pct">' + h.score + "%</span></button>";
+  el.querySelector(".health-chip").addEventListener("click", openHealth);
+}
+function openHealth() {
+  const back = document.createElement("div"); back.className = "cat-backdrop";
+  const modal = document.createElement("div"); modal.className = "cat-modal health-modal";
+  const close = () => { back.remove(); modal.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  const h = cacheHealth();
+  const rows = h.items.map((i) => '<div class="health-row ' + (i.ok ? "ok" : "todo") + '">' +
+    '<span class="health-mk">' + (i.ok ? "✓" : "○") + "</span>" +
+    '<span class="health-name">' + escapeHtml(i.label) + "</span>" +
+    (i.ok ? "" : '<span class="health-act">' + escapeHtml(i.action) + "</span>") + "</div>").join("");
+  modal.innerHTML =
+    '<div class="cat-head"><span>Cache health</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="health-body">' +
+      '<div class="health-big">' + h.score + "%<span>" + h.done + " of " + h.total + " connected</span></div>" +
+      (h.score >= 100
+        ? '<div class="health-bonus">🔥 Full blast — every click earns <b>+10% EXP</b>.</div>'
+        : '<div class="health-bonus dim">Max it for a <b>+10% EXP</b> bonus on every click.</div>') +
+      '<div class="char-sec">Checklist</div>' + rows +
     "</div>";
   document.body.appendChild(back); document.body.appendChild(modal);
   modal.querySelector(".cat-close").addEventListener("click", close);
@@ -4963,5 +5014,7 @@ updateXp();
 renderTrust();
 applyTier();
 renderBrand();
+renderHealth();
+Store.subscribe(document.getElementById("healthBadge"), () => renderHealth());  // health updates as data connects
 requestAnimationFrame(reflowBelowStats);  // once the stats bar has measured, clear the top band
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint

@@ -1361,6 +1361,31 @@ body.sidebar-open .sidebar { transform: none; }
 .trust-name { color: var(--ink); flex-shrink: 0; }
 .trust-detail { color: rgba(var(--ink-rgb), 0.5); margin-left: auto; text-align: right; font-variant-numeric: tabular-nums; }
 .trust-foot { font-size: 11px; color: rgba(var(--ink-rgb), 0.5); margin-top: 12px; font-variant-numeric: tabular-nums; }
+/* cache health badge + modal */
+.sidebar-health { padding: 6px 16px 0; }
+.sidebar-health:empty { display: none; }
+.health-chip { display: inline-flex; align-items: center; gap: 8px; width: 100%; cursor: pointer; font-family: inherit; font-size: 11px;
+  border: 1px solid var(--edge-soft); background: var(--panel); border-radius: 999px; padding: 6px 12px; color: var(--ink); }
+.health-chip:hover { border-color: var(--accent); }
+.health-ring { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+  background: conic-gradient(var(--accent) calc(var(--p, 0) * 1%), rgba(var(--ink-rgb), 0.15) 0); }
+.health-lbl { flex: 1; text-align: left; }
+.health-pct { font-variant-numeric: tabular-nums; color: rgba(var(--ink-rgb), 0.6); }
+.health-chip.full { border-color: var(--accent); }
+.health-chip.full .health-pct { color: var(--accent); font-weight: 600; }
+.health-body { padding: 14px 16px 16px; }
+.health-big { font-size: 30px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; line-height: 1; }
+.health-big span { display: block; font-size: 11px; font-weight: 400; color: rgba(var(--ink-rgb), 0.55); margin-top: 4px; }
+.health-bonus { font-size: 12px; margin: 12px 0; color: var(--ink); }
+.health-bonus.dim { color: rgba(var(--ink-rgb), 0.6); }
+.health-row { display: flex; align-items: baseline; gap: 9px; padding: 7px 0; border-bottom: 1px solid var(--edge-soft); font-size: 12.5px; }
+.health-row:last-child { border-bottom: none; }
+.health-mk { flex-shrink: 0; font-weight: 700; }
+.health-row.ok .health-mk { color: #3f8f4e; }
+.health-row.todo .health-mk { color: rgba(var(--ink-rgb), 0.4); }
+.health-name { color: var(--ink); }
+.health-row.ok .health-name { color: rgba(var(--ink-rgb), 0.55); }
+.health-act { margin-left: auto; font-size: 10.5px; color: var(--accent); text-align: right; }
 /* settings tiers — Smooth Brain / Big Brain / Galaxy Brain */
 .set-tier { display: flex; gap: 6px; margin: 2px 0 2px; }
 .set-tier-opt { flex: 1; font-family: inherit; font-size: 11px; cursor: pointer; padding: 8px 6px; border-radius: 8px;
