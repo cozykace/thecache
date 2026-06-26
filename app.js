@@ -2082,6 +2082,20 @@ const FOUNDER_COMPLIMENTS = [
   "ssh… the widgets whisper your name",
   "founder, artist, and full-time legend — no notes 👑",
 ];
+// Approved public jokes — shipped to everyone on the public build. Add to this
+// repository to "approve" a new one; pushing it ships it to all members.
+const PUBLIC_JOKES = [
+  "your money is having a great hair day 💇",
+  "the spreadsheets could never 📉",
+  "budget so clean it squeaks ✨",
+  "certified not-broke behavior 💪",
+  "your cache, your rules 🗝️",
+  "tracking like a hawk, spending like a saint 🦅",
+  "future you says thanks 🙏",
+  "tiny gains, big brain 🧠",
+  "you vs. impulse buys — and you're winning 🥊",
+  "the goat approves 🐐",
+];
 function updateGreeting() {
   const g = document.getElementById("greeting");
   if (!g) return;
@@ -2091,7 +2105,8 @@ function updateGreeting() {
   const name = (p.name || "").trim().replace(/\b\w/g, (m) => m.toUpperCase());
   if (!name) { g.textContent = ""; g.style.display = "none"; return; }
   let html = "Good " + part + ", " + escapeHtml(name) + ".";
-  if (isFounder()) html += '<span class="founder-compliment">' + escapeHtml(FOUNDER_COMPLIMENTS[Math.floor(Math.random() * FOUNDER_COMPLIMENTS.length)]) + "</span>";
+  const set = isFounder() ? FOUNDER_COMPLIMENTS : PUBLIC_JOKES;
+  html += '<span class="founder-compliment">' + escapeHtml(set[Math.floor(Math.random() * set.length)]) + "</span>";
   g.innerHTML = html;
   g.style.display = "";
 }
@@ -3135,7 +3150,7 @@ function makeDraggable(node, handle, id) {
   });
   handle.addEventListener("pointermove", (e) => {
     if (!drag) return;
-    const minY = topInset();  // keep the widget's top below the stats bar
+    const minY = topClamp();  // only below the stats bar at the top of the scroll
     let nx = ox + (e.clientX - sx) / boardZoom;
     let ny = oy + (e.clientY - sy) / boardZoom;
     nx = Math.max(0, Math.min(CANVAS_W - 40, nx));
@@ -3185,7 +3200,7 @@ function makeResizable(node, grips, id) {
         if (corner.indexOf("n") >= 0) t = st + sh - h;
         l = snapTo(l); t = snapTo(t);
       }
-      const minY = topInset();  // don't let the top edge slip under the stats bar
+      const minY = topClamp();  // only protect the stats-bar zone at the top of the scroll
       if (t < minY) { h = Math.max(MIN_H, h - (minY - t)); t = minY; }
       node.style.width = w + "px"; node.style.height = h + "px";
       node.style.left = l + "px"; node.style.top = t + "px";
@@ -3788,6 +3803,9 @@ function topInset() {
   const z = boardZoom || 1;
   return Math.max(8, Math.round((barBottom + (board ? board.scrollTop : 0)) / z));
 }
+// Only protect the stats-bar zone at the very top of the scroll. Once you've scrolled
+// down, the stats bar is just floating over mid-page content — don't yank widgets around.
+function topClamp() { const b = document.getElementById("board"); return (b && b.scrollTop > 4) ? 0 : topInset(); }
 // nudge any widget currently tucked under the stats bar down to just below it
 function reflowBelowStats() {
   const minY = topInset();
