@@ -26,3 +26,6 @@ __pycache__/
 
 # Toggl API token (credential) — never commit
 .toggl
+
+# PostHog Personal API key (read access) — founder only, never commit
+.posthog

@@ -1464,6 +1464,13 @@ body.blessed .cursor-ball {
 .king-tile b { display: block; font-size: 23px; color: #8fe388; font-variant-numeric: tabular-nums; text-shadow: 0 0 11px rgba(143, 227, 136, 0.4); line-height: 1.1; }
 .king-tile span { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(143, 227, 136, 0.55); }
 .king-foot { margin-top: 14px; font-size: 10px; color: rgba(143, 227, 136, 0.45); position: relative; letter-spacing: 0.03em; }
+.king-ph { position: relative; margin-top: 4px; }
+.king-dim { font-size: 11px; color: rgba(143, 227, 136, 0.5); }
+.king-phtop { font-size: 12px; color: rgba(143, 227, 136, 0.7); margin-bottom: 8px; }
+.king-phtop b { color: #8fe388; text-shadow: 0 0 8px rgba(143, 227, 136, 0.4); }
+.king-phrow { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; padding: 4px 0; border-bottom: 1px solid rgba(143, 227, 136, 0.12); }
+.king-phrow span { color: rgba(143, 227, 136, 0.75); font-variant-numeric: tabular-nums; }
+.king-phrow b { color: #8fe388; font-variant-numeric: tabular-nums; }
 /* "built on THE CACHE" badge — bottom-right; becomes "Community Cache" later in the hub */
 .built-on { display: inline-flex; align-items: center; gap: 7px; font-size: 9.5px; letter-spacing: 0.07em;
   text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); background: var(--panel);

@@ -91,6 +91,33 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, store.monthly_hours_history())
         if path == "/api/integrity":
             return self._json(200, store.verify_ledger())
+        if path == "/api/posthog-stats":
+            # Founder-only: read aggregate analytics back from PostHog using a Personal
+            # API key kept in gitignored .posthog (line 1 = key, optional line 2 = project id).
+            # The secret stays on this machine and is never sent to the client.
+            secret = os.path.join(HERE, ".posthog")
+            if not os.path.exists(secret):
+                return self._json(200, {"ok": False, "error": "no key"})
+            import urllib.request
+            lines = [x.strip() for x in open(secret).read().strip().splitlines() if x.strip()]
+            key = lines[0]
+            proj = lines[1] if len(lines) > 1 else "487113"
+            host = "https://us.posthog.com"
+
+            def hogql(q):
+                body = json.dumps({"query": {"kind": "HogQLQuery", "query": q}}).encode()
+                req = urllib.request.Request(host + "/api/projects/" + proj + "/query/", data=body, method="POST",
+                                             headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=25) as r:
+                    return json.loads(r.read())
+            try:
+                ev = hogql("SELECT event, count() AS c FROM events WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY event ORDER BY c DESC LIMIT 12")
+                tot = hogql("SELECT count() AS t, count(DISTINCT distinct_id) AS u FROM events WHERE timestamp > now() - INTERVAL 7 DAY")
+                events = [{"event": row[0], "count": row[1]} for row in ev.get("results", [])]
+                t = (tot.get("results") or [[0, 0]])[0]
+                return self._json(200, {"ok": True, "events": events, "total": t[0], "users": t[1]})
+            except Exception as e:
+                return self._json(200, {"ok": False, "error": str(e)[:140]})
         if path == "/api/update-check":
             # read-only preview of a pending update: what changes, size, version —
             # so the user sees everything before deciding (the pull is a separate POST).

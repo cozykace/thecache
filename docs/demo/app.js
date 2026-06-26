@@ -2134,6 +2134,8 @@ function openKingCozy() {
         '<div class="king-tile"><b>' + PROFILE_STATS.exp.toLocaleString() + "</b><span>project EXP</span></div>" +
         '<div class="king-tile"><b>' + days + "</b><span>days building</span></div>" +
       "</div>" +
+      '<div class="king-sub" style="margin-top:18px">PostHog · live · last 7 days</div>' +
+      '<div class="king-ph" id="kingPh"><span class="king-dim">connecting to PostHog…</span></div>' +
       '<div class="king-foot">live from the public repo · downloads track once you cut a Release</div>' +
     "</div>";
   document.body.appendChild(back); document.body.appendChild(modal);
@@ -2149,6 +2151,12 @@ function openKingCozy() {
   fetch("https://api.github.com/repos/cozykace/thecache")
     .then((r) => r.json()).then((d) => { set("kc-stars", d.stargazers_count); set("kc-forks", d.forks_count); set("kc-downloads", 0); })
     .catch(() => {});
+  fetch("/api/posthog-stats?t=" + Date.now()).then((r) => r.json()).then((d) => {
+    const ph = document.getElementById("kingPh"); if (!ph) return;
+    if (!d || !d.ok) { ph.innerHTML = '<span class="king-dim">' + (d && d.error === "no key" ? "drop your PostHog Personal API key in <b>.posthog</b> to see live stats" : "PostHog not connected yet") + "</span>"; return; }
+    ph.innerHTML = '<div class="king-phtop"><b>' + (d.total || 0).toLocaleString() + "</b> events · <b>" + (d.users || 0).toLocaleString() + "</b> people</div>" +
+      ((d.events || []).map((e) => '<div class="king-phrow"><span>' + escapeHtml(e.event) + "</span><b>" + (e.count || 0).toLocaleString() + "</b></div>").join("") || '<span class="king-dim">no events yet — opt in + click around</span>');
+  }).catch(() => {});
 }
 
 // ── Gamification: every click banks 1 EXP into your profile's stats ──
