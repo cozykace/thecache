@@ -4244,6 +4244,46 @@ document.getElementById("openSettings").addEventListener("click", () => { openSe
   const k = document.getElementById("kingCozy");
   if (k && isFounder()) { k.style.display = ""; k.addEventListener("click", () => { openKingCozy(); setSidebar(false); }); }
 })();
+
+// In-app help wiki — ships with the app (works offline via the local WIKI.md) AND
+// pushable: fetches WIKI.md fresh from the repo for instant updates, local fallback.
+function mdToHtml(md) {
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const inline = (s) => esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  let html = "", inList = false;
+  const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+  md.split("\n").forEach((line) => {
+    const h = line.match(/^(#{1,4})\s+(.*)/);
+    const li = line.match(/^[-*]\s+(.*)/);
+    if (h) { closeList(); const lvl = Math.min(4, h[1].length + 1); html += "<h" + lvl + ' class="wk-h">' + inline(h[2]) + "</h" + lvl + ">"; return; }
+    if (li) { if (!inList) { html += '<ul class="wk-ul">'; inList = true; } html += "<li>" + inline(li[1]) + "</li>"; return; }
+    if (!line.trim()) { closeList(); return; }
+    closeList(); html += '<p class="wk-p">' + inline(line) + "</p>";
+  });
+  closeList();
+  return html;
+}
+function openWiki() {
+  const back = document.createElement("div"); back.className = "cat-backdrop";
+  const modal = document.createElement("div"); modal.className = "cat-modal wiki-modal";
+  const close = () => { back.remove(); modal.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  modal.innerHTML = '<div class="cat-head"><span>📖 Help &amp; Learn</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="wk-body" id="wkBody"><p class="wk-p">Loading…</p></div>';
+  document.body.appendChild(back); document.body.appendChild(modal);
+  makeModalResizable(modal, "money.wiki");
+  modal.querySelector(".cat-close").addEventListener("click", close);
+  const body = modal.querySelector("#wkBody");
+  const render = (md) => { body.innerHTML = mdToHtml(md); };
+  fetch("https://raw.githubusercontent.com/cozykace/thecache/main/WIKI.md?t=" + Date.now())
+    .then((r) => (r.ok ? r.text() : Promise.reject())).then(render)
+    .catch(() => fetch("WIKI.md?t=" + Date.now()).then((r) => r.text()).then(render)
+      .catch(() => { body.innerHTML = '<p class="wk-p">Couldn’t load the guide right now — it ships with the app as WIKI.md.</p>'; }));
+}
+document.getElementById("helpWiki").addEventListener("click", () => { openWiki(); setSidebar(false); });
 document.getElementById("manageCats").addEventListener("click", () => { openCategoryManager(); setSidebar(false); });
 document.getElementById("reportBug").addEventListener("click", () => { openBugReport(); setSidebar(false); });
 

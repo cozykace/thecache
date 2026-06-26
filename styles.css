@@ -1467,6 +1467,18 @@ body.blessed .cursor-ball {
   text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); background: var(--panel);
   border: 1px solid var(--edge-soft); border-radius: 999px; padding: 5px 11px; white-space: nowrap; }
 .built-logo { height: 11px; width: 74px; }
+/* in-app help wiki */
+.wiki-modal { max-width: 580px; }
+.wk-body { padding: 10px 18px 18px; overflow-y: auto; }
+.wk-h { color: var(--ink); margin: 18px 0 6px; }
+.wk-body h2.wk-h { font-size: 16px; font-weight: 700; }
+.wk-body h3.wk-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(var(--ink-rgb), 0.55); margin-top: 14px; }
+.wk-p { font-size: 13px; line-height: 1.65; color: rgba(var(--ink-rgb), 0.82); margin: 7px 0; }
+.wk-ul { margin: 7px 0; padding-left: 18px; }
+.wk-ul li { font-size: 13px; line-height: 1.6; color: rgba(var(--ink-rgb), 0.82); margin-bottom: 4px; }
+.wk-body code { background: rgba(var(--ink-rgb), 0.09); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.wk-body strong { color: var(--ink); font-weight: 700; }
+.wk-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 /* font packs — each chip previews in its own typeface */
 .set-fonts { display: flex; flex-wrap: wrap; gap: 6px; }
 .font-chip { font-size: 13px; cursor: pointer; padding: 7px 12px; border-radius: 8px;
