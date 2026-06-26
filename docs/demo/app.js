@@ -19,10 +19,10 @@ const SNAP = 24;
 const snapTo = (v) => Math.round(v / SNAP) * SNAP;
 // positions land on the grid; snapped SIZES are inset by a gutter so that
 // grid-adjacent widgets get a little breathing room instead of touching
-const GUTTER = 8;
-const snapSize = (v, min) => Math.max(min || MIN_W, Math.round(v / SNAP) * SNAP - GUTTER);
-// global gutter between widgets when tidying (a live slider sets this) — Squarespace-style spacing
-const gutterVal = () => { const g = parseInt(localStorage.getItem("money.gutter")); return isNaN(g) ? 16 : Math.max(4, Math.min(48, g)); };
+// global gutter between widgets — a live slider sets this; drives the snap inset,
+// so widgets resize in place to open/close the gaps without moving.
+const gutterVal = () => { const g = parseInt(localStorage.getItem("money.gutter")); return isNaN(g) ? 10 : Math.max(4, Math.min(48, g)); };
+const snapSize = (v, min) => Math.max(min || MIN_W, Math.round(v / SNAP) * SNAP - gutterVal());
 
 const fmtUSD = (n) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -2399,6 +2399,8 @@ function openSettings() {
       '<button class="set-toggle" id="setAutoPin" data-tier="2"><span>Auto-pin favorites</span><span class="set-state">on</span></button>' +
       '<div class="set-hint" data-tier="2">starred widgets &amp; dock items jump to the top · turn off to leave them where they are when starred</div>' +
       '<div class="set-themes" id="setThemes"></div>' +
+      '<div class="set-sec">Fonts</div>' +
+      '<div class="set-fonts" id="setFonts"></div>' +
       '<div class="set-sec" data-tier="3">Stats bar</div>' +
       '<div class="set-hint" data-tier="3">the live numbers along the top — toggle any on or off · drag them in the bar to reorder</div>' +
       '<div id="setStats" class="set-stats" data-tier="3"></div>' +
@@ -2549,6 +2551,14 @@ function openSettings() {
   const th = modal.querySelector("#setThemes");
   th.innerHTML = THEMES.map((t) => themeChipHtml(t, cur)).join("");
   wireThemeChips(th);
+
+  const fh = modal.querySelector("#setFonts");
+  if (fh) {
+    const curFont = localStorage.getItem(FONT_KEY) || "mono";
+    fh.innerHTML = FONTS.map((f) => '<button class="font-chip' + (f.id === curFont ? " active" : "") +
+      '" data-font="' + f.id + '" style="font-family:' + f.stack.replace(/"/g, "&quot;") + '">' + f.label + "</button>").join("");
+    fh.querySelectorAll(".font-chip").forEach((b) => { loadFont(FONTS.find((f) => f.id === b.dataset.font)); b.addEventListener("click", () => applyFont(b.dataset.font)); });
+  }
 }
 // make a modal centered + resizable (corner) with a persisted size, and movable by its header
 function makeModalResizable(modal, key) {
@@ -3452,6 +3462,31 @@ themeBtn.addEventListener("click", (e) => {
 });
 applyTheme(localStorage.getItem(THEME_KEY) || "light");
 
+// ── Font packs: swap the whole UI typeface (loads the Google font on demand) ──
+const FONT_KEY = "money.font";
+const FONTS = [
+  { id: "mono", label: "Terminal", stack: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace' },
+  { id: "jet", label: "Hacker", stack: '"JetBrains Mono", ui-monospace, monospace', url: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" },
+  { id: "grotesk", label: "Space Cadet", stack: '"Space Grotesk", system-ui, sans-serif', url: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" },
+  { id: "inter", label: "Clean Slate", stack: '"Inter", system-ui, sans-serif', url: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" },
+  { id: "fraunces", label: "Editorial", stack: '"Fraunces", Georgia, serif', url: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&display=swap" },
+  { id: "courier", label: "Typewriter", stack: '"Courier Prime", "Courier New", monospace', url: "https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap" },
+  { id: "archivo", label: "Brutalist", stack: '"Archivo", system-ui, sans-serif', url: "https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" },
+];
+function loadFont(f) {
+  if (!f || !f.url || document.getElementById("font-" + f.id)) return;
+  const l = document.createElement("link"); l.id = "font-" + f.id; l.rel = "stylesheet"; l.href = f.url;
+  document.head.appendChild(l);
+}
+function applyFont(id) {
+  const f = FONTS.find((x) => x.id === id) || FONTS[0];
+  loadFont(f);
+  document.documentElement.style.setProperty("--font-ui", f.stack);
+  localStorage.setItem(FONT_KEY, f.id);
+  document.querySelectorAll(".font-chip").forEach((c) => c.classList.toggle("active", c.dataset.font === f.id));
+}
+applyFont(localStorage.getItem(FONT_KEY) || "mono");
+
 // ── Backgrounds (separate from theme; spins out, remembered) ──
 const BG_KEY = "money.bg";
 const BACKGROUNDS = [
@@ -3811,7 +3846,32 @@ document.getElementById("tidyLayout").addEventListener("click", () => { tidyLayo
   const gs = document.getElementById("gutterSlider");
   if (!gs) return;
   gs.value = gutterVal();
-  gs.addEventListener("input", () => { localStorage.setItem("money.gutter", gs.value); tidyLayout(false); });  // live re-space, no animation
+  // Resize widgets IN PLACE: each keeps its grid cell + position, only its size
+  // changes to open/close the gutter. Nothing moves around.
+  let spans = null;
+  const snapshot = () => {
+    spans = {};
+    const g = gutterVal();
+    Object.keys(layout).forEach((id) => {
+      const n = nodes[id];
+      if (!n || layout[id].type === "sticker") return;
+      spans[id] = { cw: Math.round((n.offsetWidth + g) / SNAP) * SNAP, ch: Math.round((n.offsetHeight + g) / SNAP) * SNAP };
+    });
+  };
+  gs.addEventListener("pointerdown", snapshot);
+  gs.addEventListener("input", () => {
+    if (!spans) snapshot();
+    localStorage.setItem("money.gutter", gs.value);
+    const g = gutterVal();
+    Object.keys(spans).forEach((id) => {
+      const n = nodes[id];
+      if (!n) return;
+      const w = Math.max(MIN_W, spans[id].cw - g), h = Math.max(MIN_H, spans[id].ch - g);
+      n.style.width = w + "px"; n.style.height = h + "px";
+      layout[id].w = w; layout[id].h = h;
+    });
+  });
+  gs.addEventListener("change", () => { saveLayout(); spans = null; });
 })();
 document.getElementById("saveView").addEventListener("click", () => {
   const name = prompt("Name this view (e.g. ‘daily’, ‘work mode’):");
