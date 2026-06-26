@@ -535,19 +535,128 @@ const RENDERERS = {
     el.classList.add("is-breakdown", "is-forecast");
     el.innerHTML =
       '<div class="bd-head"><div class="bd-top"><span class="fc-label">income forecast</span>' +
+        '<button class="if-modebtn" type="button" title="switch view">⇄ <span class="if-mode-lbl">streams</span></button>' +
         '<button class="if-goal" type="button" title="set a savings goal to aim for">🎯 <span class="if-goal-amt">…</span></button>' +
         '<button class="if-add" type="button" title="add an income source (a client, a gig…)">+ source</button></div>' +
         '<div class="big bd-avg if-big">…</div>' +
         '<div class="fc-sub if-sub"></div>' +
       "</div>" +
       '<div class="if-chart"><svg class="if-svg" viewBox="0 0 320 150" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"></svg></div>' +
+      '<div class="if-legend"></div>' +
       '<div class="if-sources"></div>';
     const big = el.querySelector(".if-big");
     const sub = el.querySelector(".if-sub");
     const svg = el.querySelector(".if-svg");
     const srcWrap = el.querySelector(".if-sources");
+    const legendWrap = el.querySelector(".if-legend");
     const SRC_KEY = "money.forecastSources";
     let sources = null;
+
+    // ── streams view state ──
+    const COLORS = ["#14b8a6", "#f59e0b", "#8b5cf6", "#3f8f4e", "#c0467a", "#4a6da7", "#e0734a"];
+    const MODE_KEY = "money.forecastMode";
+    let mode = localStorage.getItem(MODE_KEY) || "streams";
+    let histData = null;        // { months:[{ym,label}], sources:[{key,name,monthly[]}] }
+    const hidden = {};          // source id -> true when toggled off in the legend
+    const srcColor = (s, i) => COLORS[i % COLORS.length];
+    const STOP = new Set(["the", "a", "an", "my", "and", "income", "monthly", "work", "of", "pay"]);
+    const autoToken = (name) => (String(name || "").toLowerCase().split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w))[0] || "");
+    const srcMatch = (s) => String(s.match != null ? s.match : autoToken(s.name)).toLowerCase().trim();
+    function fetchHist() {
+      fetch("/api/income-monthly?months=12&t=" + Date.now())
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d && d.months) { histData = d; if (Store.data) paint(Store.data); } })
+        .catch(() => {});
+    }
+    // next N month labels after a "YYYY-MM"
+    function nextLabels(lastYm, n) {
+      const out = [];
+      let [y, m] = (lastYm || new Date().toISOString().slice(0, 7)).split("-").map(Number);
+      for (let i = 0; i < n; i++) { m++; if (m > 12) { m = 1; y++; } out.push(new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short" })); }
+      return out;
+    }
+
+    function paintStreams(d) {
+      const S = planSummary(d, 0);
+      if (!S || !sources) return;
+      const need = needOf(S);
+      const months = (histData && histData.months) || [];
+      const hsrc = (histData && histData.sources) || [];
+      const Hn = months.length, Fn = 6, C = Hn + Fn;
+      big.textContent = fmtUSD(sources.reduce((a, s) => a + contribution(s), 0)) + "/mo";
+      // build each visible source's series across all columns (history + flat projection)
+      const matched = new Set();
+      const bands = sources.map((s, i) => {
+        const term = srcMatch(s), hist = new Array(Hn).fill(0);
+        if (term) hsrc.forEach((hk) => {
+          if (hk.key.indexOf(term) !== -1 || String(hk.name || "").toLowerCase().indexOf(term) !== -1) {
+            matched.add(hk.key); hk.monthly.forEach((v, m) => { hist[m] += v; });
+          }
+        });
+        return { id: s.id, name: s.name, color: srcColor(s, i), proj: contribution(s), hist, hidden: !!hidden[s.id] };
+      });
+      // unmatched historical income → a history-only "Other income" band
+      const other = new Array(Hn).fill(0); let hasOther = false;
+      hsrc.forEach((hk) => { if (!matched.has(hk.key)) { hasOther = true; hk.monthly.forEach((v, m) => { other[m] += v; }); } });
+      if (hasOther && other.some((v) => v > 0)) bands.push({ id: "__other__", name: "Other income", color: "#8a8678", proj: 0, hist: other, hidden: !!hidden["__other__"] });
+      renderLegend(bands);
+      const valAt = (b, c) => (c < Hn ? b.hist[c] : b.proj);
+      const live = bands.filter((b) => !b.hidden);
+      // y-scale from the tallest stacked column (+ headroom), keep the needed line on-screen
+      let peak = need;
+      for (let c = 0; c < C; c++) { let t = 0; live.forEach((b) => { t += valAt(b, c); }); if (t > peak) peak = t; }
+      const W = 320, H = 150, padL = 30, padR = 8, padT = 10, padB = 16;
+      const x0 = padL, x1 = W - padR, yB = H - padB, yT = padT, ymax = peak * 1.1 || 1;
+      const xAt = (c) => x0 + (C <= 1 ? 0 : c / (C - 1) * (x1 - x0));
+      const yAt = (v) => yB - (v / ymax) * (yB - yT);
+      let s = '<defs><pattern id="ifproj" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="6" class="if-hatch" stroke-width="1"/></pattern></defs>';
+      // y gridlines (0 + peak-ish)
+      [0, ymax / 2, ymax].forEach((g) => { const y = yAt(g); s += '<line x1="' + x0 + '" y1="' + y.toFixed(1) + '" x2="' + x1 + '" y2="' + y.toFixed(1) + '" class="if-grid" />'; s += '<text x="' + (x0 - 3) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" class="if-ylabel">' + (g >= 1000 ? Math.round(g / 1000) + "k" : Math.round(g)) + "</text>"; });
+      // stacked areas (bottom→top), each spanning all columns
+      const lower = new Array(C).fill(0);
+      live.forEach((b) => {
+        const top = lower.map((lo, c) => lo + valAt(b, c)), pts = [];
+        for (let c = 0; c < C; c++) pts.push(xAt(c).toFixed(1) + "," + yAt(top[c]).toFixed(1));
+        for (let c = C - 1; c >= 0; c--) pts.push(xAt(c).toFixed(1) + "," + yAt(lower[c]).toFixed(1));
+        s += '<polygon points="' + pts.join(" ") + '" fill="' + b.color + '" fill-opacity="0.82" />';
+        for (let c = 0; c < C; c++) lower[c] = top[c];
+      });
+      // hatch the projection region (right of "now")
+      const nowX = xAt(Math.max(0, Hn - 1));
+      s += '<rect x="' + nowX.toFixed(1) + '" y="' + yT + '" width="' + (x1 - nowX).toFixed(1) + '" height="' + (yB - yT).toFixed(1) + '" fill="url(#ifproj)" />';
+      // needed line + now divider
+      const ny = yAt(need);
+      s += '<line x1="' + x0 + '" y1="' + ny.toFixed(1) + '" x2="' + x1 + '" y2="' + ny.toFixed(1) + '" class="if-need" />';
+      s += '<text x="' + x1 + '" y="' + (ny - 3).toFixed(1) + '" text-anchor="end" class="if-need-lbl">need ' + fmtUSD(need) + "</text>";
+      s += '<line x1="' + nowX.toFixed(1) + '" y1="' + yT + '" x2="' + nowX.toFixed(1) + '" y2="' + yB + '" class="if-now" />';
+      s += '<text x="' + (nowX + 2).toFixed(1) + '" y="' + (yT + 8) + '" class="if-now-lbl">now</text>';
+      // x labels: history months + projected months
+      const flabels = nextLabels(months.length ? months[months.length - 1].ym : null, Fn);
+      const labels = months.map((m) => m.label).concat(flabels);
+      labels.forEach((lb, c) => { if (C > 9 && c % 2 && c !== C - 1) return; s += '<text x="' + xAt(c).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" class="if-mlabel">' + lb + "</text>"; });
+      svg.innerHTML = s;
+      const surplus = sources.reduce((a, x) => a + contribution(x), 0) - need, up = surplus >= 0;
+      sub.innerHTML = (up ? '<b style="color:#3f8f4e">+' + fmtUSD(surplus) + "/mo</b> over needs" : '<b style="color:#c9542e">' + fmtUSD(-surplus) + "/mo</b> short") +
+        (Hn ? " · " + Hn + "&nbsp;mo history" : " · building history");
+    }
+
+    function renderLegend(bands) {
+      if (mode !== "streams") { legendWrap.innerHTML = ""; return; }
+      legendWrap.innerHTML = bands.map((b) =>
+        '<button class="if-leg" data-id="' + escapeHtml(b.id) + '" style="--c:' + b.color + '"' + (b.hidden ? ' data-off="1"' : "") + '>' +
+          '<span class="if-leg-dot"></span>' + escapeHtml(b.name) + "</button>").join("");
+      legendWrap.querySelectorAll(".if-leg").forEach((btn) => btn.addEventListener("click", () => {
+        const id = btn.dataset.id; hidden[id] = !hidden[id]; if (Store.data) paintStreams(Store.data);
+      }));
+    }
+
+    // dispatch to the active view; toggle which header controls show
+    function paint(d) {
+      el.classList.toggle("if-mode-streams", mode === "streams");
+      const lbl = el.querySelector(".if-mode-lbl"); if (lbl) lbl.textContent = mode === "streams" ? "streams" : "cushion";
+      if (mode === "streams") { if (!histData) fetchHist(); paintStreams(d); }
+      else { legendWrap.innerHTML = ""; paintChart(d); }
+    }
 
     const persist = () => { try { localStorage.setItem(SRC_KEY, JSON.stringify(sources)); } catch (e) {} };
     // a source contributes $/mo: hourly = hrs/wk × rate × (52/12); monthly = the value itself
@@ -629,7 +738,8 @@ const RENDERERS = {
             '<span class="if-src-val">' + fmtUSD(contribution(s)) + "/mo</span>" +
             '<button class="if-src-x" title="remove this source">×</button></div>' +
           '<input type="range" class="if-slider if-src-slider" min="0" max="' + s.max + '" step="' + (s.mode === "hourly" ? 1 : 25) + '" value="' + (s.value || 0) + '" data-id="' + escapeHtml(s.id) + '" />' +
-          '<div class="if-src-hint">' + hint + "</div>" +
+          '<div class="if-src-hint">' + hint +
+            ' · <button class="if-src-link" data-id="' + escapeHtml(s.id) + '" title="which deposits feed this band\'s history">🔗 ' + (srcMatch(s) ? escapeHtml(srcMatch(s)) : "link history") + "</button></div>" +
         "</div>";
       }).join("");
       srcWrap.querySelectorAll(".if-src-slider").forEach((sl) => {
@@ -642,13 +752,13 @@ const RENDERERS = {
           row.querySelector(".if-src-val").textContent = fmtUSD(contribution(s)) + "/mo";
           if (s.mode === "hourly") row.querySelector(".if-src-hours").textContent = s.value;
           persist();
-          if (Store.data) paintChart(Store.data);  // tilt the graph, leave the sliders alone
+          if (Store.data) paint(Store.data);  // tilt the graph, leave the sliders alone
         });
       });
       srcWrap.querySelectorAll(".if-src-x").forEach((b) => b.addEventListener("click", () => {
         const id = b.closest(".if-src").dataset.id;
         sources = sources.filter((x) => x.id !== id); persist();
-        renderSources(); if (Store.data) paintChart(Store.data);
+        renderSources(); if (Store.data) paint(Store.data);
       }));
       srcWrap.querySelectorAll(".if-src-name").forEach((n) => n.addEventListener("click", () => {
         const s = sources.find((x) => x.id === n.closest(".if-src").dataset.id);
@@ -660,7 +770,15 @@ const RENDERERS = {
         const v = prompt("Effective $/hr for " + s.name + " (after gas — keep it conservative for slow nights):", s.rate || 20);
         if (v === null) return;
         const n = parseFloat((v || "").replace(/[^0-9.]/g, ""));
-        if (n > 0) { s.rate = Math.round(n); persist(); renderSources(); if (Store.data) paintChart(Store.data); }
+        if (n > 0) { s.rate = Math.round(n); persist(); renderSources(); if (Store.data) paint(Store.data); }
+      }));
+      srcWrap.querySelectorAll(".if-src-link").forEach((b) => b.addEventListener("click", () => {
+        const s = sources.find((x) => x.id === b.dataset.id);
+        const avail = ((histData && histData.sources) || []).map((h) => h.name).filter(Boolean);
+        const tip = avail.length ? "\n\nYour detected income sources:\n• " + avail.join("\n• ") : "";
+        const v = prompt("History for “" + s.name + "” — type a word from the deposit name(s) that feed this band (blank = none)." + tip, srcMatch(s));
+        if (v === null) return;
+        s.match = v.trim().toLowerCase(); persist(); renderSources(); if (Store.data) paint(Store.data);
       }));
     }
 
@@ -685,7 +803,7 @@ const RENDERERS = {
       const nm = prompt("New income source — a client, gig, or anything (you'll slide its $/mo):");
       if (!nm || !nm.trim()) return;
       sources.push({ id: "src-" + Date.now(), name: nm.trim(), mode: "monthly", value: 0, max: 5000 });
-      persist(); renderSources(); if (Store.data) paintChart(Store.data);
+      persist(); renderSources(); if (Store.data) paint(Store.data);
     });
     el.querySelector(".if-goal").addEventListener("click", () => {
       const cur = parseFloat(localStorage.getItem(GOAL_KEY)) || "";
@@ -693,9 +811,14 @@ const RENDERERS = {
       if (v === null) return;
       const n = parseFloat((v || "").replace(/[^0-9.]/g, ""));
       if (n > 0) localStorage.setItem(GOAL_KEY, String(Math.round(n))); else localStorage.removeItem(GOAL_KEY);
-      if (Store.data) paintChart(Store.data);
+      if (Store.data) paint(Store.data);
     });
-    Store.subscribe(el, (d) => { if (!d || !d.spending) { big.textContent = "…"; return; } ensureSources(d); paintChart(d); });
+    el.querySelector(".if-modebtn").addEventListener("click", () => {
+      mode = mode === "streams" ? "cushion" : "streams";
+      localStorage.setItem(MODE_KEY, mode);
+      if (Store.data) paint(Store.data);
+    });
+    Store.subscribe(el, (d) => { if (!d || !d.spending) { big.textContent = "…"; return; } ensureSources(d); paint(d); });
   },
   clock(el) {
     el.classList.add("is-clock");

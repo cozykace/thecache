@@ -171,6 +171,17 @@
 
   var incomeLinks = { links: {} };
 
+  // per-month income by source (drives the stacked "streams" forecast view) — keys
+  // match the demo's forecast sources (retainer / gig) so history lines up with the sliders
+  var incomeMonthly = {
+    months: [{ ym: "2026-04", label: "Apr" }, { ym: "2026-05", label: "May" }, { ym: "2026-06", label: "Jun" }],
+    sources: [
+      { key: "retainer",  name: "Lakeside Studio", monthly: [1800, 1800, 1800], total: 5400 },
+      { key: "gig",       name: "Gig work",        monthly: [660, 980, 720],    total: 2360 },
+      { key: "freelance", name: "Freelance",       monthly: [400, 0, 420],      total: 820 },
+    ],
+  };
+
   // ── fetch interceptor ───────────────────────────────────────────────────────
   function J(obj) { return new Response(JSON.stringify(obj), { status: 200, headers: { "Content-Type": "application/json" } }); }
   function route(url, method) {
@@ -181,6 +192,7 @@
     if (url.indexOf("/api/connect-status") !== -1) return J({ connected: true });
     if (url.indexOf("/api/summary") !== -1) return J(summary);
     if (url.indexOf("/api/work") !== -1) return J(work);
+    if (url.indexOf("/api/income-monthly") !== -1) return J(incomeMonthly);
     if (url.indexOf("/api/categories") !== -1) return J(categories);
     if (url.indexOf("/api/recurring") !== -1) return J(recurring);
     if (url.indexOf("/api/transfers") !== -1) return J(transfers);
