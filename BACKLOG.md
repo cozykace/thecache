@@ -56,6 +56,10 @@ _Last updated: 2026-06-25_
 ## Install & reach
 - [ ] **Easy cross-platform install (PC + Mac), browser-run, in-app updates** — today it's Mac-centric (`start.command`, LaunchAgents, `~/thecache`). Add: a Windows launcher (`start.bat`) + Windows auto-start (Task Scheduler/startup shortcut), a dead-simple installer for non-tech users, keep the browser UX + the existing in-app **Update** button. (Spencer mentioned **DFOS** / dfos.com — clarify what it does + whether it fits.) Requested 2026-06-26.
 - [ ] **Headless-AI-home-server positioning** (Brent's insight) — local-stored + browser-accessed is *ideal* for someone running a headless home AI server: the AI can manage a person's real life through THE CACHE locally, private by default. Frame/build toward this (clean local API surface, AI-operable, no cloud dependency). Long-term but informs architecture. Requested 2026-06-26.
+
+## Community (opt-in; lone-wolf stays 100% local)
+- [ ] **Community membership & contribution ledger** — a company-protected ledger of every member's effort + value contributed, so the community is transparent + honest about who built what (the personal-cache integrity values, at the org level). **Opt-in:** anyone can lone-wolf the app fully offline/local forever; only the *community layer* needs internet + a way to manage connecting users (accounts/auth + a server). Big — needs backend we don't have yet. Requested 2026-06-26.
+- [ ] **Select-tester update targeting** — push a test/real update to ALL or *chosen* testers; depends on the membership backend above. For now `tester-bump.sh` bumps everyone on `main`. Requested 2026-06-26.
 - [ ] **Widget reliability pass** — every widget rock-solid: no stale/empty states, graceful when the backend is mid-restart, consistent numbers everywhere (already one-Store, but re-verify). Requested 2026-06-26.
 
 ## Smarter / more robust
