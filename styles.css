@@ -1306,6 +1306,10 @@ body.sidebar-open .sidebar { transform: none; }
 .lib-item:hover { background: rgba(255, 255, 255, 0.4); }
 .lib-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--edge); flex-shrink: 0; }
 .lib-item.active .lib-dot { background: var(--accent); border-color: var(--accent); }
+.lib-star { flex-shrink: 0; cursor: pointer; font-size: 12px; line-height: 1; width: 14px; text-align: center;
+  color: rgba(var(--ink-rgb), 0.3); transition: color 0.15s, transform 0.1s; }
+.lib-star:hover { color: var(--accent); transform: scale(1.2); }
+.lib-item.fav .lib-star { color: var(--accent); }
 .lib-label { flex: 1; }
 .lib-state { text-transform: uppercase; letter-spacing: 0.12em; font-size: 9px; color: rgba(var(--ink-rgb), 0.4); }
 

@@ -2247,6 +2247,8 @@ function openSettings() {
       '<div class="set-sec">Display</div>' +
       '<button class="set-toggle" id="setPrivacy"><span>Privacy blur</span><span class="set-state">off</span></button>' +
       '<div class="set-hint">blurs dollar amounts until you hover — good for screen-sharing</div>' +
+      '<button class="set-toggle" id="setAutoPin"><span>Auto-pin favorites</span><span class="set-state">on</span></button>' +
+      '<div class="set-hint">starred widgets &amp; dock items jump to the top · turn off to leave them where they are when starred</div>' +
       '<div class="set-themes" id="setThemes"></div>' +
       '<div class="set-sec">Stats bar</div>' +
       '<div class="set-hint">the live numbers along the top — toggle any on or off · drag them in the bar to reorder</div>' +
@@ -2282,6 +2284,18 @@ function openSettings() {
   privBtn.addEventListener("click", () => {
     localStorage.setItem("money.privacy", localStorage.getItem("money.privacy") === "1" ? "0" : "1");
     applyPrivacy(); paintPriv();
+  });
+
+  const pinBtn = modal.querySelector("#setAutoPin");
+  const paintPin = () => {
+    const on = autoPinOn();
+    pinBtn.classList.toggle("on", on);
+    pinBtn.querySelector(".set-state").textContent = on ? "on" : "off";
+  };
+  paintPin();
+  pinBtn.addEventListener("click", () => {
+    localStorage.setItem(AUTOPIN_KEY, autoPinOn() ? "0" : "1");
+    paintPin(); renderLibrary(); renderDockMenu(); applyDockConfig(document.getElementById("dock"));
   });
 
   // Bank connection — paste a SimpleFIN setup token right here
@@ -3102,15 +3116,25 @@ function closeDropMenu() {
 
 // ── Sidebar: widget library ────────────────────────────────
 const library = document.getElementById("library");
+// ── Favorites: star a widget or dock item → auto-pin it to the top (toggle in Settings) ──
+const FAV_KEY = "money.favorites", AUTOPIN_KEY = "money.autoPinFavorites";
+function favs() { try { return new Set(JSON.parse(localStorage.getItem(FAV_KEY) || "[]")); } catch (e) { return new Set(); } }
+function toggleFav(id) { const s = favs(); s.has(id) ? s.delete(id) : s.add(id); localStorage.setItem(FAV_KEY, JSON.stringify([...s])); }
+function autoPinOn() { return localStorage.getItem(AUTOPIN_KEY) !== "0"; }  // default on
 function renderLibrary() {
   library.innerHTML = "";
-  LIBRARY.forEach((def) => {
-    const on = !!layout[def.type];
+  const f = favs();
+  const defs = LIBRARY.slice();
+  if (autoPinOn()) defs.sort((a, b) => (f.has("widget:" + b.type) ? 1 : 0) - (f.has("widget:" + a.type) ? 1 : 0));
+  defs.forEach((def) => {
+    const on = !!layout[def.type], fav = f.has("widget:" + def.type);
     const item = document.createElement("button");
-    item.className = "lib-item" + (on ? " active" : "");
+    item.className = "lib-item" + (on ? " active" : "") + (fav ? " fav" : "");
     item.innerHTML =
-      '<span class="lib-dot"></span><span class="lib-label">' + def.title +
-      '</span><span class="lib-state">' + (on ? "on" : "add") + "</span>";
+      '<span class="lib-star" role="button" title="favorite — pin to top">' + (fav ? "★" : "☆") + "</span>" +
+      '<span class="lib-label">' + def.title + "</span>" +
+      '<span class="lib-state">' + (on ? "on" : "add") + "</span>";
+    item.querySelector(".lib-star").addEventListener("click", (e) => { e.stopPropagation(); toggleFav("widget:" + def.type); renderLibrary(); });
     item.addEventListener("click", () => (on ? removeWidget(def.type) : addSingleton(def.type)));
     library.appendChild(item);
   });
@@ -4335,6 +4359,12 @@ function applyDockConfig(dock) {
     const el = dock.querySelector('[data-dock="' + id + '"]');
     if (el) dock.appendChild(el);  // reflow into saved order
   });
+  if (autoPinOn()) {  // favorited dock items jump to the front of the bar
+    const f = favs();
+    const favEls = DOCK_DEFS.filter((d) => f.has("dock:" + d.id))
+      .map((d) => dock.querySelector('[data-dock="' + d.id + '"]')).filter(Boolean);
+    favEls.reverse().forEach((el) => dock.insertBefore(el, dock.firstChild));
+  }
   const hidden = new Set(dockList(DOCK_HIDDEN_KEY));
   dock.querySelectorAll(".dock-item").forEach((el) => {
     el.style.display = hidden.has(el.dataset.dock) ? "none" : "";
@@ -4343,13 +4373,19 @@ function applyDockConfig(dock) {
 function renderDockMenu() {
   const host = document.getElementById("dockMenu");
   if (!host) return;
-  const hidden = new Set(dockList(DOCK_HIDDEN_KEY));
-  host.innerHTML = DOCK_DEFS.map((d) => {
-    const on = !hidden.has(d.id);
-    return '<button class="lib-item' + (on ? " active" : "") + '" data-dt="' + d.id + '">' +
-      '<span class="lib-dot"></span><span class="lib-label">' + d.label + '</span>' +
+  const hidden = new Set(dockList(DOCK_HIDDEN_KEY)), f = favs();
+  const defs = DOCK_DEFS.slice();
+  if (autoPinOn()) defs.sort((a, b) => (f.has("dock:" + b.id) ? 1 : 0) - (f.has("dock:" + a.id) ? 1 : 0));
+  host.innerHTML = defs.map((d) => {
+    const on = !hidden.has(d.id), fav = f.has("dock:" + d.id);
+    return '<button class="lib-item' + (on ? " active" : "") + (fav ? " fav" : "") + '" data-dt="' + d.id + '">' +
+      '<span class="lib-star" role="button" data-fav="' + d.id + '" title="favorite — pin to front">' + (fav ? "★" : "☆") + "</span>" +
+      '<span class="lib-label">' + d.label + "</span>" +
       '<span class="lib-state">' + (on ? "on" : "off") + "</span></button>";
   }).join("");
+  host.querySelectorAll(".lib-star").forEach((s) => s.addEventListener("click", (e) => {
+    e.stopPropagation(); toggleFav("dock:" + s.dataset.fav); renderDockMenu(); applyDockConfig(document.getElementById("dock"));
+  }));
   host.querySelectorAll("[data-dt]").forEach((b) => b.addEventListener("click", () => {
     const id = b.dataset.dt;
     const h = new Set(dockList(DOCK_HIDDEN_KEY));
