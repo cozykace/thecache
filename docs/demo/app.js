@@ -3389,7 +3389,7 @@ board.addEventListener("wheel", (e) => {
 // Reports go straight to cozy@cozyace.com via Web3Forms (a free client-side
 // form relay — the key only ever sends to that one inbox, safe to ship public).
 // Until the key is set we fall back to opening the reporter's mail app.
-const FEEDBACK_KEY = "";   // paste the Web3Forms access key here to enable auto-send
+const FEEDBACK_KEY = "dc9d167b-fa61-486d-8435-e52997247c78";   // Web3Forms public key → emails cozy@cozyace.com
 const FEEDBACK_TO = "cozy@cozyace.com";
 function feedbackContext() {
   let theme = "?";

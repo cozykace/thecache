@@ -208,6 +208,8 @@
   var realFetch = window.fetch ? window.fetch.bind(window) : null;
   window.fetch = function (input, init) {
     var url = typeof input === "string" ? input : (input && input.url) || "";
+    // the demo's bug button shouldn't actually email — fake a success so it looks live
+    if (url.indexOf("web3forms.com") !== -1) return Promise.resolve(J({ success: true, message: "demo" }));
     if (url.indexOf("/api/") !== -1 || url.indexOf("data/balances.json") !== -1 || url.indexOf("data/monthly.json") !== -1) {
       var method = (init && init.method) || (typeof input === "object" && input && input.method) || "GET";
       return Promise.resolve(route(url, method));

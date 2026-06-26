@@ -27,10 +27,10 @@ _Last updated: 2026-06-25_
 - [x] Fixed local git corruption — stray macOS dup refs `refs/heads/main 2` + `refs/remotes/origin/main 2` (zero-SHA) broke every fetch/pull; removed (2026-06-25)
 - [x] Repo made PUBLIC (2026-06-25) — verified zero data/secrets ever committed (full-history scan); code-only, all data gitignored. Friend can clone + Update with no auth
 - [x] **Privacy pass on public code** (2026-06-25) — genericized real client/gig names out of app.js + the public demo: forecast defaults now read "Monthly retainer" / "Gig work", help/labels say "gig work" instead of a named platform, demo uses fictional sources. Backend still auto-detects gig/payroll deposits. Re-verified no client names, tokens, or data anywhere in tracked files or git history
-- [x] In-app **Report a bug or request** (Menu → ⚑) — type picker (bug / request / other), message + optional reply-email, sends straight to cozy@cozyace.com with app context; opens the reporter's mail app today, flips to silent auto-send once the Web3Forms key is set (2026-06-25)
+- [x] In-app **Report a bug or request** (Menu → ⚑) — type picker (bug / request / other), message + optional reply-email, sends straight to cozy@cozyace.com with app context; silent auto-send via Web3Forms (key set 2026-06-25), no mail app needed (2026-06-25)
 - [x] **Public live roadmap** — BACKLOG/FEATURES render live at cozykace.github.io/thecache, embedded in the Squarespace site at thecache.app; updates the moment a change is pushed (2026-06-25)
 - [x] **Public demo — runs the real app on fake data** (docs/demo/ → cozykace.github.io/thecache/demo/) — boots the actual app.js/styles.css with a demo-data.js layer that seeds a curated board + answers every backend call with play numbers; fully interactive, always matches the app, no Python backend and no real data. `build-demo.sh` keeps it in sync. Replaces the old static mock (2026-06-25)
-- [ ] Set the Web3Forms key so bug/request reports auto-deliver without the reporter needing a mail app
+- [x] Web3Forms key set — bug/request reports now auto-deliver to cozy@cozyace.com with no mail app needed; the public demo's button is stubbed so it can't be a spam vector (2026-06-25)
 - [ ] Optional: an `install.command` that clones + sets up the auto-start LaunchAgent for a non-technical friend
 
 ## Mobile
