@@ -71,6 +71,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {"recurring": store.detect_recurring()})
         if path == "/api/transfers":
             return self._json(200, {"transfers": store.recurring_transfers()})
+        if path == "/api/match-count":
+            qs = parse_qs(urlparse(self.path).query)
+            return self._json(200, store.match_count(
+                (qs.get("q") or [""])[0], (qs.get("window") or ["month"])[0]))
         if path == "/api/subs":
             return self._json(200, {"subs": store.load_subs()})
         if path == "/api/income-links":

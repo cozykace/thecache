@@ -1288,6 +1288,37 @@ def recurring_transfers(txns=None, min_months=2):
     return out
 
 
+# ── Custom stat trackers: count purchases matching a term ──
+def match_count(q, window="month"):
+    """Count (and total) spending transactions whose description contains q,
+    over a window. Drives user-defined 'bank purchase' stat trackers."""
+    q = (q or "").strip().lower()
+    if not q:
+        return {"count": 0, "total": 0.0}
+    now = int(time.time())
+    if window == "month":
+        n = datetime.fromtimestamp(now)
+        start = int(datetime(n.year, n.month, 1).timestamp())
+    elif window == "30d":
+        start = now - 30 * 86400
+    elif window == "90d":
+        start = now - 90 * 86400
+    else:  # all-time
+        start = 0
+    cnt = 0
+    tot = 0.0
+    for t in _ledger_txns():
+        if (t.get("posted") or 0) < start:
+            continue
+        amt = t.get("amount", 0) or 0
+        if amt >= 0:
+            continue  # purchases (money out) only
+        if q in (t.get("description") or "").lower():
+            cnt += 1
+            tot += -amt
+    return {"count": cnt, "total": round(tot, 2)}
+
+
 # ── Review inbox: everything that needs a human decision ──
 def find_issues():
     txns = _ledger_txns()

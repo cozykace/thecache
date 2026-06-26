@@ -2118,25 +2118,61 @@ function openSettings() {
   });
   drawIcons();  // render the eye icon
 
-  // Stats bar editor — add / remove the live numbers across the top
+  // Stats bar editor — toggle built-in numbers + build your own custom trackers
   const statsHost = modal.querySelector("#setStats");
   const renderSetStats = () => {
     const hidden = new Set(statsList(STATS_HIDDEN_KEY));
-    statsHost.innerHTML = STAT_DEFS.map((d) => {
+    statsHost.innerHTML = allStats().map((d) => {
       const on = !hidden.has(d.id);
-      return '<button class="set-toggle' + (on ? " on" : "") + '" data-st="' + d.id + '">' +
-        "<span>" + d.label + "</span><span class=\"set-state\">" + (on ? "on" : "off") + "</span></button>";
-    }).join("");
+      const cs = d.cs;
+      let ctrls = "";
+      if (cs) {
+        if (cs.kind === "streak") {
+          const done = (cs.marks || []).includes(curYm());
+          ctrls += '<button class="cst-act' + (done ? " on" : "") + '" data-mark="' + d.id + '" title="mark this month done">' + (done ? "✓ " : "") + curMonShort() + "</button>";
+        } else if (cs.kind === "tally") {
+          ctrls += '<button class="cst-act" data-dec="' + d.id + '">−</button><button class="cst-act" data-inc="' + d.id + '">+</button>';
+        }
+        ctrls += '<button class="cst-del" data-del="' + d.id + '" title="delete this stat">×</button>';
+      }
+      return '<div class="set-stat-row"><button class="set-toggle' + (on ? " on" : "") + '" data-st="' + d.id + '">' +
+        "<span>" + escapeHtml(d.label) + '</span><span class="set-state">' + (on ? "on" : "off") + "</span></button>" +
+        (ctrls ? '<span class="cst-ctrls">' + ctrls + "</span>" : "") + "</div>";
+    }).join("") + '<button class="cst-add" id="cstAdd">+ Add a custom stat</button>';
+
+    const reflow = () => { renderStatsBar(); reflowBelowStats(); renderSetStats(); };
     statsHost.querySelectorAll("[data-st]").forEach((b) => b.addEventListener("click", () => {
-      const id = b.dataset.st;
       const h = new Set(statsList(STATS_HIDDEN_KEY));
-      if (h.has(id)) h.delete(id); else h.add(id);
+      if (h.has(b.dataset.st)) h.delete(b.dataset.st); else h.add(b.dataset.st);
       localStorage.setItem(STATS_HIDDEN_KEY, JSON.stringify([...h]));
-      renderStatsBar();
-      reflowBelowStats();   // bar height may have changed → keep widgets clear
-      renderSetStats();
-      renderStatsMenu();    // keep the sidebar list (if present) in sync
+      reflow();
     }));
+    statsHost.querySelectorAll("[data-mark]").forEach((b) => b.addEventListener("click", () => {
+      const arr = ensureCustomStats(); const cs = arr.find((x) => x.id === b.dataset.mark);
+      cs.marks = cs.marks || []; const ym = curYm();
+      if (cs.marks.includes(ym)) cs.marks = cs.marks.filter((x) => x !== ym); else cs.marks.push(ym);
+      saveCustomStats(arr); reflow();
+    }));
+    statsHost.querySelectorAll("[data-inc]").forEach((b) => b.addEventListener("click", () => {
+      const arr = ensureCustomStats(); const cs = arr.find((x) => x.id === b.dataset.inc); cs.value = (cs.value || 0) + 1; saveCustomStats(arr); reflow();
+    }));
+    statsHost.querySelectorAll("[data-dec]").forEach((b) => b.addEventListener("click", () => {
+      const arr = ensureCustomStats(); const cs = arr.find((x) => x.id === b.dataset.dec); cs.value = (cs.value || 0) - 1; saveCustomStats(arr); reflow();
+    }));
+    statsHost.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => {
+      const arr = ensureCustomStats().filter((x) => x.id !== b.dataset.del); saveCustomStats(arr); reflow();
+    }));
+    statsHost.querySelector("#cstAdd").addEventListener("click", () => {
+      const name = prompt("Name your stat (e.g. 'Coffees this month', 'Days no fast food'):");
+      if (!name || !name.trim()) return;
+      const kind = prompt("Type:\n  1 = monthly streak (mark each month done)\n  2 = days since a date\n  3 = count bank purchases matching a word\n  4 = manual counter", "1");
+      const arr = ensureCustomStats(); const id = "cst-" + Date.now();
+      if (kind === "2") { const date = prompt("Count days since which date? (YYYY-MM-DD)"); if (!date) return; arr.push({ id, label: name.trim(), kind: "since", date: date.trim() }); }
+      else if (kind === "3") { const match = prompt("Match what in your purchases? (e.g. coffee, amazon, doordash)"); if (!match) return; arr.push({ id, label: name.trim(), kind: "bank", match: match.trim().toLowerCase(), window: "month" }); }
+      else if (kind === "4") { arr.push({ id, label: name.trim(), kind: "tally", value: 0 }); }
+      else { arr.push({ id, label: name.trim(), kind: "streak", marks: [] }); }
+      saveCustomStats(arr); reflow();
+    });
   };
   renderSetStats();
 
@@ -4183,12 +4219,54 @@ const STAT_DEFS = [
     } },
   { id: "spend", label: "Spend/mo", fn: (d) => ({ val: d && d.spending ? fmtUSD(d.spending.per_month) : "…" }) },
 ];
+// ── Custom stat trackers: monthly streak · days-since · bank-purchase count · manual tally ──
+const CUSTOM_STATS_KEY = "money.customStats";
+function customStats() { try { const a = JSON.parse(localStorage.getItem(CUSTOM_STATS_KEY) || "null"); return Array.isArray(a) ? a : null; } catch (e) { return null; } }
+function saveCustomStats(arr) { localStorage.setItem(CUSTOM_STATS_KEY, JSON.stringify(arr)); }
+function ensureCustomStats() {
+  let a = customStats();
+  if (a === null) { a = [{ id: "streak-rent", label: "Expenses streak", kind: "streak", marks: [] }]; saveCustomStats(a); }
+  return a;
+}
+function curYm() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
+function curMonShort() { return new Date().toLocaleDateString("en-US", { month: "short" }); }
+function streakCount(marks) {
+  const set = new Set(marks || []);
+  if (!set.size) return 0;
+  let [y, m] = [...set].sort().pop().split("-").map(Number);  // walk back from the most recent marked month
+  let n = 0;
+  while (set.has(y + "-" + String(m).padStart(2, "0"))) { n++; m--; if (m === 0) { m = 12; y--; } }
+  return n;
+}
+const BANK_COUNTS = {};  // id -> { val, total, ts, fetching } — cached, refetched when stale
+function bankCount(cs) {
+  const c = BANK_COUNTS[cs.id];
+  if (c && Date.now() - c.ts < 30000) return c;
+  if (!(c && c.fetching)) {
+    BANK_COUNTS[cs.id] = Object.assign({ val: c && c.val }, { fetching: true, ts: (c && c.ts) || 0 });
+    fetch("/api/match-count?q=" + encodeURIComponent(cs.match || "") + "&window=" + (cs.window || "month"))
+      .then((r) => r.json())
+      .then((x) => { BANK_COUNTS[cs.id] = { val: x.count || 0, total: x.total || 0, ts: Date.now() }; renderStatsBar(); })
+      .catch(() => { BANK_COUNTS[cs.id] = { val: (c && c.val) || 0, total: 0, ts: Date.now() }; });
+  }
+  return BANK_COUNTS[cs.id];
+}
+function customStatEntry(cs) {
+  return { id: cs.id, label: cs.label, custom: true, cs, fn: () => {
+    if (cs.kind === "streak") { const n = streakCount(cs.marks); return { val: (n > 0 ? "🔥 " : "") + n + " mo", tone: n > 0 ? "ok" : "" }; }
+    if (cs.kind === "since") { const days = cs.date ? Math.max(0, Math.floor((Date.now() - new Date(cs.date + "T00:00:00").getTime()) / 86400000)) : 0; return { val: days + " d" }; }
+    if (cs.kind === "tally") return { val: String(cs.value || 0) };
+    if (cs.kind === "bank") { const b = bankCount(cs); return { val: b && b.val != null ? String(b.val) : "…" }; }
+    return { val: "—" };
+  } };
+}
+function allStats() { return STAT_DEFS.concat(ensureCustomStats().map(customStatEntry)); }
 function statsList(key) { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch (e) { return []; } }
 function statsDefOrder() {
-  const saved = statsList(STATS_ORDER_KEY);
-  const known = new Set(STAT_DEFS.map((s) => s.id));
-  const ordered = saved.filter((id) => known.has(id));
-  STAT_DEFS.forEach((s) => { if (!ordered.includes(s.id)) ordered.push(s.id); });
+  const defs = allStats();
+  const known = new Set(defs.map((s) => s.id));
+  const ordered = statsList(STATS_ORDER_KEY).filter((id) => known.has(id));
+  defs.forEach((s) => { if (!ordered.includes(s.id)) ordered.push(s.id); });
   return ordered;
 }
 function renderStatsBar() {
@@ -4196,22 +4274,24 @@ function renderStatsBar() {
   if (!host) return;
   const hidden = new Set(statsList(STATS_HIDDEN_KEY));
   const d = Store.data;
+  const defs = allStats();
   host.innerHTML = statsDefOrder().filter((id) => !hidden.has(id)).map((id) => {
-    const def = STAT_DEFS.find((s) => s.id === id);
+    const def = defs.find((s) => s.id === id);
+    if (!def) return "";
     const r = def.fn(d) || {};
     return '<div class="stat-chip" data-stat="' + id + '" draggable="true">' +
       '<span class="stat-val' + (r.tone ? " t-" + r.tone : "") + '">' + r.val + "</span>" +
-      '<span class="stat-label">' + def.label + "</span></div>";
+      '<span class="stat-label">' + escapeHtml(def.label) + "</span></div>";
   }).join("");
 }
 function renderStatsMenu() {
   const host = document.getElementById("statsMenu");
   if (!host) return;
   const hidden = new Set(statsList(STATS_HIDDEN_KEY));
-  host.innerHTML = STAT_DEFS.map((d) => {
+  host.innerHTML = allStats().map((d) => {
     const on = !hidden.has(d.id);
     return '<button class="lib-item' + (on ? " active" : "") + '" data-st="' + d.id + '">' +
-      '<span class="lib-dot"></span><span class="lib-label">' + d.label + '</span>' +
+      '<span class="lib-dot"></span><span class="lib-label">' + escapeHtml(d.label) + '</span>' +
       '<span class="lib-state">' + (on ? "on" : "off") + "</span></button>";
   }).join("");
   host.querySelectorAll("[data-st]").forEach((b) => b.addEventListener("click", () => {

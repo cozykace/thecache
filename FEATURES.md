@@ -36,6 +36,7 @@ _Last updated: 2026-06-20_
 - **Magnet snap** — per-widget grid snapping for clean alignment.
 - **Zoom & pan** — a scalable, scrollable canvas to spread out.
 - **Themes** — multiple named palettes (light and dark), each star-able so your favorites stand out.
+- **Streaks & custom trackers** — keep a months-in-a-row streak for paying your living expenses on time, and build your own stat chips (days since X, count of a kind of purchase, or a manual tally) right in the top bar.
 - **Clock your way** — click the dock's date/time to set time zone, 12/24-hour, seconds, and date format.
 - **Icon stickers** — decorate the board from a large icon library; they snap to the grid (toggle off to free-place).
 - **Works on your phone** — on a small screen the freeform board becomes a clean single-column scroll of full-width widgets, so you can check in from anywhere (privately, over your own Tailscale network — never the public internet).

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>THE CACHE — Roadmap</title>
+<style>
+  /* Live roadmap — fetches BACKLOG.md / FEATURES.md from the public repo on every
+     load, so it's always current. Designed to embed cleanly in a Squarespace page
+     (transparent background; add ?theme=dark to the iframe URL for dark pages). */
+  :root {
+    --fg: #1d1a12; --dim: rgba(29,26,18,0.55); --line: rgba(29,26,18,0.14);
+    --accent: #c9542e; --ok: #3f8f4e; --card: rgba(0,0,0,0.03);
+  }
+  html[data-theme="dark"] {
+    --fg: #efe7d6; --dim: rgba(239,231,214,0.55); --line: rgba(239,231,214,0.16);
+    --accent: #e0734a; --ok: #6fbf7e; --card: rgba(255,255,255,0.04);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: transparent; color: var(--fg); padding: 4px 2px 24px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 6px; }
+  h1 { font-size: 19px; letter-spacing: 0.14em; text-transform: uppercase; margin: 0; font-weight: 700; }
+  .live { font-size: 11px; color: var(--ok); display: inline-flex; align-items: center; gap: 5px; }
+  .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+    box-shadow: 0 0 0 0 var(--ok); animation: pulse 2.4s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(63,143,78,.5)} 70%{box-shadow:0 0 0 6px rgba(63,143,78,0)} 100%{box-shadow:0 0 0 0 rgba(63,143,78,0)} }
+  .updated { font-size: 11px; color: var(--dim); margin-left: auto; }
+  .tabs { display: flex; gap: 6px; margin: 12px 0 16px; }
+  .tab { font: inherit; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer;
+    border: 1px solid var(--line); background: none; color: var(--dim); padding: 7px 14px; border-radius: 999px; }
+  .tab.on { color: var(--accent); border-color: var(--accent); }
+  .sec { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
+    margin: 22px 0 9px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .item { display: flex; gap: 11px; padding: 8px 0; font-size: 14px; line-height: 1.5; align-items: flex-start; }
+  .box { flex-shrink: 0; width: 17px; height: 17px; border-radius: 5px; border: 1.5px solid var(--line);
+    margin-top: 1px; display: grid; place-items: center; font-size: 11px; }
+  .item.done .box { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .item.done .txt { color: var(--dim); }
+  .item.todo .box { border-color: var(--accent); }
+  .txt strong { font-weight: 700; }
+  .txt a { color: var(--accent); }
+  details > summary { cursor: pointer; list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  .ship-toggle { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+    border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; display: inline-block; margin: 18px 0 4px; }
+  .intro { font-size: 13px; color: var(--dim); line-height: 1.6; margin: 0 0 4px; }
+  .err { color: var(--accent); font-size: 13px; padding: 20px 0; }
+  .foot { margin-top: 26px; font-size: 11px; color: var(--dim); }
+  .foot a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Roadmap</h1>
+    <span class="live">live</span>
+    <span class="updated" id="updated"></span>
+  </header>
+  <div class="tabs">
+    <button class="tab on" data-tab="road">What's next</button>
+    <button class="tab" data-tab="feat">What's here</button>
+  </div>
+  <div id="content"><div class="intro">Loading the latest from the repo…</div></div>
+  <div class="foot">Live from <a href="https://github.com/cozykace/thecache" target="_blank" rel="noreferrer">the public repo</a> — updates the moment a change is pushed.</div>
+</div>
+<script>
+  var REPO = "cozykace/thecache", BRANCH = "main";
+  var raw = function (f) { return "https://raw.githubusercontent.com/" + REPO + "/" + BRANCH + "/" + f + "?t=" + Date.now(); };
+  // dark/light: ?theme=dark, else follow the embedding page's scheme
+  var q = new URLSearchParams(location.search), th = q.get("theme");
+  if (th === "dark" || (!th && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches))
+    document.documentElement.setAttribute("data-theme", "dark");
+
+  function esc(s){ return s.replace(/[&<>]/g, function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c];}); }
+  function inline(s){
+    return esc(s)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  }
+  // parse a markdown doc into {intro, sections:[{name, items:[{done,text}]}], updated}
+  function parse(md){
+    var lines = md.split("\n"), out = { intro: "", sections: [], updated: "" }, cur = null, introDone = false;
+    lines.forEach(function(line){
+      var h = line.match(/^##\s+(.*)/);
+      var item = line.match(/^- \[([ xX])\]\s+(.*)/);
+      var bullet = line.match(/^-\s+(.*)/);
+      var upd = line.match(/_Last updated:\s*(.*?)_/);
+      if (upd) { out.updated = upd[1]; return; }
+      if (/^#\s/.test(line)) return;                       // skip the file's H1
+      if (h) { cur = { name: h[1], items: [] }; out.sections.push(cur); introDone = true; return; }
+      if (item && cur) { cur.items.push({ done: item[1].toLowerCase() === "x", text: item[2] }); return; }
+      if (bullet && cur) { cur.items.push({ done: null, text: bullet[1] }); return; }
+      if (!introDone && line.trim() && !/^_/.test(line)) out.intro += (out.intro ? " " : "") + line.trim();
+    });
+    return out;
+  }
+  function itemHTML(it){
+    var cls = it.done === true ? "done" : it.done === false ? "todo" : "bullet";
+    var mark = it.done === true ? "✓" : it.done === false ? "" : "›";
+    return '<div class="item ' + cls + '"><span class="box">' + mark + '</span><span class="txt">' + inline(it.text) + "</span></div>";
+  }
+  function renderRoadmap(p){
+    var html = p.intro ? '<div class="intro">' + inline(p.intro) + "</div>" : "";
+    p.sections.forEach(function(sec){
+      var open = sec.items.filter(function(i){ return i.done === false || i.done === null; });
+      var done = sec.items.filter(function(i){ return i.done === true; });
+      var isShipped = /shipped/i.test(sec.name);
+      if (isShipped) {
+        html += '<details><summary><span class="ship-toggle">▸ ' + esc(sec.name) + " · " + done.length + " done</span></summary>" +
+                done.map(itemHTML).join("") + "</details>";
+      } else {
+        html += '<div class="sec">' + esc(sec.name) + "</div>" + sec.items.map(itemHTML).join("");
+      }
+    });
+    return html;
+  }
+  function renderFeatures(p){
+    var html = p.intro ? '<div class="intro">' + inline(p.intro) + "</div>" : "";
+    p.sections.forEach(function(sec){
+      html += '<div class="sec">' + esc(sec.name) + "</div>" + sec.items.map(itemHTML).join("");
+    });
+    return html;
+  }
+
+  var DATA = {};
+  function show(tab){
+    var c = document.getElementById("content");
+    if (tab === "feat") {
+      if (!DATA.feat) { c.innerHTML = '<div class="intro">Loading…</div>'; return; }
+      c.innerHTML = renderFeatures(DATA.feat);
+    } else {
+      if (!DATA.road) { c.innerHTML = '<div class="intro">Loading…</div>'; return; }
+      c.innerHTML = renderRoadmap(DATA.road);
+    }
+  }
+  document.querySelectorAll(".tab").forEach(function(b){
+    b.addEventListener("click", function(){
+      document.querySelectorAll(".tab").forEach(function(x){ x.classList.toggle("on", x === b); });
+      show(b.dataset.tab);
+    });
+  });
+
+  fetch(raw("BACKLOG.md")).then(function(r){ return r.text(); }).then(function(md){
+    DATA.road = parse(md);
+    if (DATA.road.updated) document.getElementById("updated").textContent = "updated " + DATA.road.updated;
+    show(document.querySelector(".tab.on").dataset.tab);
+  }).catch(function(){ document.getElementById("content").innerHTML = '<div class="err">Couldn’t load the roadmap right now — refresh in a moment.</div>'; });
+  fetch(raw("FEATURES.md")).then(function(r){ return r.text(); }).then(function(md){ DATA.feat = parse(md); }).catch(function(){});
+</script>
+</body>
+</html>

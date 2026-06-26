@@ -912,8 +912,19 @@ body.panning .cursor-ball { display: none !important; }
 .set-toggle.on { border-color: var(--accent); color: var(--accent); }
 .set-toggle.on .set-state { color: var(--accent); }
 .set-themes { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px; }
-.set-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 2px 0; }
-.set-stats .set-toggle { padding: 7px 10px; }
+.set-stats { display: flex; flex-direction: column; gap: 6px; padding: 2px 0; }
+.set-stats .set-toggle { padding: 7px 10px; flex: 1; }
+.set-stat-row { display: flex; align-items: center; gap: 6px; }
+.cst-ctrls { display: inline-flex; gap: 4px; flex-shrink: 0; }
+.cst-act { border: 1px solid var(--edge); background: var(--panel); cursor: pointer; font-family: inherit;
+  font-size: 11px; min-width: 30px; padding: 6px 8px; border-radius: 8px; color: rgba(var(--ink-rgb), 0.75); }
+.cst-act:hover { border-color: var(--accent); color: var(--accent); }
+.cst-act.on { background: #3f8f4e; color: #fff; border-color: #3f8f4e; }
+.cst-del { border: none; background: none; cursor: pointer; color: rgba(var(--ink-rgb), 0.35); font-size: 15px; padding: 0 4px; }
+.cst-del:hover { color: #c9542e; }
+.cst-add { margin-top: 8px; width: 100%; border: 1px dashed var(--edge); background: none; cursor: pointer;
+  font-family: inherit; font-size: 12px; color: rgba(var(--ink-rgb), 0.7); padding: 9px; border-radius: 9px; }
+.cst-add:hover { border-color: var(--accent); color: var(--accent); }
 
 /* greeting in the sidebar */
 .sidebar-greeting { padding: 14px 16px 4px; font-size: 13px; color: var(--accent); letter-spacing: 0.01em; }
@@ -1198,13 +1209,16 @@ body.sidebar-open .sidebar { transform: none; }
   padding: 16px; border-bottom: 1px solid var(--edge-soft); flex-shrink: 0;
 }
 .brand { display: inline-flex; align-items: center; min-width: 0; }
-.brand-text {
-  font-family: "Special Gothic Expanded One", system-ui, sans-serif;
-  font-size: 13px; font-weight: 400; letter-spacing: 0.045em;
-  text-transform: uppercase; line-height: 1; white-space: nowrap;
-  color: var(--paper); background: var(--ink);
-  padding: 6px 12px 5px; border-radius: 999px;
-  display: inline-block;
+/* the real logo, rendered as a CSS mask so it tints to the theme's ink — adapts
+   light/dark automatically and takes any custom scheme color. (Switch the
+   background-color to var(--accent) if you want it to pop in the accent hue.) */
+.brand-logo {
+  display: inline-block; flex-shrink: 0;
+  height: 16px; width: 108px;   /* logo is 1500×222 → ~6.76:1 */
+  background-color: var(--ink);
+  -webkit-mask: url("av%20assets/THECACHE_LOGO_WHITE.png") left center / contain no-repeat;
+          mask: url("av%20assets/THECACHE_LOGO_WHITE.png") left center / contain no-repeat;
+  transition: background-color 0.2s ease;
 }
 .brand-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 9px; vertical-align: middle; flex-shrink: 0; transition: background 0.2s ease; }
 .brand-dot[data-state="live"] { background: #3f8f4e; }

@@ -13,6 +13,7 @@ _Last updated: 2026-06-23_
 - [x] **Auto-sync** — LaunchAgent `com.sufferinggoat.sync` runs sync.py at 8am/2pm/8pm + on login; data stays fresh with no clicking or AI. Sources panel shows "auto-syncs 3×/day". Logs to data/sync.log (2026-06-22)
 
 ## Features
+- [x] **Custom stat trackers** in the stats bar — built-in streak ("Expenses streak": mark each month paid-on-time → "🔥 N mo" consecutive) plus user-built trackers: monthly streak, days-since-a-date, count of bank purchases matching a word (/api/match-count), or a manual +/- counter. Managed in Settings → Stats bar; toggle/drag into the top bar like the built-ins (2026-06-25)
 - [x] Link income sources to Toggl projects — Money Map "money in" rows have a "→ link work" picker (your Toggl projects); once linked, the row shows that project's monthly hours so income lines up with the work that earns it. Durable in income_links.json (2026-06-23)
 - [x] Money-flow node map — "Money flow" widget: SVG account cascade (checking→savings→cards), credit-card toggle, income/spend + recurring-transfer bubbles (/api/transfers) (2026-06-23)
 - [x] Magnet snap for stickers / icon-nodes — stickers snap to the 24px grid by default; hover magnet toggle to free-place (accent when on), reuses the widget snap machinery (2026-06-23)
