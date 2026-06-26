@@ -4320,9 +4320,10 @@ function buildConstellation(svg, months) {
         '<text x="' + p.x.toFixed(0) + '" y="' + (p.y + r + 16).toFixed(0) + '" text-anchor="middle" font-size="10" fill="' + (pos ? "rgba(255,212,9,.85)" : "rgba(224,115,74,.9)") + '" font-family="ui-monospace,monospace">' + fmtCompact(net) + "</text>";
     }).join("");
 }
-// Songs you've approved to play inside the Ledger. Add more filenames here as you
-// approve them (drop the .mp3 in "av assets/"); one is picked at random per visit.
-const LEDGER_SONGS = ["av%20assets/ledger-1.mp3"];
+// Songs you've approved to play when a trip to the cache is booked (the travel
+// soundtrack). Add more filenames here as you approve them (drop the .mp3 in
+// "av assets/"); one is picked at random per trip.
+const TRIP_SONGS = ["av%20assets/slingshot%20the%20airplane%20v4.mp3"];
 function fadeAudio(a, to, ms, then) {
   if (!a) return;
   const from = a.volume, t0 = performance.now();
@@ -4338,7 +4339,14 @@ function openLedger() {
   const root = document.createElement("div"); root.id = "ledgerSpace"; root.className = "lg-space";
   root.innerHTML =
     '<canvas class="lg-canvas"></canvas>' +
-    '<div class="lg-intro lg-scene"><div class="lg-eyebrow">' + escapeHtml(getCacheName()) + '</div><div class="lg-cta">ENTERING THE LEDGER</div></div>' +
+    '<div class="lg-board lg-scene">' +
+      '<div class="lg-eyebrow">' + escapeHtml(getCacheName()) + '</div>' +
+      '<div class="lg-cta">VISIT YOUR CACHE</div>' +
+      '<div class="lg-board-sub">Book a trip and travel out to see your cache in person.</div>' +
+      '<button class="lg-book">🛫 Book the trip</button>' +
+      '<button class="lg-cancel">not now</button>' +
+    "</div>" +
+    '<div class="lg-intro lg-scene lg-hidden"><div class="lg-eyebrow">EN ROUTE</div><div class="lg-cta">TRAVELING TO YOUR CACHE</div></div>' +
     '<div class="lg-ledger lg-scene lg-hidden">' +
       '<div class="lg-eyebrow lg-gold">⟢ The Ledger ⟣</div>' +
       '<div class="lg-title">YOUR LIFE, IN DATA</div>' +
@@ -4346,6 +4354,7 @@ function openLedger() {
       '<svg class="lg-const" id="lgConst" viewBox="0 0 1000 320" preserveAspectRatio="xMidYMid meet"></svg>' +
       '<button class="lg-back">↩ back to the cache</button>' +
     "</div>" +
+    '<button class="lg-mute lg-hidden" title="Mute the music">🔊</button>' +
     '<div class="lg-flash"></div>';
   document.body.appendChild(root);
   let song = null;
@@ -4356,7 +4365,7 @@ function openLedger() {
   const N = 420, stars = [];
   const rs = (s) => { s.x = (Math.random() - 0.5) * W * 1.2; s.y = (Math.random() - 0.5) * H * 1.2; s.z = Math.random() * W; s.pz = s.z; };
   for (let i = 0; i < N; i++) { const s = {}; rs(s); stars.push(s); }
-  let speed = 2, target = 11, mode = "warp", raf;
+  let speed = 1.2, target = 0.5, mode = "idle", raf;  // calm drift while you decide; warp on book
   const loop = () => {
     ctx.fillStyle = "rgba(6,4,15," + (mode === "warp" ? 0.2 : 0.36) + ")"; ctx.fillRect(0, 0, W, H);
     speed += (target - speed) * 0.06;
@@ -4370,27 +4379,43 @@ function openLedger() {
     raf = requestAnimationFrame(loop);
   };
   loop();
-  const flash = root.querySelector(".lg-flash"), intro = root.querySelector(".lg-intro"), led = root.querySelector(".lg-ledger");
-  setTimeout(() => flash.classList.add("on"), 1050);
-  setTimeout(() => {
-    intro.classList.add("lg-hidden"); led.classList.remove("lg-hidden"); mode = "idle"; target = 0.5; flash.classList.remove("on");
+  const flash = root.querySelector(".lg-flash"), board = root.querySelector(".lg-board"),
+    intro = root.querySelector(".lg-intro"), led = root.querySelector(".lg-ledger"), muteBtn = root.querySelector(".lg-mute");
+  let booked = false;
+  const bookTrip = () => {
+    if (booked) return; booked = true;
+    board.classList.add("lg-hidden"); intro.classList.remove("lg-hidden");
+    mode = "warp"; target = 11;                                   // the slingshot — kick into the journey
     try {
-      song = new Audio(LEDGER_SONGS[Math.floor(Math.random() * LEDGER_SONGS.length)]);
+      song = new Audio(TRIP_SONGS[Math.floor(Math.random() * TRIP_SONGS.length)]);
       song.loop = true; song.volume = 0;
-      song.play().then(() => fadeAudio(song, 0.4, 1800)).catch(() => { song = null; });  // graceful if no file yet
+      song.play().then(() => { muteBtn.classList.remove("lg-hidden"); fadeAudio(song, 0.45, 2200); }).catch(() => { song = null; });  // graceful if file missing
     } catch (e) { song = null; }
-    const head = root.querySelector("#lgHeadline"), svg = root.querySelector("#lgConst");
-    fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
-    fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
-  }, 1450);
+    setTimeout(() => flash.classList.add("on"), 1050);
+    setTimeout(() => {                                            // arrive: you're at your cache
+      intro.classList.add("lg-hidden"); led.classList.remove("lg-hidden"); mode = "idle"; target = 0.5; flash.classList.remove("on");
+      const head = root.querySelector("#lgHeadline"), svg = root.querySelector("#lgConst");
+      fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
+      fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
+    }, 1450);
+  };
   const close = () => {
     cancelAnimationFrame(raf); window.removeEventListener("resize", size); document.removeEventListener("keydown", onKey);
     if (song) { const s = song; song = null; fadeAudio(s, 0, 450, () => { try { s.pause(); } catch (e) {} }); }
     root.remove();
   };
+  muteBtn.addEventListener("click", () => {
+    if (!song) return;
+    song.muted = !song.muted;
+    muteBtn.textContent = song.muted ? "🔇" : "🔊";
+    muteBtn.classList.toggle("lg-muted", song.muted);
+    muteBtn.title = song.muted ? "Unmute the music" : "Mute the music";
+  });
   const onKey = (e) => { if (e.key === "Escape") close(); };
   window.addEventListener("resize", size);
   document.addEventListener("keydown", onKey);
+  root.querySelector(".lg-book").addEventListener("click", bookTrip);
+  root.querySelector(".lg-cancel").addEventListener("click", close);
   root.querySelector(".lg-back").addEventListener("click", close);
 }
 document.getElementById("ledgerBtn").addEventListener("click", openLedger);
