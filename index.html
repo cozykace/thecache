@@ -20,6 +20,7 @@
     </script>
   </head>
   <body>
+    <a class="skip-link" href="#board">Skip to dashboard</a>
     <!-- toggle: opens the sidebar -->
     <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open menu">☰</button>
 
@@ -29,7 +30,7 @@
     <button id="bgToggle" class="theme-toggle bg-toggle" aria-label="Backgrounds"><i data-lucide="sparkles"></i></button>
 
     <!-- the sliding pane: menu + libraries live here -->
-    <aside id="sidebar" class="sidebar">
+    <aside id="sidebar" class="sidebar" role="navigation" aria-label="Main menu">
       <header class="sidebar-head">
         <span class="brand"><span class="brand-dot"></span><span class="brand-name" id="brandName">THE CACHE</span></span>
         <button id="sidebarClose" class="sidebar-close" aria-label="Close menu">✕</button>
@@ -99,7 +100,7 @@
     </aside>
 
     <!-- the board: a scroll viewport holding a scalable canvas of widgets -->
-    <div id="board" class="board"><div id="boardCanvas" class="board-canvas"></div></div>
+    <div id="board" class="board" role="main" aria-label="Your dashboard" tabindex="-1"><div id="boardCanvas" class="board-canvas"></div></div>
 
     <!-- zoom the sandbox -->
     <div class="zoom-control">

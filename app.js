@@ -2552,9 +2552,10 @@ function openConnect() {
 // attribute on <html> → CSS and JS read it. To add a need: add a key here, an
 // attribute in applyA11y(), a CSS rule, and a row in openA11y(). That's it.
 const A11Y = {
-  motion:   { key: "money.a11y.motion",   def: "auto" },    // auto (follow OS) | reduce | full
-  contrast: { key: "money.a11y.contrast", def: "normal" },  // normal | high
-  text:     { key: "money.a11y.text",     def: "base" },     // base | lg | xl
+  motion:     { key: "money.a11y.motion",     def: "auto" },    // auto (follow OS) | reduce | full
+  contrast:   { key: "money.a11y.contrast",   def: "normal" },  // normal | high
+  text:       { key: "money.a11y.text",       def: "base" },     // base | lg | xl
+  colorblind: { key: "money.a11y.colorblind", def: "off" },      // off | on (Okabe-Ito safe palette)
 };
 function a11yGet(name) { return localStorage.getItem(A11Y[name].key) || A11Y[name].def; }
 function a11ySet(name, val) {
@@ -2575,9 +2576,56 @@ function applyA11y() {
   r.setAttribute("data-reduce-motion", reduceMotion() ? "1" : "0");
   r.setAttribute("data-contrast", a11yGet("contrast"));
   r.setAttribute("data-text", a11yGet("text"));
+  r.setAttribute("data-cb", a11yGet("colorblind") === "on" ? "1" : "0");
 }
+function colorBlindMode() { return document.documentElement.getAttribute("data-cb") === "1"; }
 applyA11y();
 try { matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", applyA11y); } catch (e) {}
+
+// ── Keyboard + screen-reader: make every modal a proper focus-trapped dialog ──
+function _focusables(el) {
+  return [...el.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter((n) => n.getClientRects().length > 0);
+}
+const _modalStack = [];
+function enhanceModal(modal, label) {
+  if (modal._a11yReady) return; modal._a11yReady = true;
+  modal.setAttribute("role", "dialog"); modal.setAttribute("aria-modal", "true");
+  if (label) modal.setAttribute("aria-label", label);
+  modal.setAttribute("tabindex", "-1");
+  const prev = document.activeElement;                  // remember where focus was, to restore on close
+  const entry = { modal };
+  _modalStack.push(entry);
+  try { modal.focus(); } catch (e) {}                   // move focus into the dialog (announces the label)
+  const obs = new MutationObserver(() => {
+    if (!document.body.contains(modal)) {
+      obs.disconnect();
+      const i = _modalStack.indexOf(entry); if (i >= 0) _modalStack.splice(i, 1);
+      try { if (prev && document.body.contains(prev) && prev.focus) prev.focus(); } catch (e) {}
+    }
+  });
+  obs.observe(document.body, { childList: true });
+}
+// auto-wire every .cat-modal (settings, bug report, category mgr, accessibility…) the moment it mounts
+new MutationObserver((muts) => {
+  muts.forEach((m) => m.addedNodes.forEach((node) => {
+    if (node.nodeType === 1 && node.classList && node.classList.contains("cat-modal")) {
+      const h = node.querySelector(".cat-head span");
+      enhanceModal(node, h ? h.textContent : "Dialog");
+    }
+  }));
+}).observe(document.body, { childList: true });
+// topmost modal: trap Tab inside it, close on Escape
+document.addEventListener("keydown", (e) => {
+  if (!_modalStack.length) return;
+  const modal = _modalStack[_modalStack.length - 1].modal;
+  if (e.key === "Escape") { const c = modal.querySelector(".cat-close"); if (c) { e.preventDefault(); c.click(); } return; }
+  if (e.key !== "Tab") return;
+  const f = _focusables(modal); if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && (document.activeElement === first || document.activeElement === modal)) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 
 function closeA11y() { ["a11yBackdrop", "a11yModal"].forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); }); }
 // One-click comfort loadouts — bundle the fine-tune settings into a vibe.
@@ -2599,15 +2647,15 @@ function openA11y() {
   const back = document.createElement("div"); back.className = "cat-backdrop"; back.id = "a11yBackdrop";
   back.addEventListener("pointerdown", (e) => { if (e.target === back) closeA11y(); });
   const modal = document.createElement("div"); modal.className = "cat-modal a11y-modal"; modal.id = "a11yModal";
-  const seg = (name, opts) => '<div class="a11y-seg" role="group" data-name="' + name + '">' +
-    opts.map((o) => '<button class="a11y-opt' + (a11yGet(name) === o.v ? " on" : "") + '" data-v="' + o.v + '">' + o.t + "</button>").join("") + "</div>";
+  const seg = (name, opts) => '<div class="a11y-seg" role="group" aria-label="' + name + '" data-name="' + name + '">' +
+    opts.map((o) => '<button class="a11y-opt' + (a11yGet(name) === o.v ? " on" : "") + '" data-v="' + o.v + '" aria-pressed="' + (a11yGet(name) === o.v) + '">' + o.t + "</button>").join("") + "</div>";
   modal.innerHTML =
     '<div class="cat-head"><span>♿ Accessibility Hub</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="a11y-body">' +
       '<div class="a11y-intro">Built for how <em>you</em> actually use it. Tune anything here — and if something you need is missing, that request comes first.</div>' +
       '<div class="a11y-sec">Comfort presets</div>' +
       '<div class="a11y-presets">' +
-        A11Y_PRESETS.map((p) => '<button class="a11y-preset' + (a11yMatchesPreset(p) ? " on" : "") + '" data-p="' + p.id + '"><b>' + p.t + "</b><span>" + p.d + "</span></button>").join("") +
+        A11Y_PRESETS.map((p) => '<button class="a11y-preset' + (a11yMatchesPreset(p) ? " on" : "") + '" data-p="' + p.id + '" aria-pressed="' + a11yMatchesPreset(p) + '"><b>' + p.t + "</b><span>" + p.d + "</span></button>").join("") +
       "</div>" +
       '<div class="a11y-sec">Fine-tune</div>' +
       '<div class="a11y-row"><div class="a11y-lbl"><b>Motion &amp; flashing</b><span>Calms the warp, removes the white flash, and stops looping animation — seizure-safe. <em>System</em> follows your device setting.</span></div>' +
@@ -2616,18 +2664,20 @@ function openA11y() {
         seg("contrast", [{ v: "normal", t: "Normal" }, { v: "high", t: "High" }]) + "</div>" +
       '<div class="a11y-row"><div class="a11y-lbl"><b>Text &amp; UI size</b><span>Scale the whole interface up.</span></div>' +
         seg("text", [{ v: "base", t: "Default" }, { v: "lg", t: "Large" }, { v: "xl", t: "Largest" }]) + "</div>" +
+      '<div class="a11y-row"><div class="a11y-lbl"><b>Color vision</b><span>A color-blind-safe palette (Okabe-Ito) for the cache visualizer — and it always shows +/− so color is never the only signal.</span></div>' +
+        seg("colorblind", [{ v: "off", t: "Standard" }, { v: "on", t: "Safe palette" }]) + "</div>" +
       '<div class="a11y-note">This hub grows with the people who use it. Need a screen-reader pass, a color-blind-safe palette, bigger touch targets, anything? Menu → ⚑ Report a bug or request — accessibility asks jump the line.</div>' +
     "</div>";
   document.body.appendChild(back); document.body.appendChild(modal);
   modal.querySelector(".cat-close").addEventListener("click", closeA11y);
-  const sync = () => {  // reflect current state across segments + presets
+  const sync = () => {  // reflect current state across segments + presets (class + aria-pressed)
     modal.querySelectorAll(".a11y-seg").forEach((segEl) => {
       const name = segEl.dataset.name;
-      segEl.querySelectorAll(".a11y-opt").forEach((b) => b.classList.toggle("on", b.dataset.v === a11yGet(name)));
+      segEl.querySelectorAll(".a11y-opt").forEach((b) => { const on = b.dataset.v === a11yGet(name); b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
     });
     modal.querySelectorAll(".a11y-preset").forEach((pb) => {
       const p = A11Y_PRESETS.find((x) => x.id === pb.dataset.p);
-      pb.classList.toggle("on", !!p && a11yMatchesPreset(p));
+      const on = !!p && a11yMatchesPreset(p); pb.classList.toggle("on", on); pb.setAttribute("aria-pressed", on);
     });
   };
   modal.querySelectorAll(".a11y-seg").forEach((segEl) => {
@@ -4401,6 +4451,8 @@ function fmtCompact(n) {
 function buildConstellation(svg, months) {
   if (!months.length) { svg.innerHTML = '<text x="500" y="160" text-anchor="middle" fill="rgba(255,255,255,.4)" font-size="15" font-family="ui-monospace,monospace">your constellation fills in as the months accumulate</text>'; return; }
   const ACC = (getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()) || "#FFD409";  // match the app's theme
+  const cb = colorBlindMode();
+  const POS = cb ? "#0072B2" : ACC, NEG = cb ? "#D55E00" : "#e0734a";  // safe blue/vermillion vs theme gold/ember
   const RM = reduceMotion();  // no twinkle when motion is reduced
   const W = 1000, H = 320, pad = 64, n = months.length;
   const xAt = (i) => pad + i * (W - 2 * pad) / Math.max(1, n - 1);
@@ -4412,9 +4464,9 @@ function buildConstellation(svg, months) {
   svg.innerHTML = '<path d="' + path + '" fill="none" stroke="rgba(180,130,255,.45)" stroke-width="1.5"/>' +
     nodes.map((p, i) => {
       const net = p.m.net || 0, pos = net >= 0, r = 6 + Math.min(14, Math.abs(net) / maxA * 14);
-      return '<circle cx="' + p.x.toFixed(0) + '" cy="' + p.y.toFixed(0) + '" r="' + r.toFixed(0) + '" fill="' + (pos ? ACC : "#e0734a") + '" opacity="0.9">' + (RM ? "" : '<animate attributeName="opacity" values="0.55;1;0.55" dur="' + (2 + i * 0.25).toFixed(1) + 's" repeatCount="indefinite"/>') + "</circle>" +
+      return '<circle cx="' + p.x.toFixed(0) + '" cy="' + p.y.toFixed(0) + '" r="' + r.toFixed(0) + '" fill="' + (pos ? POS : NEG) + '" opacity="0.9">' + (RM ? "" : '<animate attributeName="opacity" values="0.55;1;0.55" dur="' + (2 + i * 0.25).toFixed(1) + 's" repeatCount="indefinite"/>') + "</circle>" +
         '<text x="' + p.x.toFixed(0) + '" y="' + (p.y - r - 8).toFixed(0) + '" text-anchor="middle" font-size="11" fill="#fff" opacity="0.8" font-family="ui-monospace,monospace">' + escapeHtml(p.m.label || "") + "</text>" +
-        '<text x="' + p.x.toFixed(0) + '" y="' + (p.y + r + 16).toFixed(0) + '" text-anchor="middle" font-size="10" fill="' + (pos ? ACC : "#e0734a") + '" opacity="0.9" font-family="ui-monospace,monospace">' + fmtCompact(net) + "</text>";
+        '<text x="' + p.x.toFixed(0) + '" y="' + (p.y + r + 16).toFixed(0) + '" text-anchor="middle" font-size="10" fill="' + (pos ? POS : NEG) + '" opacity="0.95" font-family="ui-monospace,monospace">' + fmtCompact(net) + "</text>";
     }).join("");
 }
 // Songs you've approved to play when a trip to the cache is booked (the travel
@@ -4425,6 +4477,9 @@ const TRIP_SONG_START = 3;  // skip the intro — start (and loop) from the 3-se
 // Cockpit / visualizer design language — vivid, monday.com-style colors. Each
 // data domain gets one color, reused across the Ledger's dashboard bubbles.
 const LG_COLORS = { sources: "#00c875", cash: "#fdab3d", spend: "#e2445c", months: "#a25ddc", exp: "#ffcb00" };
+// Okabe-Ito color-blind-safe palette (used when Accessibility → Color vision = safe)
+const LG_COLORS_SAFE = { sources: "#009E73", cash: "#E69F00", spend: "#D55E00", months: "#CC79A7", exp: "#F0E442" };
+function lgPalette() { return colorBlindMode() ? LG_COLORS_SAFE : LG_COLORS; }
 function fadeAudio(a, to, ms, then) {
   if (!a) return;
   const from = a.volume, t0 = performance.now();
@@ -4527,7 +4582,7 @@ function openLedger() {
     const dash = root.querySelector("#lgDash");
     if (!dash) return;
     dash.innerHTML =
-      '<button class="lg-bubble" data-k="sources" style="--c:' + LG_COLORS.sources + '">' +
+      '<button class="lg-bubble" data-k="sources" style="--c:' + lgPalette().sources + '">' +
         '<span class="lg-bub-ico">🛰</span>' +
         '<span class="lg-bub-val" id="lgBubSources">…</span>' +
         '<span class="lg-bub-lbl">data sources</span>' +

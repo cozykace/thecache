@@ -48,6 +48,9 @@ Accessibility isn't a checkbox bolted on at the end here — it's a first-class 
 - **Motion & flashing** — *Reduce* calms the warp, removes the white flash, and stops looping animation (seizure-safe). *System* follows your device's "reduce motion" setting automatically; *Full* keeps every effect.
 - **Contrast** — *High* strengthens borders and text.
 - **Text & UI size** — scale the whole interface up (*Large* / *Largest*).
+- **Color vision** — a *Safe palette* (Okabe-Ito) for the cache visualizer; and color is never the only signal — the constellation always shows +/− too.
+
+**Keyboard & screen readers:** every dialog is a proper focus-trapped window (Tab stays inside, Escape closes, focus returns where it was). Tab to the **Skip to dashboard** link at the very top to jump straight to your board, and all focused controls show a clear outline.
 
 This hub grows with the people who use it. Need a screen-reader pass, a color-blind-safe palette, bigger touch targets, anything at all? Menu → ⚑ Report a bug or request — **accessibility asks jump the line.**
 
