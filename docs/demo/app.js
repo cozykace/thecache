@@ -2449,6 +2449,7 @@ function playShing() {
 }
 let _sparkAlive = 0;
 function expSpark(x, y, n, blessed) {
+  if (reduceMotion()) return;  // no particle bursts when motion is reduced
   n = Math.min(n, Math.max(0, 28 - _sparkAlive));  // cap concurrent sparks so rapid clicks never flood the main thread
   for (let i = 0; i < n; i++) {
     const p = document.createElement("div");
@@ -2546,6 +2547,70 @@ function openConnect() {
   });
   modal.querySelector(".cn-csv").addEventListener("click", () => { closeCategorizer(); document.getElementById("importStatement").click(); });
 }
+// ── Accessibility ─────────────────────────────────────────────────────────
+// One small system: each need persists in localStorage → is applied as an
+// attribute on <html> → CSS and JS read it. To add a need: add a key here, an
+// attribute in applyA11y(), a CSS rule, and a row in openA11y(). That's it.
+const A11Y = {
+  motion:   { key: "money.a11y.motion",   def: "auto" },    // auto (follow OS) | reduce | full
+  contrast: { key: "money.a11y.contrast", def: "normal" },  // normal | high
+  text:     { key: "money.a11y.text",     def: "base" },     // base | lg | xl
+};
+function a11yGet(name) { return localStorage.getItem(A11Y[name].key) || A11Y[name].def; }
+function a11ySet(name, val) {
+  if (val && val !== A11Y[name].def) localStorage.setItem(A11Y[name].key, val);
+  else localStorage.removeItem(A11Y[name].key);
+  applyA11y();
+}
+function systemReducedMotion() { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } }
+// The single gate every animated / flashing surface checks before it moves.
+function reduceMotion() {
+  const m = a11yGet("motion");
+  if (m === "reduce") return true;
+  if (m === "full") return false;
+  return systemReducedMotion();           // "auto" honours the operating system
+}
+function applyA11y() {
+  const r = document.documentElement;
+  r.setAttribute("data-reduce-motion", reduceMotion() ? "1" : "0");
+  r.setAttribute("data-contrast", a11yGet("contrast"));
+  r.setAttribute("data-text", a11yGet("text"));
+}
+applyA11y();
+try { matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", applyA11y); } catch (e) {}
+
+function closeA11y() { ["a11yBackdrop", "a11yModal"].forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); }); }
+function openA11y() {
+  closeA11y();
+  const back = document.createElement("div"); back.className = "cat-backdrop"; back.id = "a11yBackdrop";
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) closeA11y(); });
+  const modal = document.createElement("div"); modal.className = "cat-modal a11y-modal"; modal.id = "a11yModal";
+  const seg = (name, opts) => '<div class="a11y-seg" role="group" data-name="' + name + '">' +
+    opts.map((o) => '<button class="a11y-opt' + (a11yGet(name) === o.v ? " on" : "") + '" data-v="' + o.v + '">' + o.t + "</button>").join("") + "</div>";
+  modal.innerHTML =
+    '<div class="cat-head"><span>♿ Accessibility</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="a11y-body">' +
+      '<div class="a11y-row"><div class="a11y-lbl"><b>Motion &amp; flashing</b><span>Calms the warp, removes the white flash, and stops looping animation — seizure-safe. <em>System</em> follows your device setting.</span></div>' +
+        seg("motion", [{ v: "auto", t: "System" }, { v: "reduce", t: "Reduce" }, { v: "full", t: "Full" }]) + "</div>" +
+      '<div class="a11y-row"><div class="a11y-lbl"><b>Contrast</b><span>Stronger borders and text for easier reading.</span></div>' +
+        seg("contrast", [{ v: "normal", t: "Normal" }, { v: "high", t: "High" }]) + "</div>" +
+      '<div class="a11y-row"><div class="a11y-lbl"><b>Text &amp; UI size</b><span>Scale the whole interface up.</span></div>' +
+        seg("text", [{ v: "base", t: "Default" }, { v: "lg", t: "Large" }, { v: "xl", t: "Largest" }]) + "</div>" +
+      '<div class="a11y-note">More options will land here over time. Need something specific? Menu → ⚑ Report a bug or request.</div>' +
+    "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", closeA11y);
+  modal.querySelectorAll(".a11y-seg").forEach((segEl) => {
+    const name = segEl.dataset.name;
+    segEl.querySelectorAll(".a11y-opt").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        a11ySet(name, btn.dataset.v);
+        segEl.querySelectorAll(".a11y-opt").forEach((b) => b.classList.toggle("on", b === btn));
+      });
+    });
+  });
+}
+
 // ── Settings tiers: Smooth Brain (simple) → Big Brain (standard) → Galaxy Brain (everything) ──
 const TIER_KEY = "money.menuTier";
 const TIERS = [{ n: 1, label: "Smooth Brain" }, { n: 2, label: "Big Brain" }, { n: 3, label: "Galaxy Brain" }];
@@ -4306,6 +4371,7 @@ function fmtCompact(n) {
 function buildConstellation(svg, months) {
   if (!months.length) { svg.innerHTML = '<text x="500" y="160" text-anchor="middle" fill="rgba(255,255,255,.4)" font-size="15" font-family="ui-monospace,monospace">your constellation fills in as the months accumulate</text>'; return; }
   const ACC = (getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()) || "#FFD409";  // match the app's theme
+  const RM = reduceMotion();  // no twinkle when motion is reduced
   const W = 1000, H = 320, pad = 64, n = months.length;
   const xAt = (i) => pad + i * (W - 2 * pad) / Math.max(1, n - 1);
   const maxA = Math.max(1, ...months.map((m) => Math.abs(m.net || 0)));
@@ -4316,7 +4382,7 @@ function buildConstellation(svg, months) {
   svg.innerHTML = '<path d="' + path + '" fill="none" stroke="rgba(180,130,255,.45)" stroke-width="1.5"/>' +
     nodes.map((p, i) => {
       const net = p.m.net || 0, pos = net >= 0, r = 6 + Math.min(14, Math.abs(net) / maxA * 14);
-      return '<circle cx="' + p.x.toFixed(0) + '" cy="' + p.y.toFixed(0) + '" r="' + r.toFixed(0) + '" fill="' + (pos ? ACC : "#e0734a") + '" opacity="0.9"><animate attributeName="opacity" values="0.55;1;0.55" dur="' + (2 + i * 0.25).toFixed(1) + 's" repeatCount="indefinite"/></circle>' +
+      return '<circle cx="' + p.x.toFixed(0) + '" cy="' + p.y.toFixed(0) + '" r="' + r.toFixed(0) + '" fill="' + (pos ? ACC : "#e0734a") + '" opacity="0.9">' + (RM ? "" : '<animate attributeName="opacity" values="0.55;1;0.55" dur="' + (2 + i * 0.25).toFixed(1) + 's" repeatCount="indefinite"/>') + "</circle>" +
         '<text x="' + p.x.toFixed(0) + '" y="' + (p.y - r - 8).toFixed(0) + '" text-anchor="middle" font-size="11" fill="#fff" opacity="0.8" font-family="ui-monospace,monospace">' + escapeHtml(p.m.label || "") + "</text>" +
         '<text x="' + p.x.toFixed(0) + '" y="' + (p.y + r + 16).toFixed(0) + '" text-anchor="middle" font-size="10" fill="' + (pos ? ACC : "#e0734a") + '" opacity="0.9" font-family="ui-monospace,monospace">' + fmtCompact(net) + "</text>";
     }).join("");
@@ -4390,19 +4456,22 @@ function openLedger() {
   let booked = false;
   const bookTrip = () => {
     if (booked) return; booked = true;
+    const calm = reduceMotion();                                 // seizure-safe path: no warp strobe, no flash, no whoosh
     board.classList.add("lg-hidden"); intro.classList.remove("lg-hidden");
-    mode = "warp"; target = 11;                                   // the slingshot — kick into the journey
     muteBtn.classList.remove("lg-hidden");                        // mute available the whole trip
     if (song) { song.volume = 0; song.play().then(() => fadeAudio(song, 0.45, 500)).catch(() => { song = null; }); }  // starts right now (preloaded)
-    try { const warp = new Audio("av%20assets/warp.wav"); warp.volume = 0.5; warp.play().catch(() => {}); } catch (e) {}  // the whoosh
-    setTimeout(() => flash.classList.add("on"), 1050);
+    if (!calm) {
+      mode = "warp"; target = 11;                                 // the slingshot — kick into the journey
+      try { const warp = new Audio("av%20assets/warp.wav"); warp.volume = 0.5; warp.play().catch(() => {}); } catch (e) {}  // the whoosh
+      setTimeout(() => flash.classList.add("on"), 1050);
+    }
     setTimeout(() => {                                            // arrive: you're at your cache
       intro.classList.add("lg-hidden"); led.classList.remove("lg-hidden"); mode = "idle"; target = 0.5; flash.classList.remove("on");
       const head = root.querySelector("#lgHeadline"), svg = root.querySelector("#lgConst");
       fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
       fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
       awardTripExp();                                             // every trip pays out EXP
-    }, 1450);
+    }, calm ? 700 : 1450);
   };
   const awardTripExp = () => {
     const gained = 25;
@@ -4443,6 +4512,7 @@ function openLedger() {
 document.getElementById("ledgerBtn").addEventListener("click", openLedger);
 document.getElementById("manageCats").addEventListener("click", () => { openCategoryManager(); setSidebar(false); });
 document.getElementById("reportBug").addEventListener("click", () => { openBugReport(); setSidebar(false); });
+document.getElementById("openA11y").addEventListener("click", () => { openA11y(); setSidebar(false); });
 
 // ── Subscription detail + rename (alias only) ──────────────
 function closeSubDetail() {

@@ -36,6 +36,14 @@ Your cache levels up as you do the work — every interaction earns EXP.
 - **Themes & Fonts** (Settings) — make the whole look yours.
 - **Favorites** — star any widget or dock item to pin it to the top.
 
+## Accessibility
+Menu → **♿ Accessibility**. We're building this out over time — what's here now:
+- **Motion & flashing** — *Reduce* calms the warp, removes the white flash, and stops looping animation (seizure-safe). *System* follows your device's "reduce motion" setting automatically; *Full* keeps every effect.
+- **Contrast** — *High* strengthens borders and text for easier reading.
+- **Text & UI size** — scale the whole interface up (*Large* / *Largest*).
+
+Need something we don't have yet? Menu → ⚑ Report a bug or request — it goes straight to the team.
+
 ## Keeping it updated
 Menu → **Update app** previews exactly what's changing (and the download size) before you pull. Nothing happens until you choose; you can skip an update with no nagging.
 

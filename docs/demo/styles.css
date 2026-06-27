@@ -1193,6 +1193,40 @@ html[data-bg="sticker-confetti"]::before {
 @media (prefers-reduced-motion: reduce) {
   html[data-bg="motion-drift"]::before, html[data-bg="motion-aurora"]::before, html[data-bg="motion-pulse"]::before { animation: none; }
 }
+
+/* ── Accessibility ─────────────────────────────────────────────────────────
+   Driven by attributes on <html> set in applyA11y(). */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+/* Reduce motion & flashing — neutralise every CSS animation/transition, kill the
+   warp flash and any animated backgrounds. JS paths (warp, sparks) gate too. */
+html[data-reduce-motion="1"] *, html[data-reduce-motion="1"] *::before, html[data-reduce-motion="1"] *::after {
+  animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; animation-delay: 0ms !important;
+  transition-duration: 0.001ms !important; scroll-behavior: auto !important;
+}
+html[data-reduce-motion="1"] .lg-flash { display: none !important; }
+html[data-reduce-motion="1"][data-bg^="motion-"]::before { animation: none !important; }
+/* High contrast — stronger borders + full-strength text. */
+html[data-contrast="high"] { --edge: rgba(var(--ink-rgb), 0.6); --edge-soft: rgba(var(--ink-rgb), 0.42); }
+html[data-contrast="high"] .menu-item, html[data-contrast="high"] .status-pill,
+html[data-contrast="high"] .widget, html[data-contrast="high"] .a11y-seg { border-color: var(--edge); }
+html[data-contrast="high"] :focus-visible { outline-width: 3px; }
+/* Text & UI size — scale the whole interface. */
+html[data-text="lg"] { zoom: 1.12; }
+html[data-text="xl"] { zoom: 1.26; }
+/* The Accessibility panel */
+.a11y-modal { max-width: 470px; }
+.a11y-body { padding: 4px 16px 14px; display: flex; flex-direction: column; }
+.a11y-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 0; border-bottom: 1px solid var(--edge-soft); }
+.a11y-row:last-of-type { border-bottom: none; }
+.a11y-lbl { display: flex; flex-direction: column; gap: 3px; }
+.a11y-lbl b { font-size: 13px; color: var(--ink); }
+.a11y-lbl span { font-size: 11px; line-height: 1.45; color: rgba(var(--ink-rgb), 0.62); max-width: 250px; }
+.a11y-lbl em { font-style: normal; color: var(--accent); }
+.a11y-seg { display: inline-flex; flex-shrink: 0; background: rgba(var(--ink-rgb), 0.06); border: 1px solid var(--edge-soft); border-radius: 9px; padding: 2px; gap: 2px; }
+.a11y-opt { font-family: inherit; font-size: 11px; padding: 6px 11px; border: none; border-radius: 7px; background: none; color: rgba(var(--ink-rgb), 0.7); cursor: pointer; white-space: nowrap; transition: background 0.12s, color 0.12s; }
+.a11y-opt:hover { color: var(--ink); }
+.a11y-opt.on { background: var(--ink); color: var(--paper); font-weight: 700; }
+.a11y-note { font-size: 11px; color: rgba(var(--ink-rgb), 0.5); padding-top: 12px; line-height: 1.5; }
 .theme-pop {
   position: fixed; top: 58px; right: 14px; z-index: 320; width: 196px;
   background: var(--paper); border: 1px solid var(--edge); border-radius: 12px;
