@@ -1600,6 +1600,42 @@ const RENDERERS = {
     Store.subscribe(el, () => load());
     load();
   },
+  // Dev Tree — codebase build-status at a glance: roadmap progress + a scan of the
+  // source for unfinished markers (TODO/FIXME/…), worst files first, so scaffolding
+  // that never got finished is visible and you know what to circle back to.
+  devtree(el) {
+    el.classList.add("is-tree");
+    el.innerHTML = '<div class="tree-head"><span class="fc-label">dev tree</span><span class="tree-sum">…</span></div><div class="tree-body"></div>';
+    const sum = el.querySelector(".tree-sum"), body = el.querySelector(".tree-body");
+    const esc = escapeHtml;
+    const leaf = (cls, txt) => '<div class="tree-leaf ' + cls + '">' + esc(txt) + "</div>";
+    function load() {
+      fetch("/api/devtree?t=" + Date.now()).then((r) => r.json()).then((d) => {
+        if (!d || !d.ok) { body.innerHTML = '<div class="tree-empty">no data</div>'; return; }
+        const t = d.totals, rm = d.roadmap;
+        sum.innerHTML = '<b class="tree-cnt-bad">' + t.bad + "</b> to fix · <b class=\"tree-cnt-todo\">" + t.todo + "</b> to-do";
+        let h = "";
+        // Roadmap branch
+        h += '<details class="tree-grp" open><summary>🗺 Roadmap · ✓' + rm.shipped + " · ~" + rm.in_progress + " · ○" + rm.planned + "</summary>";
+        if (rm.in_progress_items.length) { h += '<div class="tree-subhead">In progress (scaffolded)</div>'; h += rm.in_progress_items.map((x) => leaf("warn", "~ " + x)).join(""); }
+        if (rm.planned_items.length) { h += '<div class="tree-subhead">Planned (not started)</div>'; h += rm.planned_items.map((x) => leaf("dim", "○ " + x)).join(""); }
+        h += "</details>";
+        // Code branch
+        h += '<details class="tree-grp"' + (t.bad ? " open" : "") + '><summary>⚙ Code markers · ' + t.files_flagged + " files</summary>";
+        if (!d.files.length) h += '<div class="tree-empty">no unfinished markers — clean ✨</div>';
+        d.files.forEach((f) => {
+          h += '<details class="tree-file"' + (f.bad ? " open" : "") + '><summary>' + esc(f.file) +
+            (f.bad ? ' <span class="tree-cnt-bad">🔴' + f.bad + "</span>" : "") +
+            (f.todo ? ' <span class="tree-cnt-todo">🟡' + f.todo + "</span>" : "") + "</summary>" +
+            f.markers.map((m) => '<div class="tree-mk sev-' + m.sev + '"><span class="mk-line">:' + m.line + '</span> <span class="mk-kind">' + esc(m.kind) + "</span> " + esc(m.text) + "</div>").join("") +
+            "</details>";
+        });
+        h += "</details>";
+        body.innerHTML = h;
+      }).catch(() => { body.innerHTML = '<div class="tree-empty">backend off — restart the server</div>'; });
+    }
+    load();
+  },
   worklog(el) {
     el.classList.add("is-breakdown");
     el.innerHTML =
@@ -2565,6 +2601,48 @@ function initAnalytics() {
   try { if (window.posthog.opt_in_capturing) window.posthog.opt_in_capturing(); } catch (e) {}  // clear any persisted opt-out from a prior session
   track("app_loaded", { widgets: Object.keys(layout || {}) });
 }
+
+// ── End-to-end encrypted backup (the cloud E2E core, proven locally first) ──
+// Client-side only: a passphrase → AES-GCM key (PBKDF2). The server never sees the
+// passphrase or the key — it only ever hands over / receives the bundle; encryption
+// happens here in the browser. Same crypto will wrap the blob before any cloud upload.
+function _b64(buf) { const b = new Uint8Array(buf); let s = ""; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
+function _unb64(s) { return Uint8Array.from(atob(s), (c) => c.charCodeAt(0)); }
+async function _deriveKey(pass, salt) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 210000, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+async function encryptJSON(obj, pass) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await _deriveKey(pass, salt);
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(obj)));
+  return JSON.stringify({ app: "thecache", v: 1, kdf: "PBKDF2-SHA256", iter: 210000, salt: _b64(salt), iv: _b64(iv), ct: _b64(ct) });
+}
+async function decryptJSON(envStr, pass) {
+  const env = JSON.parse(envStr);
+  const key = await _deriveKey(pass, _unb64(env.salt));
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(env.iv) }, key, _unb64(env.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function downloadEncryptedBackup(pass) {
+  const d = await (await fetch("/api/export-data")).json();
+  if (!d || !d.ok) throw new Error("couldn't read your data");
+  const env = await encryptJSON({ files: d.files, exported: d.exported }, pass);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([env], { type: "application/octet-stream" }));
+  a.download = "cache-backup-" + new Date().toISOString().slice(0, 10) + ".cache";
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+  return d.count || Object.keys(d.files || {}).length;
+}
+async function restoreEncryptedBackup(file, pass) {
+  let obj;
+  try { obj = await decryptJSON(await file.text(), pass); }
+  catch (e) { throw new Error("wrong passphrase or not a Cache backup file"); }
+  const res = await (await fetch("/api/import-data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: (obj && obj.files) || {} }) })).json();
+  if (!res || !res.ok) throw new Error((res && res.error) || "restore failed");
+  return res;
+}
 // ── Click sparks: rapid clicking shoots theme-colored sparks from the cursor —
 //    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
 //    you click in quick succession. ──
@@ -2893,6 +2971,15 @@ function openSettings() {
       '<div class="set-hint" data-tier="2">starred widgets &amp; dock items jump to the top · turn off to leave them where they are when starred</div>' +
       '<button class="set-toggle" id="setAnalytics"><span>Share anonymous usage</span><span class="set-state">off</span></button>' +
       '<div class="set-hint">helps improve the app — <b>opt-in &amp; anonymous</b>. Your financial data is <b>never</b> sent — only which widgets you use, rage-clicks, and errors.</div>' +
+      '<div class="set-sec">Backup &amp; restore</div>' +
+      '<div class="set-hint">Encrypts a copy of <b>all your data</b> with a passphrase only you know — <b>end-to-end</b>: the file is unreadable without it. ⚠ Lose the passphrase and the backup can’t be opened.</div>' +
+      '<label class="set-row"><span>Passphrase</span><input id="setBkPass" type="password" placeholder="choose / enter a passphrase" autocomplete="off"></label>' +
+      '<div class="set-bk-row">' +
+        '<button class="set-btn" id="setBkExport">⬇ Download encrypted backup</button>' +
+        '<button class="set-btn" id="setBkRestore">⬆ Restore from backup…</button>' +
+        '<input id="setBkFile" type="file" accept=".cache" style="display:none">' +
+      '</div>' +
+      '<div class="set-hint" id="setBkMsg"></div>' +
       '<div class="set-themes" id="setThemes"></div>' +
       '<div class="set-sec">Fonts</div>' +
       '<div class="set-fonts" id="setFonts"></div>' +
@@ -2919,6 +3006,31 @@ function openSettings() {
     Store.emit();  // ripple to Safe / Gap / Work
   });
   bind("#setReserve", "money.reserve"); bind("#setNeed", "money.need");
+
+  // Encrypted backup / restore
+  const bkPass = modal.querySelector("#setBkPass"), bkMsg = modal.querySelector("#setBkMsg"), bkFile = modal.querySelector("#setBkFile");
+  modal.querySelector("#setBkExport").addEventListener("click", async () => {
+    const p = (bkPass.value || "").trim();
+    if (p.length < 6) { bkMsg.textContent = "Choose a passphrase of at least 6 characters first."; return; }
+    bkMsg.textContent = "Encrypting…";
+    try { const n = await downloadEncryptedBackup(p); bkMsg.textContent = "✓ Encrypted backup of " + n + " files downloaded. Store it (and the passphrase) somewhere safe."; }
+    catch (e) { bkMsg.textContent = "Backup failed: " + (e.message || e); }
+  });
+  modal.querySelector("#setBkRestore").addEventListener("click", () => {
+    if ((bkPass.value || "").trim().length < 6) { bkMsg.textContent = "Enter the backup’s passphrase above first."; return; }
+    bkFile.click();
+  });
+  bkFile.addEventListener("change", async () => {
+    const f = bkFile.files && bkFile.files[0]; if (!f) return;
+    if (!confirm("Restore will OVERWRITE your current data with this backup.\n\nYour current data is snapshotted first (recoverable), but continue only if you mean it.")) { bkFile.value = ""; return; }
+    bkMsg.textContent = "Decrypting + restoring…";
+    try {
+      const res = await restoreEncryptedBackup(f, (bkPass.value || "").trim());
+      bkMsg.textContent = "✓ Restored " + res.written + " files (your previous data saved as " + res.snapshot + "). Reloading…";
+      setTimeout(() => location.reload(), 1600);
+    } catch (e) { bkMsg.textContent = "Restore failed: " + (e.message || e); }
+    bkFile.value = "";
+  });
 
   const privBtn = modal.querySelector("#setPrivacy");
   const paintPriv = () => {
@@ -3249,6 +3361,7 @@ const LIBRARY = [
   { type: "incomeforecast", title: "Income forecast", w: 340, h: 340 },
   { type: "work", title: "Work planner", w: 300, h: 210 },
   { type: "averages", title: "Statistics", w: 330, h: 300 },
+  { type: "devtree", title: "Dev Tree", w: 340, h: 380 },
   { type: "worklog", title: "Time worked", w: 300, h: 270 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
@@ -3414,6 +3527,9 @@ const WIDGET_INFO = {
   averages:
     "<p><b>Source:</b> your whole ledger — lifetime totals, per-month buckets, and per-category sums (the partial current month is skipped for averages).</p>" +
     "<p>A spread of real <b>data facts</b>: monthly averages, savings rate, your best + leanest months, top category, biggest single expense, and lifetime in/out. Spending <b>excludes transfers</b>.</p>",
+  devtree:
+    "<p><b>Source:</b> a live scan of the project (<code>/api/devtree</code>): <b>BACKLOG.md</b> status (shipped / in-progress / planned) + a grep of the source files for unfinished markers (TODO, FIXME, HACK, XXX, BUG, NEXT, “coming soon”).</p>" +
+    "<p>Worst files float to the top. 🔴 = <b>circle back</b> (FIXME/HACK/bug); 🟡 = to-do / scaffolded. Click a branch to expand. A dev tool — it reads code comments, never your data.</p>",
   worklog:
     "<p><b>Source:</b> Toggl hours (<code>toggl_sync.py</code> → <code>toggl.json</code>) paired with <b>real income from your ledger</b> over the same window.</p>" +
     "<p><b>Worked</b> = sum of this month's Toggl durations (a running timer counts now − start).</p>" +

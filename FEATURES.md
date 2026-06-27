@@ -2,7 +2,7 @@
 
 A living, product-facing list of what THE CACHE does — kept current as we ship, ready for when this goes live to other people.
 
-**The promise:** have a good time facing the skeletons in your closet. A calm, playful, private way to face your money — built to be just as good for immigrants and for anyone who's overwhelmed by keeping track of a lot of data that's hard to understand or use.
+**The promise:** have a good time facing the skeletons in your closet. A **free**, calm, playful, provably-private way to plan, forecast, and feel proud of your life — built to work just as well for disabled people, immigrants, and anyone overwhelmed by data that's hard to understand or use. Money is just the start; the goal is a secure home for any part of your life you want to track.
 
 _Last updated: 2026-06-26_
 

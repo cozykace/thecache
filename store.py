@@ -1718,3 +1718,132 @@ def king_stats():
         "coverage_days": cov_days,
         "data_points": cov.get("total", 0),
     }
+
+
+def export_data():
+    """Bundle the user's data files (.json/.jsonl) into one object so the client can
+    encrypt + download it (E2E backup). Read-only — touches nothing."""
+    files = {}
+    try:
+        for name in sorted(os.listdir(DATA)):
+            p = os.path.join(DATA, name)
+            if not os.path.isfile(p):
+                continue
+            if not (name.endswith(".json") or name.endswith(".jsonl")):
+                continue
+            if name.endswith(".bak") or name.startswith("_") or name.startswith("."):
+                continue
+            try:
+                with open(p, encoding="utf-8", errors="ignore") as f:
+                    files[name] = f.read()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return {"ok": True, "files": files, "exported": int(time.time()), "count": len(files)}
+
+
+def import_data(files):
+    """Restore data files from a decrypted backup bundle. SNAPSHOTS the current data/
+    first (a bad restore is recoverable), then atomically writes each file. Path-guarded:
+    plain .json/.jsonl names only, no traversal."""
+    if not isinstance(files, dict) or not files:
+        return {"ok": False, "error": "no files in backup"}
+    snap = os.path.join(DATA, "_restore_backup_" + time.strftime("%Y%m%d-%H%M%S"))
+    try:
+        os.makedirs(snap, exist_ok=True)
+        for name in os.listdir(DATA):
+            p = os.path.join(DATA, name)
+            if os.path.isfile(p):
+                try:
+                    shutil.copy2(p, os.path.join(snap, name))
+                except Exception:
+                    pass
+    except Exception:
+        return {"ok": False, "error": "couldn't snapshot current data — aborting restore"}
+    written = []
+    for name, content in files.items():
+        if not isinstance(name, str) or not isinstance(content, str):
+            continue
+        if "/" in name or "\\" in name or name.startswith(".") or name.startswith("_"):
+            continue
+        if not (name.endswith(".json") or name.endswith(".jsonl")):
+            continue
+        try:
+            tmp = os.path.join(DATA, name + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp, os.path.join(DATA, name))
+            _chmod600(os.path.join(DATA, name))
+            written.append(name)
+        except Exception:
+            pass
+    return {"ok": True, "written": len(written), "files": written, "snapshot": os.path.basename(snap)}
+
+
+def dev_tree():
+    """Build-status map for the Dev Tree widget: BACKLOG progress + a scan of source
+    files for unfinished markers, so half-built scaffolding is visible and the worst
+    files float to the top. Code only — never touches data."""
+    import re
+    root = HERE
+    rm = {"shipped": 0, "in_progress": 0, "planned": 0, "in_progress_items": [], "planned_items": []}
+    bp = os.path.join(root, "BACKLOG.md")
+    if os.path.exists(bp):
+        try:
+            for line in open(bp, encoding="utf-8", errors="ignore"):
+                m = re.match(r"^- \[([x~ ])\]\s*(.*)", line)
+                if not m:
+                    continue
+                state, rest = m.group(1), m.group(2)
+                tm = re.search(r"\*\*(.+?)\*\*", rest)
+                title = (tm.group(1) if tm else rest[:60]).strip()
+                if state == "x":
+                    rm["shipped"] += 1
+                elif state == "~":
+                    rm["in_progress"] += 1
+                    if len(rm["in_progress_items"]) < 40:
+                        rm["in_progress_items"].append(title)
+                else:
+                    rm["planned"] += 1
+                    if len(rm["planned_items"]) < 60:
+                        rm["planned_items"].append(title)
+        except Exception:
+            pass
+    ann = re.compile(r"(?:#|//|/\*|<!--)\s*(TODO|FIXME|HACK|XXX|BUG|NEXT)\b", re.I)
+    scaf = re.compile(r"coming soon|not built|under construction", re.I)
+    bad_kinds = {"FIXME", "HACK", "XXX", "BUG"}
+    scan = ["app.js", "cursor.js", "store.py", "server.py", "sync.py", "import_statements.py",
+            "toggl_sync.py", "backup.py", "index.html", "styles.css", "build-demo.sh"]
+    files = []
+    tot_todo = tot_bad = 0
+    for name in scan:
+        p = os.path.join(root, name)
+        if not os.path.isfile(p):
+            continue
+        markers, ntodo, nbad = [], 0, 0
+        try:
+            for i, line in enumerate(open(p, encoding="utf-8", errors="ignore"), 1):
+                if "re.compile" in line:  # skip this detector's own pattern definitions
+                    continue
+                a = ann.search(line)
+                s = scaf.search(line)
+                if not a and not s:
+                    continue
+                kind = a.group(1).upper() if a else "COMING SOON"
+                sev = "bad" if kind in bad_kinds else "todo"
+                if sev == "bad":
+                    nbad += 1
+                else:
+                    ntodo += 1
+                if len(markers) < 12:
+                    markers.append({"sev": sev, "kind": kind, "line": i, "text": line.strip()[:120]})
+        except Exception:
+            pass
+        if ntodo or nbad:
+            files.append({"file": name, "todo": ntodo, "bad": nbad, "markers": markers})
+            tot_todo += ntodo
+            tot_bad += nbad
+    files.sort(key=lambda f: (-f["bad"], -f["todo"], f["file"]))
+    return {"ok": True, "roadmap": rm, "files": files,
+            "totals": {"todo": tot_todo, "bad": tot_bad, "files_flagged": len(files)}}

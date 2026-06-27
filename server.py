@@ -95,6 +95,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, store.averages())
         if path == "/api/statistics":
             return self._json(200, store.statistics())
+        if path == "/api/export-data":
+            return self._json(200, store.export_data())  # client encrypts the bundle (E2E backup)
+        if path == "/api/devtree":
+            return self._json(200, store.dev_tree())
         if path == "/api/work":
             return self._json(200, store.work_summary())
         if path == "/api/income-monthly":
@@ -248,6 +252,13 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(200, {"ok": True, "accounts": len(snap.get("accounts", [])), "transactions": ntx})
             except Exception as e:
                 return self._json(500, {"ok": False, "error": "Couldn't connect: " + str(e)})
+        if self.path == "/api/import-data":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            return self._json(200, store.import_data(data.get("files") or {}))
         if self.path == "/api/categorize":
             try:
                 n = int(self.headers.get("Content-Length", 0))
