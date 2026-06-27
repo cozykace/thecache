@@ -1247,6 +1247,75 @@ def averages(skip_partial=True):
     }
 
 
+def statistics():
+    """A spread of interesting, real data facts from the whole ledger for the
+    Statistics widget — lifetime + per-month + per-category, computed once."""
+    txns = _ledger_txns()
+    overrides = load_overrides()
+    income_overrides = load_income_overrides()
+    remap = load_catmeta()["remap"]
+    cur_ym = datetime.fromtimestamp(time.time()).strftime("%Y-%m")
+    months, cats = {}, {}
+    total_in = total_out = 0.0
+    biggest = {"amt": 0.0, "desc": ""}
+    for t in txns:
+        p = t.get("posted") or 0
+        if not p:
+            continue
+        ym = datetime.fromtimestamp(p).strftime("%Y-%m")
+        amt = t.get("amount", 0) or 0
+        desc = t.get("description", "") or ""
+        m = months.setdefault(ym, {"income": 0.0, "spend": 0.0, "subs": 0.0})
+        if amt > 0:
+            _k, is_inc, _tg = income_decision(desc, income_overrides, overrides)
+            if is_inc:
+                m["income"] += amt; total_in += amt
+        else:
+            c = categorize(desc, overrides, remap)
+            if c != "transfer":
+                s = -amt
+                m["spend"] += s; total_out += s
+                cats[c] = cats.get(c, 0.0) + s
+                if c == "subscriptions":
+                    m["subs"] += s
+                if s > biggest["amt"]:
+                    biggest = {"amt": s, "desc": _clean(desc)}
+    full = {k: v for k, v in months.items() if k != cur_ym} or months
+    n = len(full) or 1
+    avg = lambda f: sum(x[f] for x in full.values()) / n
+    inc, spend, subs = avg("income"), avg("spend"), avg("subs")
+    net = inc - spend
+    nets = {k: v["income"] - v["spend"] for k, v in full.items()}
+    best = max(nets.items(), key=lambda kv: kv[1]) if nets else None
+    worst = min(nets.items(), key=lambda kv: kv[1]) if nets else None
+    top_cat = max(cats.items(), key=lambda kv: kv[1]) if cats else None
+    rate = (net / inc * 100.0) if inc > 0 else 0.0
+    money = lambda v: "$" + format(int(round(v)), ",")
+    signed = lambda v: ("+" if v >= 0 else "−") + money(abs(v))
+    def mlabel(ym):
+        try:
+            return datetime.strptime(ym, "%Y-%m").strftime("%b %Y")
+        except Exception:
+            return ym
+    stats = [
+        {"label": "Months tracked", "value": str(len(months))},
+        {"label": "Avg income", "value": money(inc) + "/mo", "tone": "ok"},
+        {"label": "Avg spending", "value": money(spend) + "/mo", "tone": "bad"},
+        {"label": "Avg net", "value": signed(net) + "/mo", "tone": "ok" if net >= 0 else "bad"},
+        {"label": "Savings rate", "value": str(int(round(rate))) + "%", "tone": "ok" if rate >= 0 else "bad"},
+        {"label": "Spend / day", "value": money(spend / 30.0)},
+        {"label": "Subscriptions", "value": money(subs) + "/mo"},
+        {"label": "Best month", "value": (mlabel(best[0]) + " · " + signed(best[1])) if best else "—", "tone": "ok"},
+        {"label": "Leanest month", "value": (mlabel(worst[0]) + " · " + signed(worst[1])) if worst else "—", "tone": "bad"},
+        {"label": "Top category", "value": (top_cat[0].title() + " · " + money(top_cat[1])) if top_cat else "—"},
+        {"label": "Biggest expense", "value": (money(biggest["amt"]) + (" · " + biggest["desc"] if biggest["desc"] else "")) if biggest["amt"] > 0 else "—"},
+        {"label": "Transactions", "value": format(len(txns), ",")},
+        {"label": "Lifetime in", "value": money(total_in), "tone": "ok"},
+        {"label": "Lifetime out", "value": money(total_out), "tone": "bad"},
+    ]
+    return {"ok": True, "months": len(months), "stats": stats}
+
+
 # ── Work: Toggl hours paired with REAL bank earnings ──────
 def work_summary():
     """Combine Toggl hours (from toggl.json) with actual income received from
@@ -1568,7 +1637,7 @@ def rebuild_from_ledger(window_days=30, now=None):
 
 DOWNLOADS = os.path.join(DATA, "downloads.json")
 # Public PostHog project (ingest) key — same one the front-end uses; safe to ship.
-_PH_KEY = "phc_ttvrXfZjNFpSohYHsptHVV86QZXsQDiZJVpnmgMFogAr"
+_PH_KEY = "phc_ks2GEXApcUXG7tyj9GbBYBTWJDEUKAbz2Gcb3mJCujRp"
 
 
 def _posthog_capture(event, props):

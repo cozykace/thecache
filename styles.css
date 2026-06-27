@@ -185,19 +185,30 @@ body.panning .cursor-ball { display: none !important; }
 .widget-bar:active { cursor: grabbing; }
 .bar-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .bar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.widget-toggle {
+.widget-color {
   border: none; background: none; cursor: pointer;
   padding: 2px 4px; border-radius: 5px; display: inline-flex; align-items: center;
 }
-.widget-toggle:hover { background: rgba(var(--ink-rgb), 0.06); }
-.toggle-dot {
-  width: 10px; height: 10px; border-radius: 50%;
-  border: 1px solid rgba(var(--ink-rgb), 0.35);
-  background: rgba(var(--ink-rgb), 0.35);
+.widget-color:hover { background: rgba(var(--ink-rgb), 0.06); }
+.color-dot {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--accent);   /* reflects this widget's color (its own --accent override) */
+  border: 1px solid rgba(var(--ink-rgb), 0.25);
 }
-.widget.bare .toggle-dot { background: transparent; }
-.widget-toggle:hover .toggle-dot { border-color: var(--accent); }
-.widget:not(.bare) .widget-toggle:hover .toggle-dot { background: var(--accent); }
+.widget-color:hover .color-dot { transform: scale(1.15); }
+/* per-widget color popover */
+.wcolor-back { position: fixed; inset: 0; z-index: 330; }
+.wcolor-pop {
+  position: fixed; z-index: 331; display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px;
+  padding: 9px; background: var(--paper); border: 1px solid var(--edge); border-radius: 12px;
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.4);
+}
+.wc-sw {
+  width: 24px; height: 24px; border-radius: 7px; cursor: pointer; padding: 0;
+  border: 1px solid var(--edge-soft); background: var(--panel);
+  display: grid; place-items: center; font-size: 12px; color: rgba(var(--ink-rgb), 0.55);
+}
+.wc-sw.on { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px rgba(var(--ink-rgb), 0.55); }
 .bar-ico { display: inline-flex; }
 .bar-ico:empty { display: none; }
 .bar-ico svg { width: 14px; height: 14px; stroke-width: 2; color: var(--accent); }
@@ -232,6 +243,16 @@ body.panning .cursor-ball { display: none !important; }
   text-transform: uppercase; letter-spacing: 0.16em; margin-top: 8px;
   color: rgba(var(--ink-rgb), 0.45); font-size: clamp(8px, 4.5cqmin, 13px);
 }
+
+/* Statistics widget — grid of data-fact tiles */
+.widget-body.is-stats { display: block; place-items: stretch; text-align: left; overflow-y: auto; padding: clamp(8px, 5cqmin, 14px); }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 8px; }
+.stat-tile { background: rgba(var(--ink-rgb), 0.04); border: 1px solid var(--edge-soft); border-radius: 10px; padding: 9px 11px; min-width: 0; }
+.stat-tile-val { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-tile-val.t-ok { color: #3f8f4e; }
+.stat-tile-val.t-bad { color: #c9542e; }
+.stat-tile-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(var(--ink-rgb), 0.5); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats-empty { color: rgba(var(--ink-rgb), 0.45); font-size: 12px; text-align: center; padding: 20px 10px; }
 .widget-body.is-note { place-items: stretch; padding: 12px; }
 .note-edit {
   width: 100%; height: 100%; outline: none;
@@ -1146,9 +1167,7 @@ body.sidebar-open .sidebar-toggle { opacity: 0; pointer-events: none; }
   position: fixed; top: 58px; right: 14px; z-index: 320; width: 224px;
   background: var(--paper); border: 1px solid var(--edge); border-radius: 14px; padding: 12px;
   box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.4);
-  transform-origin: top right; animation: bgPopIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-@keyframes bgPopIn { from { transform: scale(0.5) rotate(-10deg); opacity: 0; } to { transform: none; opacity: 1; } }
 .bg-cat { font-size: 9px; text-transform: uppercase; letter-spacing: 0.14em; color: rgba(var(--ink-rgb), 0.45); margin: 11px 2px 5px; }
 .bg-cat:first-child { margin-top: 0; }
 .bg-row { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -1181,6 +1200,9 @@ body.sidebar-open .sidebar-toggle { opacity: 0; pointer-events: none; }
 
 /* applied backgrounds (a layer behind the board) */
 html[data-bg]::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+/* let the bg layer (html::before, behind everything) actually show — the body's opaque
+   paper fill was covering it. html keeps the paper base; body goes clear when a bg is on. */
+html[data-bg] body { background-color: transparent; background-image: none; }
 html[data-bg="retro-grid"]::before {
   background-image: linear-gradient(rgba(var(--ink-rgb), 0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(var(--ink-rgb), 0.06) 1px, transparent 1px);
   background-size: 30px 30px;
@@ -1803,88 +1825,21 @@ body.blessed .cursor-ball {
   color: rgba(var(--ink-rgb), 0.45); white-space: nowrap;
 }
 
-/* ── Game-cartridge stats bar (ALL profiles) — the personal bar is a cartridge:
-   solid body, rounded top, beveled, with a gold edge-connector strip at the bottom
-   (gold fingers on a green-tinted board, like RAM / a Sega cart). ── */
-.stats-bar:not(.king-bar) .stats {
-  position: relative;
-  background: var(--panel);
-  border: 1.5px solid var(--ink);
-  border-radius: 13px 13px 4px 4px;
-  padding-bottom: 15px;
-  backdrop-filter: none; -webkit-backdrop-filter: none;
-  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), inset 0 -12px 16px rgba(var(--ink-rgb), 0.06), 0 4px 11px rgba(0, 0, 0, 0.16);
-}
-.stats-bar:not(.king-bar) .stats::before {  /* sticker-label line near the top of the cartridge */
-  content: ""; position: absolute; left: 14px; right: 14px; top: 5px; height: 2px; border-radius: 2px;
-  background: rgba(var(--ink-rgb), 0.10);
-}
-.stats-bar:not(.king-bar) .stats::after {  /* gold edge-connector fingers on a green-tinted strip */
-  content: ""; position: absolute; left: 16px; right: 16px; bottom: 4px; height: 6px; border-radius: 1px;
-  background: repeating-linear-gradient(90deg, #cda63f 0 4px, #19241a 4px 6px);
-}
-
-/* King Cozy bar — the GOLD CARTOON-MANGA SLOT the cartridge plugs into (founder only) */
-.king-bar { top: 48px; z-index: 56; }   /* pulled up so the cartridge tucks ~⅓ in; in FRONT so it covers the connector */
+/* King Cozy bar — founder-only second stats layer: a minimalist gold-tinted pill,
+   stacked just below the personal pill. (No cartridge/slot/plug — kept simple.) */
+.king-bar { top: 60px; z-index: 56; }
 .king-stats {
-  position: relative; cursor: pointer; align-items: center; overflow: visible;
-  color: #4a3208; padding-top: 13px;
-  border: 2px solid #5a3d10; border-radius: 15px;
-  background: linear-gradient(180deg, #ffe98c 0%, #f4cf5e 38%, #d89e2d 100%);
-  backdrop-filter: none; -webkit-backdrop-filter: none;
-  box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.7), inset 0 -8px 13px rgba(120, 70, 10, 0.42), 0 6px 15px rgba(0, 0, 0, 0.4);
+  cursor: pointer; align-items: center;
+  border-color: rgba(201, 162, 39, 0.6);
+  background: rgba(201, 162, 39, 0.16);
+  box-shadow: 0 0 0 1px rgba(201, 162, 39, 0.15), 0 3px 16px rgba(201, 162, 39, 0.16);  /* soft gold halo */
 }
-.king-stats::before {  /* the slot mouth where the cartridge inserts */
-  content: ""; position: absolute; left: 28%; right: 28%; top: -2px; height: 12px; border-radius: 0 0 9px 9px;
-  background: rgba(60, 40, 10, 0.5); box-shadow: inset 0 3px 4px rgba(0, 0, 0, 0.5);
-}
-.king-stats:hover { box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.8), inset 0 -8px 13px rgba(120, 70, 10, 0.5), 0 8px 20px rgba(0, 0, 0, 0.45); }
-.king-crown { font-size: 14px; padding: 0 6px 0 4px; line-height: 1; align-self: center; filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.5)); }
+.king-stats:hover { border-color: rgba(201, 162, 39, 0.9); box-shadow: 0 0 0 1px rgba(201, 162, 39, 0.25), 0 4px 20px rgba(201, 162, 39, 0.22); }
+.king-crown { font-size: 13px; padding: 0 6px 0 4px; line-height: 1; align-self: center; }
 .king-stats .stat-chip { cursor: pointer; }
-.king-stats .stat-val { color: #4a3208; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35); }
-.king-stats .stat-label { color: rgba(74, 50, 8, 0.72); }
-.king-stats .stat-chip + .stat-chip { border-left-color: rgba(90, 61, 16, 0.32); }
-.king-stats .stat-chip:hover { background: rgba(120, 70, 10, 0.12); }
-.king-vine { position: absolute; bottom: -8px; width: 46px; height: 62px; pointer-events: none; z-index: 2; }
-.king-vine.kv-l { left: -24px; }
-.king-vine.kv-r { right: -24px; transform: scaleX(-1); }
-
-/* Scroll-driven plug: at the very top the cartridge sits UNPLUGGED (lifted out, gold
-   slot dropped away — a clear gap). Scroll the board down → it CLUNKS in (cartridge
-   seats, slot snaps up with a squash + bounce). Back to the top → it pops apart.
-   Founder only (body.king-on); JS toggles .cart-in off board.scrollTop. */
-body.king-on .stats-bar:not(.king-bar) .stats {
-  transform-origin: center top;
-  transform: translateY(-9px);                 /* unplugged: lifted out */
-  transition: transform 0.34s cubic-bezier(0.4, 1.3, 0.5, 1);
-}
-body.king-on .king-stats {
-  transform-origin: center top;
-  transform: translateY(18px);                 /* unplugged: slot dropped away */
-  transition: transform 0.34s cubic-bezier(0.4, 1.3, 0.5, 1);
-}
-body.king-on.cart-in .stats-bar:not(.king-bar) .stats {
-  transform: translateY(0);                     /* plugged */
-  animation: cartridgeSeat 0.5s cubic-bezier(0.4, 1.4, 0.5, 1);
-}
-body.king-on.cart-in .king-stats {
-  transform: translateY(0);                     /* plugged */
-  animation: slotClunk 0.52s ease-out 0.16s;
-}
-@keyframes cartridgeSeat {
-  0%   { transform: translateY(-9px); }
-  55%  { transform: translateY(5px); }          /* punch in past the line */
-  76%  { transform: translateY(-2px); }
-  100% { transform: translateY(0); }
-}
-@keyframes slotClunk {
-  0%   { transform: translateY(18px) scaleY(1); }
-  34%  { transform: translateY(6px) scaleY(0.9); }   /* impact squash */
-  66%  { transform: translateY(-3px) scaleY(1.02); } /* spring back */
-  100% { transform: translateY(0) scaleY(1); }
-}
-html[data-reduce-motion="1"] body.king-on .stats-bar:not(.king-bar) .stats,
-html[data-reduce-motion="1"] body.king-on .king-stats { transition: none; animation: none; }
+.king-stats .stat-val { color: #c9a227; }
+.king-stats .stat-chip + .stat-chip { border-left-color: rgba(201, 162, 39, 0.28); }
+.king-stats .stat-chip:hover { background: rgba(201, 162, 39, 0.13); }
 
 /* period chip on each span widget's title bar */
 .w-period {
@@ -2173,7 +2128,7 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 }
 
 /* jelly: buttons squish under the ball, then spring back */
-.lib-item, .menu-item, .icon-cell, .widget-close, .widget-toggle,
+.lib-item, .menu-item, .icon-cell, .widget-close, .widget-color,
 .sticker-close, .sidebar-toggle, .sidebar-close {
   transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.14s ease, color 0.14s ease;
 }

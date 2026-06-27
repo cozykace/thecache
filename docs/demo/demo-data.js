@@ -208,6 +208,22 @@
     if (url.indexOf("/api/transfers") !== -1) return J(transfers);
     if (url.indexOf("/api/deposits") !== -1) return J(deposits);
     if (url.indexOf("/api/other-merchants") !== -1 || url.indexOf("/api/merchants") !== -1) return J(merchants);
+    if (url.indexOf("/api/statistics") !== -1) return J({ ok: true, months: 9, stats: [
+      { label: "Months tracked", value: "9" },
+      { label: "Avg income", value: "$5,200/mo", tone: "ok" },
+      { label: "Avg spending", value: "$3,900/mo", tone: "bad" },
+      { label: "Avg net", value: "+$1,300/mo", tone: "ok" },
+      { label: "Savings rate", value: "25%", tone: "ok" },
+      { label: "Spend / day", value: "$130" },
+      { label: "Subscriptions", value: "$210/mo" },
+      { label: "Best month", value: "Apr 2026 · +$2,100", tone: "ok" },
+      { label: "Leanest month", value: "Dec 2025 · −$400", tone: "bad" },
+      { label: "Top category", value: "Groceries · $4,600" },
+      { label: "Biggest expense", value: "$1,200 · Rent" },
+      { label: "Transactions", value: "1,284" },
+      { label: "Lifetime in", value: "$46,800", tone: "ok" },
+      { label: "Lifetime out", value: "$35,100", tone: "bad" },
+    ] });
     if (url.indexOf("/api/averages") !== -1) return J(averages);
     if (url.indexOf("/api/issues") !== -1) return J(issues);
     if (url.indexOf("/api/income-links") !== -1) return J(m === "POST" ? { ok: true, links: {} } : incomeLinks);

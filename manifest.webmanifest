@@ -1,0 +1,16 @@
+{
+  "name": "THE CACHE",
+  "short_name": "The Cache",
+  "description": "Your private money cockpit.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    { "src": "goat-head.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "goat-head.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "goat-head.png", "sizes": "980x980", "type": "image/png", "purpose": "any" }
+  ]
+}

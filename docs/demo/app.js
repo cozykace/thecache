@@ -350,7 +350,39 @@ function fmtBusy(b) {
   return b.start.toLocaleDateString("en-US", { weekday: "short" }) + " " +
     hhmm(b.start) + "–" + hhmm(b.end) + " · " + b.label;
 }
-const DRAG_IGNORE = ".widget-close,.widget-toggle,.widget-magnet,.widget-help,.sticker-close,.sticker-magnet,.widget-resize,.sticker-resize";
+const DRAG_IGNORE = ".widget-close,.widget-color,.widget-magnet,.widget-help,.sticker-close,.sticker-magnet,.widget-resize,.sticker-resize";
+// Per-widget color (start of per-widget style). Picking one overrides --accent on
+// just that widget (so its numbers/highlights recolor); "Default" clears it.
+const WIDGET_COLORS = [
+  { name: "Default", v: "" },
+  { name: "Coral", v: "#e0653f" }, { name: "Amber", v: "#d99a2b" },
+  { name: "Green", v: "#3f8f4e" }, { name: "Teal", v: "#2a9d8f" },
+  { name: "Blue", v: "#4a78c4" }, { name: "Violet", v: "#7d6cf0" },
+  { name: "Pink", v: "#d4537e" },
+];
+function closeWidgetColor() {
+  ["wcolorPop", "wcolorBack"].forEach((id) => { const e = document.getElementById(id); if (e) e.remove(); });
+}
+function openWidgetColor(btn, entry, node) {
+  closeWidgetColor();
+  const back = document.createElement("div"); back.className = "wcolor-back"; back.id = "wcolorBack";
+  back.addEventListener("pointerdown", closeWidgetColor);
+  const pop = document.createElement("div"); pop.className = "wcolor-pop"; pop.id = "wcolorPop";
+  const cur = entry.color || "";
+  pop.innerHTML = WIDGET_COLORS.map((c) =>
+    '<button class="wc-sw' + (cur === c.v ? " on" : "") + '" data-c="' + c.v + '" title="' + c.name + '"' +
+    (c.v ? ' style="background:' + c.v + '"' : "") + ">" + (c.v ? "" : "✕") + "</button>").join("");
+  document.body.appendChild(back); document.body.appendChild(pop);
+  const r = btn.getBoundingClientRect();
+  pop.style.top = (r.bottom + 6) + "px";
+  pop.style.left = Math.max(8, Math.min(r.right - pop.offsetWidth, window.innerWidth - pop.offsetWidth - 8)) + "px";
+  pop.querySelectorAll(".wc-sw").forEach((sw) => sw.addEventListener("click", () => {
+    const v = sw.dataset.c;
+    if (v) { entry.color = v; node.style.setProperty("--accent", v); }
+    else { delete entry.color; node.style.removeProperty("--accent"); }
+    saveLayout(); closeWidgetColor();
+  }));
+}
 // On a phone the board becomes a vertical stack — drag/resize/pan are disabled so
 // one finger scrolls instead of grabbing widgets. Matches the CSS breakpoint.
 const isMobile = () => window.matchMedia("(max-width: 640px)").matches;
@@ -1551,36 +1583,19 @@ const RENDERERS = {
     }
     Store.subscribe(el, (d) => { data = d; render(); });
   },
+  // Statistics widget — a spread of interesting real data facts from the whole
+  // ledger. (Internal type id stays "averages" so existing saved layouts keep working.)
   averages(el) {
-    el.classList.add("is-breakdown");
-    el.innerHTML =
-      '<div class="bd-head">' +
-        '<div class="bd-top"><span class="fc-label">monthly averages</span></div>' +
-        '<div class="big bd-avg">…</div>' +
-        '<div class="fc-sub avg-sub"></div>' +
-      '</div>' +
-      '<div class="bd-list avg-list"></div>';
-    const big = el.querySelector(".bd-avg");
-    const sub = el.querySelector(".avg-sub");
-    const list = el.querySelector(".avg-list");
-    const row = (label, val, color) =>
-      '<div class="avg-row"><span class="avg-label">' + label + "</span>" +
-      '<span class="avg-val"' + (color ? ' style="color:' + color + '"' : "") + ">" + val + "</span></div>";
+    el.classList.add("is-stats");
+    el.innerHTML = '<div class="stats-grid"></div>';
+    const grid = el.querySelector(".stats-grid");
     function load() {
-      fetch("/api/averages?t=" + Date.now()).then((r) => r.json()).then((a) => {
-        if (!a || !a.months) { big.textContent = "—"; sub.textContent = "no history yet"; list.innerHTML = ""; return; }
-        const short = a.deficit > 0;
-        big.textContent = fmtUSD(Math.abs(short ? a.deficit : a.net)) + " /mo";
-        big.style.color = short ? "#c9542e" : "#3f8f4e";
-        sub.textContent = (short ? "avg shortfall — income to find each month" : "avg surplus — you're ahead") +
-          " · over " + a.months + " mo";
-        list.innerHTML =
-          row("Income in", fmtUSD(a.income) + "/mo", "#3f8f4e") +
-          row("Spending out", fmtUSD(a.spend) + "/mo", "#c9542e") +
-          row("Gig work", fmtUSD(a.instacart) + "/mo") +
-          row("Subscriptions", fmtUSD(a.subscriptions) + "/mo") +
-          row("Spend / day", fmtUSD(a.per_day));
-      }).catch(() => { big.textContent = "—"; sub.textContent = "no data · run sync"; list.innerHTML = ""; });
+      fetch("/api/statistics?t=" + Date.now()).then((r) => r.json()).then((d) => {
+        if (!d || !d.stats || !d.stats.length) { grid.innerHTML = '<div class="stats-empty">no history yet · connect or import to see your stats</div>'; return; }
+        grid.innerHTML = d.stats.map((s) =>
+          '<div class="stat-tile"><div class="stat-tile-val' + (s.tone ? " t-" + s.tone : "") + '">' + escapeHtml(s.value) + "</div>" +
+          '<div class="stat-tile-lbl">' + escapeHtml(s.label) + "</div></div>").join("");
+      }).catch(() => { grid.innerHTML = '<div class="stats-empty">no data · run sync</div>'; });
     }
     Store.subscribe(el, () => load());
     load();
@@ -2529,7 +2544,7 @@ function openHealth() {
 document.addEventListener("pointerdown", () => addExp(1), true);  // capture → counts every click
 // ── Anonymous, opt-in analytics (PostHog) — autocapture OFF so it can NEVER scoop
 //    your dollar amounts/merchant names; only named, safe events. Off by default. ──
-const PH_KEY = "phc_ttvrXfZjNFpSohYHsptHVV86QZXsQDiZJVpnmgMFogAr";
+const PH_KEY = "phc_ks2GEXApcUXG7tyj9GbBYBTWJDEUKAbz2Gcb3mJCujRp";
 const PH_HOST = "https://us.i.posthog.com";
 let _phLoaded = false;
 function analyticsOn() { return localStorage.getItem("money.analytics") === "1"; }
@@ -2543,9 +2558,11 @@ function initAnalytics() {
     autocapture: false,              // NEVER auto-grab DOM text (your financial data)
     disable_session_recording: true, // never record the screen
     capture_pageview: true,
+    person_profiles: "identified_only", // stay anonymous — no person profiles created
     persistence: "localStorage",
     respect_dnt: true,
   });
+  try { if (window.posthog.opt_in_capturing) window.posthog.opt_in_capturing(); } catch (e) {}  // clear any persisted opt-out from a prior session
   track("app_loaded", { widgets: Object.keys(layout || {}) });
 }
 // ── Click sparks: rapid clicking shoots theme-colored sparks from the cursor —
@@ -2934,8 +2951,11 @@ function openSettings() {
     const on = !analyticsOn();
     localStorage.setItem("money.analytics", on ? "1" : "0");
     paintAn();
-    if (on) { initAnalytics(); track("opted_in"); }
-    else { try { if (window.posthog && window.posthog.opt_out_capturing) window.posthog.opt_out_capturing(); } catch (e) {} }
+    if (on) {
+      if (_phLoaded) { try { if (window.posthog && window.posthog.opt_in_capturing) window.posthog.opt_in_capturing(); } catch (e) {} }
+      else initAnalytics();   // first time this session → load + init (which opts in)
+      track("opted_in");
+    } else { try { if (window.posthog && window.posthog.opt_out_capturing) window.posthog.opt_out_capturing(); } catch (e) {} }
   });
 
   const tierHost = modal.querySelector("#setTier");
@@ -3228,7 +3248,7 @@ const LIBRARY = [
   { type: "accountflow", title: "Money flow", w: 320, h: 380 },
   { type: "incomeforecast", title: "Income forecast", w: 340, h: 340 },
   { type: "work", title: "Work planner", w: 300, h: 210 },
-  { type: "averages", title: "Averages", w: 300, h: 260 },
+  { type: "averages", title: "Statistics", w: 330, h: 300 },
   { type: "worklog", title: "Time worked", w: 300, h: 270 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
@@ -3392,9 +3412,8 @@ const WIDGET_INFO = {
     "<p><b>Hours/week</b> = (Gap ÷ your $/hr rate) ÷ 4.33 weeks.</p>" +
     "<p>Set your rate in <b>Settings → Work rate</b>.</p>",
   averages:
-    "<p><b>Source:</b> your full ledger, bucketed by calendar month (the partial current month is skipped).</p>" +
-    "<p>Each row = the <b>average across those months</b>. Spending <b>excludes transfers</b>.</p>" +
-    "<p><b>Gig work</b> = deposits from gig platforms (delivery, rideshare, etc.). <b>Shortfall</b> = avg spend − avg income.</p>",
+    "<p><b>Source:</b> your whole ledger — lifetime totals, per-month buckets, and per-category sums (the partial current month is skipped for averages).</p>" +
+    "<p>A spread of real <b>data facts</b>: monthly averages, savings rate, your best + leanest months, top category, biggest single expense, and lifetime in/out. Spending <b>excludes transfers</b>.</p>",
   worklog:
     "<p><b>Source:</b> Toggl hours (<code>toggl_sync.py</code> → <code>toggl.json</code>) paired with <b>real income from your ledger</b> over the same window.</p>" +
     "<p><b>Worked</b> = sum of this month's Toggl durations (a running timer counts now − start).</p>" +
@@ -3454,7 +3473,7 @@ function makeWidget(id, entry) {
     '<button class="widget-help" title="What data &amp; how it’s calculated" aria-label="How it’s calculated">?</button>' +
     '<button class="widget-magnet' + (entry.snap ? " on" : "") +
       '" title="Snap to grid" aria-label="Toggle snap"><i data-lucide="magnet"></i></button>' +
-    '<button class="widget-toggle" title="Hide / show frame" aria-label="Toggle frame"><span class="toggle-dot"></span></button>' +
+    '<button class="widget-color" title="Widget color" aria-label="Widget color"><span class="color-dot"></span></button>' +
     '<button class="widget-close" aria-label="Remove">✕</button>' +
     "</span>";
 
@@ -3486,16 +3505,16 @@ function makeWidget(id, entry) {
   });
   canvas.appendChild(node);
   nodes[id] = node;
+  if (entry.color) node.style.setProperty("--accent", entry.color);  // per-widget color
 
   RENDERERS[entry.type](body, entry);
   drawIcons();
   bar.querySelector(".widget-help").addEventListener("click", (e) => { e.stopPropagation(); node.classList.add("flipped"); });
   back.querySelector(".flip-back").addEventListener("click", () => node.classList.remove("flipped"));
   bar.querySelector(".widget-close").addEventListener("click", () => removeWidget(id));
-  bar.querySelector(".widget-toggle").addEventListener("click", () => {
-    entry.bare = !entry.bare;
-    node.classList.toggle("bare", entry.bare);
-    saveLayout();
+  bar.querySelector(".widget-color").addEventListener("click", (e) => {
+    e.stopPropagation();
+    openWidgetColor(e.currentTarget, entry, node);
   });
   bar.querySelector(".widget-magnet").addEventListener("click", () => {
     entry.snap = !entry.snap;
@@ -3603,6 +3622,7 @@ function applyIconToWidget(id, name) {
   drawIcons();
 }
 function removeWidget(id) {
+  track("widget_removed", { widget: (layout[id] && layout[id].type) || "" });
   if (nodes[id]) { nodes[id].remove(); delete nodes[id]; }
   delete layout[id];
   saveLayout();
@@ -4075,6 +4095,7 @@ document.getElementById("bgToggle").addEventListener("click", (e) => {
   if (document.querySelector(".bg-pop")) closeBgPop();
   else openBgPop();
 });
+applyBg(localStorage.getItem(BG_KEY) || "");  // restore the chosen background on load
 
 // ── Sync health (bottom-right) ─────────────────────────────
 const syncHealth = document.getElementById("syncHealth");
@@ -4753,6 +4774,7 @@ function openLedger() {
       fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
       fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
       awardTripExp();                                             // every trip pays out EXP
+      track("trip_booked", {});                                  // flagship action — booked a trip to the cache
       buildDash();                                                // light up the cockpit
     }, calm ? 700 : 1450);
   };
@@ -5757,10 +5779,6 @@ function buildKingBar() {
     "</div>";
   document.body.appendChild(bar);
   const pill = bar.querySelector(".king-stats");
-  const vine = '<path d="M40 90 C 18 66, 54 50, 24 30 C 14 22, 30 10, 40 16" stroke="#3c6b2e" stroke-width="4" fill="none" stroke-linecap="round"/><ellipse cx="22" cy="52" rx="11" ry="6" fill="#4e8b3a" transform="rotate(-34 22 52)"/><ellipse cx="44" cy="34" rx="11" ry="6" fill="#62a849" transform="rotate(28 44 34)"/><ellipse cx="40" cy="16" rx="8" ry="5" fill="#73bd57" transform="rotate(-8 40 16)"/>';
-  pill.insertAdjacentHTML("beforeend",
-    '<svg class="king-vine kv-l" viewBox="0 0 70 90" aria-hidden="true">' + vine + "</svg>" +
-    '<svg class="king-vine kv-r" viewBox="0 0 70 90" aria-hidden="true">' + vine + "</svg>");
   pill.addEventListener("click", () => openKingCozy());
   const set = (id, n) => { const e = document.getElementById(id); if (e) e.textContent = (n == null ? "—" : n.toLocaleString ? n.toLocaleString() : n); };
   (function kingRefresh() {
@@ -5793,31 +5811,12 @@ let KING = false;
 function applyKing() {
   if (!KING) return;
   buildKingBar();
-  document.body.classList.add("king-on");  // founder: enables the cartridge clunk-in (CSS) + plug-in layout
+  document.body.classList.add("king-on");  // founder marker (for any founder-only styling)
   const k = document.getElementById("kingCozy");
   if (k) k.style.display = "";  // reveal the King menu item
   syncBadges();  // award the Founder badge now that the lock is confirmed
 }
 fetch("/api/ping").then((r) => r.json()).then((d) => { KING = !!(d && d.founder); applyKing(); }).catch(() => {});
-
-// Scroll-driven cartridge plug: at the top the bar sits unplugged; scroll down → it
-// clunks into the gold slot; back to the top → it pops out. CSS does the motion off
-// body.cart-in. Hysteresis (plug >40, unplug <8) keeps it from flickering at the edge.
-(function plugScroll() {
-  const board = document.getElementById("board");
-  if (!board) return;
-  if (reduceMotion()) { document.body.classList.add("cart-in"); return; }  // stay seated, no motion
-  let inDock = false, ticking = false;
-  const update = () => {
-    ticking = false;
-    const want = inDock ? board.scrollTop > 8 : board.scrollTop > 40;
-    if (want === inDock) return;
-    inDock = want;
-    document.body.classList.toggle("cart-in", want);
-  };
-  board.addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
-  update();
-})();
 
 // ── Boot ───────────────────────────────────────────────────
 Object.keys(layout).forEach((id) => makeAny(id, layout[id]));

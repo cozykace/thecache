@@ -93,6 +93,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {"links": store.load_income_links()})
         if path == "/api/averages":
             return self._json(200, store.averages())
+        if path == "/api/statistics":
+            return self._json(200, store.statistics())
         if path == "/api/work":
             return self._json(200, store.work_summary())
         if path == "/api/income-monthly":

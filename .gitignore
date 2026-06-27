@@ -36,3 +36,6 @@ __pycache__/
 
 # Brand/design references — private, local only
 BRAND.md
+
+# Cloud architecture plan — private security/strategy doc
+CLOUD-PLAN.md
