@@ -24,8 +24,9 @@ cp "$HERE/av assets/THECACHE_LOGO_WHITE.png" "$DEST/av assets/THECACHE_LOGO_WHIT
 cp "$HERE/av assets/THECACHE_LOGO_BLACK.png" "$DEST/av assets/THECACHE_LOGO_BLACK.png"
 cp "$HERE/av assets/goat-pixel.png" "$DEST/av assets/goat-pixel.png"
 cp "$HERE/av assets/shing.wav" "$DEST/av assets/shing.wav"
+cp "$HERE/av assets/warp.wav" "$DEST/av assets/warp.wav"
 
 # drop anything stale that isn't part of the lean set
-find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECACHE_LOGO_BLACK.png" ! -name "goat-pixel.png" ! -name "shing.wav" -delete
+find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECACHE_LOGO_BLACK.png" ! -name "goat-pixel.png" ! -name "shing.wav" ! -name "warp.wav" -delete
 
 echo "demo refreshed → $DEST"

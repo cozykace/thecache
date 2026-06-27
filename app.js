@@ -4305,6 +4305,7 @@ function fmtCompact(n) {
 }
 function buildConstellation(svg, months) {
   if (!months.length) { svg.innerHTML = '<text x="500" y="160" text-anchor="middle" fill="rgba(255,255,255,.4)" font-size="15" font-family="ui-monospace,monospace">your constellation fills in as the months accumulate</text>'; return; }
+  const ACC = (getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()) || "#FFD409";  // match the app's theme
   const W = 1000, H = 320, pad = 64, n = months.length;
   const xAt = (i) => pad + i * (W - 2 * pad) / Math.max(1, n - 1);
   const maxA = Math.max(1, ...months.map((m) => Math.abs(m.net || 0)));
@@ -4315,9 +4316,9 @@ function buildConstellation(svg, months) {
   svg.innerHTML = '<path d="' + path + '" fill="none" stroke="rgba(180,130,255,.45)" stroke-width="1.5"/>' +
     nodes.map((p, i) => {
       const net = p.m.net || 0, pos = net >= 0, r = 6 + Math.min(14, Math.abs(net) / maxA * 14);
-      return '<circle cx="' + p.x.toFixed(0) + '" cy="' + p.y.toFixed(0) + '" r="' + r.toFixed(0) + '" fill="' + (pos ? "#FFD409" : "#e0734a") + '" opacity="0.9"><animate attributeName="opacity" values="0.55;1;0.55" dur="' + (2 + i * 0.25).toFixed(1) + 's" repeatCount="indefinite"/></circle>' +
+      return '<circle cx="' + p.x.toFixed(0) + '" cy="' + p.y.toFixed(0) + '" r="' + r.toFixed(0) + '" fill="' + (pos ? ACC : "#e0734a") + '" opacity="0.9"><animate attributeName="opacity" values="0.55;1;0.55" dur="' + (2 + i * 0.25).toFixed(1) + 's" repeatCount="indefinite"/></circle>' +
         '<text x="' + p.x.toFixed(0) + '" y="' + (p.y - r - 8).toFixed(0) + '" text-anchor="middle" font-size="11" fill="#fff" opacity="0.8" font-family="ui-monospace,monospace">' + escapeHtml(p.m.label || "") + "</text>" +
-        '<text x="' + p.x.toFixed(0) + '" y="' + (p.y + r + 16).toFixed(0) + '" text-anchor="middle" font-size="10" fill="' + (pos ? "rgba(255,212,9,.85)" : "rgba(224,115,74,.9)") + '" font-family="ui-monospace,monospace">' + fmtCompact(net) + "</text>";
+        '<text x="' + p.x.toFixed(0) + '" y="' + (p.y + r + 16).toFixed(0) + '" text-anchor="middle" font-size="10" fill="' + (pos ? ACC : "#e0734a") + '" opacity="0.9" font-family="ui-monospace,monospace">' + fmtCompact(net) + "</text>";
     }).join("");
 }
 // Songs you've approved to play when a trip to the cache is booked (the travel
@@ -4351,6 +4352,7 @@ function openLedger() {
       '<div class="lg-eyebrow lg-gold">⟢ The Ledger ⟣</div>' +
       '<div class="lg-title">YOUR LIFE, IN DATA</div>' +
       '<div class="lg-headline" id="lgHeadline"></div>' +
+      '<div class="lg-reward lg-hidden" id="lgReward"></div>' +
       '<svg class="lg-const" id="lgConst" viewBox="0 0 1000 320" preserveAspectRatio="xMidYMid meet"></svg>' +
       '<button class="lg-back">↩ back to the cache</button>' +
     "</div>" +
@@ -4358,6 +4360,10 @@ function openLedger() {
     '<div class="lg-flash"></div>';
   document.body.appendChild(root);
   let song = null;
+  try {  // preload the trip song NOW (while the booking screen shows) so it starts the instant you book
+    song = new Audio(TRIP_SONGS[Math.floor(Math.random() * TRIP_SONGS.length)]);
+    song.loop = true; song.volume = 0; song.preload = "auto"; song.load();
+  } catch (e) { song = null; }
   const cv = root.querySelector(".lg-canvas"), ctx = cv.getContext("2d");
   let W, H, cx, cy;
   const size = () => { W = cv.width = innerWidth; H = cv.height = innerHeight; cx = W / 2; cy = H / 2; };
@@ -4386,18 +4392,34 @@ function openLedger() {
     if (booked) return; booked = true;
     board.classList.add("lg-hidden"); intro.classList.remove("lg-hidden");
     mode = "warp"; target = 11;                                   // the slingshot — kick into the journey
-    try {
-      song = new Audio(TRIP_SONGS[Math.floor(Math.random() * TRIP_SONGS.length)]);
-      song.loop = true; song.volume = 0;
-      song.play().then(() => { muteBtn.classList.remove("lg-hidden"); fadeAudio(song, 0.45, 2200); }).catch(() => { song = null; });  // graceful if file missing
-    } catch (e) { song = null; }
+    muteBtn.classList.remove("lg-hidden");                        // mute available the whole trip
+    if (song) { song.volume = 0; song.play().then(() => fadeAudio(song, 0.45, 500)).catch(() => { song = null; }); }  // starts right now (preloaded)
+    try { const warp = new Audio("av%20assets/warp.wav"); warp.volume = 0.5; warp.play().catch(() => {}); } catch (e) {}  // the whoosh
     setTimeout(() => flash.classList.add("on"), 1050);
     setTimeout(() => {                                            // arrive: you're at your cache
       intro.classList.add("lg-hidden"); led.classList.remove("lg-hidden"); mode = "idle"; target = 0.5; flash.classList.remove("on");
       const head = root.querySelector("#lgHeadline"), svg = root.querySelector("#lgConst");
       fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
       fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
+      awardTripExp();                                             // every trip pays out EXP
     }, 1450);
+  };
+  const awardTripExp = () => {
+    const gained = 25;
+    addExp(gained);                                              // actually banks it (persists + updates the top ⭐ EXP)
+    logChar("trip", "Booked a trip to the cache · +" + gained + " EXP");
+    const rw = root.querySelector("#lgReward");
+    rw.innerHTML = '<span class="lg-rw-amt">+0</span>' +
+      '<span class="lg-rw-lbl">EXP banked · <b>' + PROFILE_STATS.exp.toLocaleString() + '</b> total in your cache</span>' +
+      '<span class="lg-rw-star">⭐</span>';
+    rw.classList.remove("lg-hidden"); rw.classList.add("lg-rw-show");
+    const amtEl = rw.querySelector(".lg-rw-amt"), t0 = performance.now();
+    const countUp = () => {                                       // watch the points tick up
+      const k = Math.min(1, (performance.now() - t0) / 800);
+      amtEl.textContent = "+" + Math.round(k * gained);
+      if (k < 1) requestAnimationFrame(countUp);
+    };
+    countUp();
   };
   const close = () => {
     cancelAnimationFrame(raf); window.removeEventListener("resize", size); document.removeEventListener("keydown", onKey);
