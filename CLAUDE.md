@@ -62,7 +62,7 @@ The board is desktop-first today (drag / zoom / pan), but build everything new s
 - *money config*: `reserve` `need` `core` `guaranteedIncome` `rate` `rent` `rentAccount` `period` `mustpayOrder` `planNextOpen` `balExpanded` `balNet`
 - *subs/categories*: `subcore` `subnames` `subpaused` `subcadence` `subsMigrated` `cats` `catMgr` `catModal` `flowCards`
 - *income forecast*: `forecastSources` `forecastGoal` `forecastMode`
-- *misc/ui*: `favorites` `autoPinFavorites` `soundtrack` `clock24` `clockSecs` `dateFmt` `tz` `note` `skipUpdate` `settings` `connect`
+- *misc/ui*: `favorites` `autoPinFavorites` `soundtrack` `clock24` `clockSecs` `dateFmt` `tz` `note` `skipUpdate` `settings` `connect` `badges`
 
 **Systems map** (added since the original CLAUDE.md — where the new stuff lives in `app.js`):
 - *Character* — `cacheLevel()`/`renderCharacter()` (sidebar card), `logChar()`/`openCharLog()` (journey arcs `JOURNEY` + skills + activity ledger), `getCacheName()` (founder → "King Cozy Cache").

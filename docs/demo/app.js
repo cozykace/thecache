@@ -771,8 +771,13 @@ const RENDERERS = {
         sl.style.setProperty("--fill", fillPct(sl));
         const row = sl.closest(".if-src");
         const s = sources.find((x) => x.id === sl.dataset.id);
+        let lastVal = parseFloat(sl.value) || 0, expPx = 0;  // bank EXP for effort — ~1 per 50px the thumb travels
         sl.addEventListener("input", () => {
           s.value = parseFloat(sl.value) || 0;
+          const span = (parseFloat(sl.max) - parseFloat(sl.min)) || 1;
+          expPx += Math.abs((s.value - lastVal) / span) * (sl.clientWidth || 200);
+          lastVal = s.value;
+          if (expPx >= 50) { const g = Math.floor(expPx / 50); expPx -= g * 50; addExp(g); }
           sl.style.setProperty("--fill", fillPct(sl));
           row.querySelector(".if-src-val").textContent = fmtUSD(contribution(s)) + "/mo";
           if (s.mode === "hourly") row.querySelector(".if-src-hours").textContent = s.value;
@@ -2118,11 +2123,12 @@ function openKingCozy() {
   const close = () => { back.remove(); modal.remove(); };
   back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
   const days = Math.max(1, Math.round((Date.now() - charSince()) / 86400000));
+  const lv = cacheLevel(PROFILE_STATS.exp);
   const tile = (id, label) => '<div class="king-tile"><b id="' + id + '">…</b><span>' + label + "</span></div>";
   modal.innerHTML =
     '<div class="cat-head king-head"><span>👑 KING&nbsp;COZY // SYSTEM</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="king-body">' +
-      '<div class="king-sub">founder &amp; developer console · the build, by the numbers</div>' +
+      '<div class="king-sub">founder &amp; developer console · member №1 · the build, by the numbers</div>' +
       '<div class="king-grid">' +
         tile("kc-shipped", "features shipped") +
         tile("kc-progress", "in progress") +
@@ -2133,6 +2139,18 @@ function openKingCozy() {
         tile("kc-downloads", "downloads") +
         '<div class="king-tile"><b>' + PROFILE_STATS.exp.toLocaleString() + "</b><span>project EXP</span></div>" +
         '<div class="king-tile"><b>' + days + "</b><span>days building</span></div>" +
+      "</div>" +
+      '<div class="king-sub" style="margin-top:18px">🔒 deeper · tucked away</div>' +
+      '<div class="king-grid">' +
+        '<div class="king-tile"><b>№1</b><span>founding member</span></div>' +
+        '<div class="king-tile"><b>L' + lv.lvl + "</b><span>" + escapeHtml(lv.title) + "</span></div>" +
+        '<div class="king-tile"><b>' + (PROFILE_STATS.clicks || 0).toLocaleString() + "</b><span>interactions</span></div>" +
+        tile("kc-commits", "commits") +
+        tile("kc-loc", "lines of code") +
+        tile("kc-files", "files") +
+        tile("kc-ledger", "txns tracked") +
+        tile("kc-accounts", "accounts") +
+        tile("kc-coverage", "days covered") +
       "</div>" +
       '<div class="king-sub" style="margin-top:18px">PostHog · live · last 7 days</div>' +
       '<div class="king-ph" id="kingPh"><span class="king-dim">connecting to PostHog…</span></div>' +
@@ -2151,6 +2169,11 @@ function openKingCozy() {
   fetch("https://api.github.com/repos/cozykace/thecache")
     .then((r) => r.json()).then((d) => { set("kc-stars", d.stargazers_count); set("kc-forks", d.forks_count); set("kc-downloads", 0); })
     .catch(() => {});
+  fetch("/api/king-stats?t=" + Date.now()).then((r) => r.json()).then((d) => {
+    if (!d || !d.ok) return;
+    set("kc-commits", d.commits); set("kc-loc", d.loc); set("kc-files", d.files);
+    set("kc-ledger", d.ledger); set("kc-accounts", d.accounts); set("kc-coverage", d.coverage_days);
+  }).catch(() => {});
   fetch("/api/posthog-stats?t=" + Date.now()).then((r) => r.json()).then((d) => {
     const ph = document.getElementById("kingPh"); if (!ph) return;
     if (!d || !d.ok) { ph.innerHTML = '<span class="king-dim">' + (d && d.error === "no key" ? "drop your PostHog Personal API key in <b>.posthog</b> to see live stats" : "PostHog not connected yet") + "</span>"; return; }
@@ -2236,7 +2259,94 @@ const JOURNEY = [
   { arc: "Mastery", lvls: "7–8", feats: ["Multi-month streak", "Positive net trend", "Full data coverage"] },
   { arc: "Legend", lvls: "9–10", feats: ["Long streak", "Real cushion", "Verified vault"] },
 ];
+// ── 8-bit pixel glyphs for the merit badges — duotone (currentColor on transparent),
+//    drawn on an 8×8 grid so they read as flat retro sprites, not hi-fi icons. ──
+const PIX = {
+  founder:   ["##.##.##", "##.##.##", "########", "########", ".######.", ".######.", ".######.", "########"],
+  awakened:  ["...##...", "#.#..#.#", "##....##", ".##..##.", "...##...", "...##...", "..####..", ".######."],
+  connected: ["##..##..", "##..##..", "########", "########", "...##...", "...##...", "...##...", "...##..."],
+  earner:    [".######.", "########", "###..###", "##.##.##", "##.##.##", "###..###", "########", ".######."],
+  architect: ["###.####", "###.####", "........", "#.####.#", "#.####.#", "........", "###.####", "###.####"],
+  watchful:  ["........", ".######.", "##....##", "#..##..#", "##....##", ".######.", "........", "........"],
+  verified:  ["..####..", ".#....#.", ".#....#.", "########", "##....##", "##.##.##", "##....##", "########"],
+  ascendant: ["..###...", ".#...#..", ".#...#..", "..###...", "...#....", "...#....", "...##...", "...#.#.."],
+  blessed:   ["...##...", "...##...", "#.####.#", "########", "########", "#.####.#", "...##...", "...##..."],
+  steadfast: ["...#....", "..###...", "..###...", ".#####..", "#######.", "#######.", ".#####..", "..###..."],
+  devoted:   ["#.####.#", "########", "########", "##.##.##", "##.##.##", "########", "........", "........"],
+  legend:    ["...##...", "..####..", ".######.", "########", ".######.", "..####..", "...##...", "........"],
+};
+function pixSVG(id) {
+  const rows = PIX[id] || [];
+  let cells = "";
+  rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) if (r[x] === "#") cells += '<rect x="' + x + '" y="' + y + '" width="1" height="1"/>'; });
+  return '<svg viewBox="0 0 8 8" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">' + cells + "</svg>";
+}
+// ── Merit badges: achievements you earn by doing the real work. Each badge has a
+//    plain-English earn rule read from live state (level, health, connected data,
+//    streaks, the founder lock). Earned ones are inked-in; locked ones show what to
+//    do. New earns get logged to your ledger so the pride is permanent. ──
+const BADGES = [
+  { id: "founder",   name: "Founder",       icon: "👑", tier: "mythic", desc: "Built THE CACHE. One of one.",            earn: (c) => c.king },
+  { id: "awakened",  name: "Awakened",      icon: "🌱", tier: "bronze", desc: "Named your cache and began the journey.", earn: (c) => c.named },
+  { id: "connected", name: "Connected",     icon: "🔌", tier: "bronze", desc: "Linked a real account to your cache.",    earn: (c) => c.accounts > 0 },
+  { id: "earner",    name: "Earner",        icon: "💰", tier: "bronze", desc: "Tagged where your income comes from.",     earn: (c) => c.incomeTagged },
+  { id: "architect", name: "Architect",     icon: "🧱", tier: "silver", desc: "Laid out a budget / your must-pays.",      earn: (c) => c.budget },
+  { id: "watchful",  name: "Watchful",      icon: "🛰️", tier: "silver", desc: "Surfaced your recurring subscriptions.",   earn: (c) => c.subs > 0 },
+  { id: "verified",  name: "Vault Verified",icon: "🔒", tier: "silver", desc: "Ledger audited — private & intact.",       earn: (c) => c.verified },
+  { id: "ascendant", name: "Ascendant",     icon: "🗝️", tier: "gold",   desc: "Reached cache Level 5.",                   earn: (c) => c.lvl >= 5 },
+  { id: "blessed",   name: "Blessed",       icon: "✦",  tier: "gold",   desc: "Maxed your cache health.",                 earn: (c) => c.healthFull },
+  { id: "steadfast", name: "Steadfast",     icon: "🔥", tier: "gold",   desc: "Held a 3-month expenses streak.",          earn: (c) => c.streak >= 3 },
+  { id: "devoted",   name: "Devoted",       icon: "📅", tier: "gold",   desc: "30 days with your cache.",                 earn: (c) => c.days >= 30 },
+  { id: "legend",    name: "Legend",        icon: "💠", tier: "mythic", desc: "Reached cache Level 10.",                  earn: (c) => c.lvl >= 10 },
+];
+function badgeCtx() {
+  const d = Store.data || {};
+  const L = cacheLevel(PROFILE_STATS.exp);
+  const has = (k) => { const v = localStorage.getItem(k); return v != null && v !== ""; };
+  let streak = 0;
+  try { ensureCustomStats().forEach((c) => { if (c.kind === "streak") streak = Math.max(streak, streakCount(c.marks)); }); } catch (e) {}
+  return {
+    king: typeof KING !== "undefined" && KING,
+    lvl: L.lvl, days: Math.max(1, Math.round((Date.now() - charSince()) / 86400000)),
+    accounts: (d.accounts || []).length,
+    incomeTagged: (((d.income || {}).sources) || []).some((s) => s.tagged),
+    subs: (((d.subscriptions || {}).items) || []).length,
+    named: has("money.cacheName"),
+    budget: has("money.mustpayOrder") || has("money.need") || has("money.core") || has("money.reserve"),
+    healthFull: _healthFull, verified: _integrityOk === true, streak,
+  };
+}
+function earnedBadges() {
+  const c = badgeCtx(), s = new Set();
+  BADGES.forEach((b) => { try { if (b.earn(c)) s.add(b.id); } catch (e) {} });
+  return s;
+}
+function renderBadges() {
+  const got = earnedBadges();
+  const cells = BADGES.map((b) => {
+    const on = got.has(b.id);
+    return '<div class="badge ' + (on ? "got tier-" + b.tier : "lock") + '" data-bn="' + escapeHtml(b.name) +
+      '" data-bd="' + escapeHtml(b.desc) + '" data-on="' + (on ? "1" : "0") + '" title="' + escapeHtml(b.name + " — " + b.desc) + '">' +
+      '<div class="badge-disc">' + pixSVG(b.id) + "</div>" +
+      '<span class="badge-name">' + escapeHtml(b.name) + "</span></div>";
+  }).join("");
+  return '<div class="char-sec">Merit badges <span class="badge-count">' + got.size + "/" + BADGES.length + "</span></div>" +
+    '<div class="badge-grid">' + cells + "</div>" +
+    '<div class="badge-caption" id="badgeCaption">Tap a badge to see how it’s earned.</div>';
+}
+const BADGES_KEY = "money.badges";
+function syncBadges() {
+  const got = earnedBadges();
+  let prev;
+  try { prev = JSON.parse(localStorage.getItem(BADGES_KEY) || "null"); } catch (e) { prev = null; }
+  if (!Array.isArray(prev)) { localStorage.setItem(BADGES_KEY, JSON.stringify([...got])); return; }  // first run: seed silently, no feat spam
+  const prevSet = new Set(prev);
+  let changed = false;
+  BADGES.forEach((b) => { if (got.has(b.id) && !prevSet.has(b.id)) { logChar("feat", "Earned the " + b.name + " badge"); changed = true; } });
+  if (changed || got.size !== prevSet.size) localStorage.setItem(BADGES_KEY, JSON.stringify([...got]));
+}
 function openCharLog() {
+  syncBadges();  // award + log any newly-earned badges before we draw them
   const back = document.createElement("div"); back.className = "cat-backdrop";
   const modal = document.createElement("div"); modal.className = "cat-modal char-modal";
   const close = () => { back.remove(); modal.remove(); };
@@ -2271,6 +2381,7 @@ function openCharLog() {
       "</div>" +
       '<div class="char-bar"><span style="width:' + (L.pct * 100).toFixed(1) + '%"></span></div>' +
       '<div class="char-since">since ' + since + " · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1) + "</div>" +
+      renderBadges() +
       '<div class="char-sec">Skills &amp; unlocks</div><div class="sk-pills">' + skills + "</div>" +
       '<div class="char-sec">Journey · tech tree</div><div class="tt-tree">' + arcs + "</div>" +
       '<div class="char-sec">Your ledger</div>' + rows +
@@ -2279,6 +2390,10 @@ function openCharLog() {
   modal.querySelector(".cat-close").addEventListener("click", close);
   modal.querySelectorAll(".sk-pill.got").forEach((b) => b.addEventListener("click", () => {  // "unleash" pulse
     b.classList.remove("unleash"); void b.offsetWidth; b.classList.add("unleash");
+  }));
+  const cap = modal.querySelector("#badgeCaption");
+  modal.querySelectorAll(".badge").forEach((el) => el.addEventListener("click", () => {  // tap to reveal name + how it's earned
+    if (cap) cap.textContent = el.dataset.bn + " — " + el.dataset.bd + (el.dataset.on === "1" ? " ✓ earned" : " · locked");
   }));
 }
 function renderCharacter() {
@@ -2492,14 +2607,14 @@ function openConnect() {
     '<div class="cat-head"><span>Connect a bank</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="connect-body">' +
       '<div class="cn-status">checking…</div>' +
-      '<div class="cn-intro">Bank data comes through <b>SimpleFIN Bridge</b> — a read-only service that <b>never hands the app your bank login</b>. The connection is stored only on this Mac. First time? Do this once:</div>' +
+      '<div class="cn-intro">Bank data comes through <b>SimpleFIN Bridge</b> — a read-only service that <b>never hands the app your bank login</b>. The connection is stored only on this computer. First time? Do this once:</div>' +
       '<ol class="cn-steps">' +
         '<li>Make a SimpleFIN account at <a href="https://bridge.simplefin.org" target="_blank" rel="noreferrer">bridge.simplefin.org</a> <span class="cn-dim">(~$15/yr — it protects your bank login)</span>.</li>' +
         '<li>In SimpleFIN, connect your bank(s).</li>' +
         '<li>Click <b>New app connection</b> → it shows a long <b>setup token</b>.</li>' +
         '<li>Copy the <b>whole</b> token and paste it below.</li>' +
       '</ol>' +
-      '<textarea class="cn-token" rows="3" placeholder="paste YOUR SimpleFIN setup token here (it stays on this Mac)"></textarea>' +
+      '<textarea class="cn-token" rows="3" placeholder="paste YOUR SimpleFIN setup token here (it stays on this computer)"></textarea>' +
       '<button class="cn-connect">Connect &amp; sync</button>' +
       '<div class="cn-or">— or, free, no bank —</div>' +
       '<div class="cn-alts">' +
@@ -2725,7 +2840,7 @@ function openSettings() {
         '<button class="set-token-eye" id="setTokenEye" type="button" aria-label="Show/hide token"><i data-lucide="eye"></i></button></div>' +
       '<div class="set-bank-row"><button class="set-bank-btn" id="setConnect">Connect &amp; sync</button>' +
         '<button class="set-bank-help" id="setConnectHelp">Help &amp; demo</button></div>' +
-      '<div class="set-hint">Get a token from your SimpleFIN account → “New app connection”. It stays on this Mac, never shared. New here? Tap <b>Help &amp; demo</b> for steps + free sample data.</div>' +
+      '<div class="set-hint">Get a token from your SimpleFIN account → “New app connection”. It stays on this computer, never shared. New here? Tap <b>Help &amp; demo</b> for steps + free sample data.</div>' +
       '<div class="set-sec">Safety buffer</div>' +
       '<label class="set-row"><span>Reserve (don’t-touch)</span><input id="setReserve" type="number" value="' + v("money.reserve") + '" placeholder="0"></label>' +
       '<label class="set-row"><span>Monthly need</span><input id="setNeed" type="number" value="' + v("money.need") + '" placeholder="auto from core"></label>' +
@@ -2897,10 +3012,10 @@ function openSettings() {
   };
   renderSetStats();
 
-  const cur = document.documentElement.getAttribute("data-theme") || "light";
+  const cur = document.documentElement.getAttribute("data-theme") || "mono";
   const th = modal.querySelector("#setThemes");
-  th.innerHTML = THEMES.map((t) => themeChipHtml(t, cur)).join("");
-  wireThemeChips(th);
+  th.innerHTML = themeUIHtml();
+  wireThemeUI(th);
 
   const fh = modal.querySelector("#setFonts");
   if (fh) {
@@ -3530,8 +3645,10 @@ function makeResizable(node, grips, id) {
       if (corner.indexOf("s") >= 0) h = Math.max(MIN_H, sh + dy);
       if (corner.indexOf("n") >= 0) { h = Math.max(MIN_H, sh - dy); t = st + sh - h; }
       if (layout[id] && layout[id].snap) {
-        // SIZE stays free — a custom resize wins even if it breaks the gutter grid;
-        // only the position snaps to the grid.
+        // magnet ON → snap SIZE to the gutter grid AND position to the grid as you drag.
+        // (Want a free, off-grid size? Toggle the magnet off and resize freely.)
+        w = snapSize(w, MIN_W);
+        h = snapSize(h, MIN_H);
         if (corner.indexOf("w") >= 0) l = sl + sw - w;
         if (corner.indexOf("n") >= 0) t = st + sh - h;
         l = snapTo(l); t = snapTo(t);
@@ -3737,6 +3854,7 @@ document.getElementById("sidebarClose").addEventListener("click", () => setSideb
 // ── Theme (color profiles) ─────────────────────────────────
 const THEME_KEY = "money.theme";
 const THEMES = [
+  { id: "mono", label: "Mono (auto)", bg: "#f3f2ef", accent: "#1c1c1a" },
   { id: "cache", label: "The Cache", bg: "#16140c", accent: "#FFD409" },
   { id: "light", label: "Oat Milk", bg: "#ece6d6", accent: "#c9542e" },
   { id: "dark", label: "Goblin Mode", bg: "#14130e", accent: "#e0734a" },
@@ -3774,14 +3892,48 @@ function wireThemeChips(container, onPick) {
   container.querySelectorAll(".theme-chip").forEach((c) => c.addEventListener("click", () => {
     applyTheme(c.dataset.id);
     container.querySelectorAll(".theme-chip").forEach((x) => x.classList.toggle("active", x === c));
+    container.querySelectorAll(".mono-btn").forEach((x) => x.classList.remove("on"));  // a color profile won the slot
     if (onPick) onPick(c.dataset.id);
   }));
+}
+// ── Mono tier: Light / Auto / Dark. "auto" follows the OS; light/dark force it.
+//    A higher-level toggle that sits above the color profiles in the picker. ──
+const MONO_MODE_KEY = "money.monoMode";
+function monoMode() { const m = localStorage.getItem(MONO_MODE_KEY); return (m === "light" || m === "dark") ? m : "auto"; }
+function applyMonoMode(m) {
+  if (!["light", "auto", "dark"].includes(m)) m = "auto";
+  localStorage.setItem(MONO_MODE_KEY, m);
+  document.documentElement.setAttribute("data-monomode", m);
+}
+function monoSegHtml() {
+  const onMono = document.documentElement.getAttribute("data-theme") === "mono";
+  const m = monoMode();
+  const btn = (id, label) => '<button class="mono-btn' + (onMono && m === id ? " on" : "") + '" data-mono="' + id + '" type="button">' + label + "</button>";
+  return '<div class="mono-tier">' +
+      '<div class="mono-tier-top"><span class="mono-tier-name">Mono</span><span class="mono-tier-sub">black &amp; white · follows your system</span></div>' +
+      '<div class="mono-seg">' + btn("light", "Light") + btn("auto", "Auto") + btn("dark", "Dark") + "</div>" +
+    "</div>";
+}
+function themeUIHtml() {
+  const cur = document.documentElement.getAttribute("data-theme") || "mono";
+  return monoSegHtml() +
+    '<div class="theme-chips-grid">' + THEMES.filter((t) => t.id !== "mono").map((t) => themeChipHtml(t, cur)).join("") + "</div>";
+}
+function wireThemeUI(container, onPick) {
+  container.querySelectorAll(".mono-btn").forEach((b) => b.addEventListener("click", () => {
+    applyTheme("mono"); applyMonoMode(b.dataset.mono);
+    container.querySelectorAll(".mono-btn").forEach((x) => x.classList.toggle("on", x === b));
+    container.querySelectorAll(".theme-chip").forEach((x) => x.classList.remove("active"));
+  }));
+  wireThemeChips(container, onPick);
 }
 const themeBtn = document.getElementById("themeToggle");
 
 function applyTheme(id) {
-  if (!THEMES.some((t) => t.id === id)) id = "light";
+  if (!THEMES.some((t) => t.id === id)) id = "mono";
   document.documentElement.setAttribute("data-theme", id);
+  if (id === "mono") document.documentElement.setAttribute("data-monomode", monoMode());
+  else document.documentElement.removeAttribute("data-monomode");
   localStorage.setItem(THEME_KEY, id);
   themeBtn.innerHTML = '<i data-lucide="palette"></i>';
   drawIcons();
@@ -3795,15 +3947,15 @@ function closeThemePop() {
   if (b) b.remove();
 }
 function openThemePop() {
-  const cur = document.documentElement.getAttribute("data-theme") || "light";
+  const cur = document.documentElement.getAttribute("data-theme") || "mono";
   const back = document.createElement("div");
   back.className = "theme-backdrop";
   back.id = "themeBackdrop";
   back.addEventListener("pointerdown", closeThemePop);
   const pop = document.createElement("div");
   pop.className = "theme-pop";
-  pop.innerHTML = THEMES.map((t) => themeChipHtml(t, cur)).join("");
-  wireThemeChips(pop, () => closeThemePop());
+  pop.innerHTML = themeUIHtml();
+  wireThemeUI(pop, () => closeThemePop());
   document.body.appendChild(back);
   document.body.appendChild(pop);
 }
@@ -3812,7 +3964,7 @@ themeBtn.addEventListener("click", (e) => {
   if (document.querySelector(".theme-pop")) closeThemePop();
   else openThemePop();
 });
-applyTheme(localStorage.getItem(THEME_KEY) || "light");
+applyTheme(localStorage.getItem(THEME_KEY) || "mono");
 
 // ── Font packs: swap the whole UI typeface (loads the Google font on demand) ──
 const FONT_KEY = "money.font";
@@ -4397,9 +4549,9 @@ function openBugReport() {
 }
 document.getElementById("connectBank").addEventListener("click", () => { openConnect(); setSidebar(false); });
 document.getElementById("openSettings").addEventListener("click", () => { openSettings(); setSidebar(false); });
-(function () {  // King Cozy console — founder only
+(function () {  // King Cozy console — stays hidden until applyKing() confirms the founder lock (machine-local .founder)
   const k = document.getElementById("kingCozy");
-  if (k && isFounder()) { k.style.display = ""; k.addEventListener("click", () => { openKingCozy(); setSidebar(false); }); }
+  if (k) k.addEventListener("click", () => { openKingCozy(); setSidebar(false); });
 })();
 
 // In-app help wiki — ships with the app (works offline via the local WIKI.md) AND
@@ -5543,6 +5695,101 @@ function renderStatsMenu() {
   Store.subscribe(stats, () => renderStatsBar());  // live update on every data ripple
 })();
 
+// ── King Cozy bar: a founder-only SECOND stats layer, stacked just beneath the
+//    personal bar. Same build-by-the-numbers as the King Cozy console (click it to
+//    open the full console). Auto-absent for non-founders, so the personal stats
+//    bar a normal member sees is never touched. ──
+function renderKingExp() {
+  const e = document.getElementById("kb-exp");
+  if (e) e.textContent = "⭐ " + PROFILE_STATS.exp.toLocaleString();
+}
+let _kingBarBuilt = false;
+function buildKingBar() {
+  if (_kingBarBuilt) return;  // gated by applyKing() — only ever runs on the founder's own machine
+  _kingBarBuilt = true;
+  const bar = document.createElement("div");
+  bar.className = "stats-bar king-bar";
+  const days = Math.max(1, Math.round((Date.now() - charSince()) / 86400000));
+  const chip = (id, val, label) =>
+    '<div class="stat-chip" data-kb="' + id + '">' +
+      '<span class="stat-val" id="' + id + '">' + val + "</span>" +
+      '<span class="stat-label">' + label + "</span></div>";
+  bar.innerHTML =
+    '<div class="stats king-stats" title="King Cozy — the build, by the numbers · click for the full console">' +
+      '<span class="king-crown" aria-hidden="true">👑</span>' +
+      chip("kb-exp", "⭐ " + PROFILE_STATS.exp.toLocaleString(), "project EXP") +
+      chip("kb-days", days, "days building") +
+      chip("kb-shipped", "…", "shipped") +
+      chip("kb-progress", "…", "in progress") +
+      chip("kb-planned", "…", "planned") +
+      chip("kb-fixes", "…", "fixes") +
+      chip("kb-stars", "…", "stars") +
+      chip("kb-forks", "…", "forks") +
+      chip("kb-events", "…", "events 7d") +
+      chip("kb-people", "…", "people 7d") +
+    "</div>";
+  document.body.appendChild(bar);
+  const pill = bar.querySelector(".king-stats");
+  const vine = '<path d="M40 90 C 18 66, 54 50, 24 30 C 14 22, 30 10, 40 16" stroke="#3c6b2e" stroke-width="4" fill="none" stroke-linecap="round"/><ellipse cx="22" cy="52" rx="11" ry="6" fill="#4e8b3a" transform="rotate(-34 22 52)"/><ellipse cx="44" cy="34" rx="11" ry="6" fill="#62a849" transform="rotate(28 44 34)"/><ellipse cx="40" cy="16" rx="8" ry="5" fill="#73bd57" transform="rotate(-8 40 16)"/>';
+  pill.insertAdjacentHTML("beforeend",
+    '<svg class="king-vine kv-l" viewBox="0 0 70 90" aria-hidden="true">' + vine + "</svg>" +
+    '<svg class="king-vine kv-r" viewBox="0 0 70 90" aria-hidden="true">' + vine + "</svg>");
+  pill.addEventListener("click", () => openKingCozy());
+  const set = (id, n) => { const e = document.getElementById(id); if (e) e.textContent = (n == null ? "—" : n.toLocaleString ? n.toLocaleString() : n); };
+  (function kingRefresh() {
+    renderKingExp();
+    fetch("https://raw.githubusercontent.com/cozykace/thecache/main/BACKLOG.md?t=" + Date.now())
+      .then((r) => r.text()).then((md) => {
+        set("kb-shipped", (md.match(/^- \[x\]/gim) || []).length);
+        set("kb-progress", (md.match(/^- \[~\]/gim) || []).length);
+        set("kb-planned", (md.match(/^- \[ \]/gim) || []).length);
+        set("kb-fixes", (md.match(/\bfix(?:ed|es)?\b/gi) || []).length);
+      }).catch(() => {});
+    fetch("https://api.github.com/repos/cozykace/thecache")
+      .then((r) => r.json()).then((d) => { set("kb-stars", d.stargazers_count); set("kb-forks", d.forks_count); })
+      .catch(() => {});
+    fetch("/api/posthog-stats?t=" + Date.now()).then((r) => r.json()).then((d) => {
+      if (d && d.ok) { set("kb-events", d.total || 0); set("kb-people", d.users || 0); }
+      else { set("kb-events", "—"); set("kb-people", "—"); }
+    }).catch(() => {});
+  })();
+  Store.subscribe(pill, () => renderKingExp());  // EXP ticks up live with every click
+}
+
+// ── Founder lock ────────────────────────────────────────────
+// Every founder-only surface (King Cozy bar, King menu item, console) is gated
+// HERE on a machine-local secret — the backend reports founder:true only if a
+// `.founder` file exists on this Mac. Typing the founder name into a profile can
+// NEVER unlock it, and the public demo (no backend) is always false.
+let KING = false;
+function applyKing() {
+  if (!KING) return;
+  buildKingBar();
+  document.body.classList.add("king-on");  // enables the Time Machine bar layering (founder only)
+  const k = document.getElementById("kingCozy");
+  if (k) k.style.display = "";  // reveal the King menu item
+  syncBadges();  // award the Founder badge now that the lock is confirmed
+}
+fetch("/api/ping").then((r) => r.json()).then((d) => { KING = !!(d && d.founder); applyKing(); }).catch(() => {});
+
+// ── Time Machine bar layering: scroll the board down and the personal stats bar
+//    recedes (shrinks + blurs) behind the King Cozy bar, like the macOS Time
+//    Machine depth stack. CSS does the transform off a 0→1 --tm var; this just
+//    feeds it (rAF-throttled). Founder-only via body.king-on; respects reduced motion. ──
+(function timeMachineBars() {
+  const board = document.getElementById("board");
+  const root = document.documentElement;
+  if (!board) return;
+  let ticking = false;
+  const apply = () => {
+    ticking = false;
+    const p = reduceMotion() ? 0 : Math.max(0, Math.min(1, board.scrollTop / 150));
+    root.style.setProperty("--tm", p.toFixed(3));
+  };
+  board.addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(apply); } }, { passive: true });
+  apply();
+})();
+
 // ── Boot ───────────────────────────────────────────────────
 Object.keys(layout).forEach((id) => makeAny(id, layout[id]));
 renderLibrary();
@@ -5557,7 +5804,9 @@ renderTrust();
 applyTier();
 renderBrand();
 renderHealth();
+syncBadges();  // seed/award badges from state available at boot (level, named, budget, streak)
 Store.subscribe(document.getElementById("healthBadge"), () => renderHealth());  // health updates as data connects
+Store.subscribe(document.getElementById("trustBadge"), syncBadges);  // award data-based badges as accounts/income/subs load
 initAnalytics();  // no-op unless the user opted in (Settings → Share anonymous usage)
 window.addEventListener("error", (e) => track("client_error", { msg: String(e.message || "").slice(0, 140), src: (e.filename || "").split("/").pop() }));
 requestAnimationFrame(reflowBelowStats);  // once the stats bar has measured, clear the top band

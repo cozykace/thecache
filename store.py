@@ -1564,3 +1564,45 @@ def rebuild_from_ledger(window_days=30, now=None):
     recompute_income()
     recompute_coverage()
     return len(window), len(txns)
+
+
+def king_stats():
+    """Founder-only deep stats for the King Cozy secret window: the size of the
+    build (commits / files / lines) + how much life-data is tracked (ledger /
+    accounts / coverage span). Local, read-only, counts-only — never leaves this
+    machine (gated behind the .founder secret in server.py)."""
+    import subprocess
+    def _git(*a):
+        try:
+            return subprocess.run(["git", *a], cwd=HERE, capture_output=True,
+                                  text=True, timeout=5).stdout.strip()
+        except Exception:
+            return ""
+    commits = _git("rev-list", "--count", "HEAD")
+    files = [f for f in _git("ls-files").splitlines() if f]
+    loc = 0
+    for f in ("app.js", "cursor.js", "styles.css", "server.py", "store.py",
+              "sync.py", "index.html"):
+        p = os.path.join(HERE, f)
+        if os.path.exists(p):
+            try:
+                with open(p, encoding="utf-8", errors="ignore") as fh:
+                    loc += sum(1 for _ in fh)
+            except Exception:
+                pass
+    led = load_ledger()
+    bal = _read(BALANCES, {}) or {}
+    cov = _read(os.path.join(DATA, "coverage.json"), {}) or {}
+    cov_days = 0
+    a, b = cov.get("live_first"), cov.get("live_last")
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and b >= a:
+        cov_days = int((b - a) // 86400)  # live_first/live_last are epoch seconds
+    return {
+        "commits": int(commits) if commits.isdigit() else 0,
+        "files": len(files),
+        "loc": loc,
+        "ledger": len(led),
+        "accounts": len(bal.get("accounts", [])),
+        "coverage_days": cov_days,
+        "data_points": cov.get("total", 0),
+    }

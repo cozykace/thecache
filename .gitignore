@@ -29,3 +29,7 @@ __pycache__/
 
 # PostHog Personal API key (read access) — founder only, never commit
 .posthog
+
+# Founder lock — presence of this file marks THIS machine as King Cozy.
+# Never commit: it's what keeps founder-only surfaces personal to you.
+.founder

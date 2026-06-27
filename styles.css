@@ -60,6 +60,27 @@
   --panel: #211e12;
   --accent: #FFD409;
 }
+:root[data-theme="mono"] {         /* DEFAULT — minimal greyscale; accent collapses to ink so the UI reads black-and-white. Light base = clean pure white. */
+  --ink-rgb: 26, 26, 24;
+  --paper: #ffffff;
+  --panel: #fafafa;
+  --accent: rgb(var(--ink-rgb));
+  --edge: rgba(var(--ink-rgb), 0.22);
+  --edge-soft: rgba(var(--ink-rgb), 0.10);
+}
+@media (prefers-color-scheme: dark) {   /* AUTO mode: invert to white-on-black with the system setting (forced light/dark opt out) */
+  :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) {
+    --ink-rgb: 235, 235, 232;
+    --paper: #0d0d0c;
+    --panel: #1a1a18;
+  }
+}
+:root[data-theme="mono"][data-monomode="dark"] {   /* DARK forced — ignore the system setting */
+  --ink-rgb: 235, 235, 232;
+  --paper: #0d0d0c;
+  --panel: #1a1a18;
+}
+:root[data-theme="mono"] body { background-image: none; }   /* drop the dotted paper texture — calmer, less early-internet */
 html { background: var(--paper); }
 
 * { box-sizing: border-box; }
@@ -1267,6 +1288,29 @@ html[data-text="xl"] { zoom: 1.26; }
   text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 12px; border-radius: 999px; color: rgba(var(--ink-rgb), 0.5); }
 .cp-toggle.on { background: var(--accent); color: var(--paper); border-color: var(--accent); }
 
+/* Mono tier — Light / Auto / Dark as chunky 3D analog buttons that depress when engaged */
+.mono-tier { margin-bottom: 4px; }
+.mono-tier-top { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 8px; }
+.mono-tier-name { font-size: 13px; font-weight: 700; color: var(--ink); letter-spacing: 0.02em; }
+.mono-tier-sub { font-size: 9px; color: rgba(var(--ink-rgb), 0.5); text-transform: uppercase; letter-spacing: 0.06em; }
+.mono-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mono-btn {
+  font-family: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+  padding: 9px 0; border-radius: 9px; border: 1px solid var(--edge); cursor: pointer;
+  background: var(--panel); color: var(--ink);
+  box-shadow: 0 3px 0 rgba(var(--ink-rgb), 0.22), 0 4px 7px rgba(0, 0, 0, 0.2);
+  transform: translateY(0);
+  transition: transform 0.09s cubic-bezier(0.3, 0.7, 0.4, 1.2), box-shadow 0.09s ease, background 0.12s ease;
+}
+.mono-btn:hover { background: rgba(var(--ink-rgb), 0.06); }
+.mono-btn:active { transform: translateY(3px); box-shadow: 0 0 0 rgba(0, 0, 0, 0), inset 0 2px 5px rgba(0, 0, 0, 0.28); }
+.mono-btn.on {
+  transform: translateY(3px);
+  background: var(--accent); color: var(--paper); border-color: var(--accent);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0), inset 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.theme-chips-grid { display: flex; flex-direction: column; gap: 6px; margin-top: 9px; }
+
 /* named, starrable theme chips (settings + popover) */
 .theme-chip { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 9px;
   border: 1px solid var(--edge-soft); background: var(--panel); cursor: pointer; }
@@ -1468,6 +1512,25 @@ body.blessed .cursor-ball {
 .char-bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 .char-since { font-size: 10.5px; color: rgba(var(--ink-rgb), 0.5); margin: 6px 0 4px; font-variant-numeric: tabular-nums; }
 .char-sec { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(var(--ink-rgb), 0.5); margin: 12px 0 6px; }
+
+/* Merit badges — flat duotone 8-bit pixel tiles (ink + paper). Earned: inked outline.
+   One-of-one (mythic): inverted/filled. Locked: faint outline. No gradients, no glow. */
+.badge-count { font-variant-numeric: tabular-nums; color: rgba(var(--ink-rgb), 0.4); letter-spacing: 0; }
+.badge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); gap: 14px 8px; margin: 2px 0 4px; }
+.badge { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; cursor: pointer; }
+.badge-disc {
+  width: 50px; height: 50px; border-radius: 2px;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.12s ease;
+}
+.badge-disc svg { display: block; width: 30px; height: 30px; image-rendering: pixelated; }
+.badge.got .badge-disc { border: 3px solid var(--ink); background: var(--paper); color: var(--ink); }
+.badge.got.tier-mythic .badge-disc { background: var(--ink); color: var(--paper); }  /* one-of-one: inverted */
+.badge.got:hover .badge-disc { transform: translateY(-2px); }
+.badge.lock .badge-disc { border: 3px solid var(--edge-soft); background: transparent; color: var(--edge-soft); }
+.badge-name { font-size: 9.5px; line-height: 1.15; letter-spacing: 0.02em; color: rgba(var(--ink-rgb), 0.7); }
+.badge.lock .badge-name { color: rgba(var(--ink-rgb), 0.38); }
+.badge-caption { font-size: 11px; color: rgba(var(--ink-rgb), 0.55); min-height: 15px; margin: 7px 2px 2px; }
 .char-ev { display: flex; align-items: baseline; gap: 9px; padding: 6px 0; border-bottom: 1px solid var(--edge-soft); font-size: 12.5px; }
 .char-ev:last-child { border-bottom: none; }
 .char-ev-i { flex-shrink: 0; }
@@ -1736,6 +1799,63 @@ body.blessed .cursor-ball {
 .stat-label {
   font-size: 8px; text-transform: uppercase; letter-spacing: 0.14em;
   color: rgba(var(--ink-rgb), 0.45); white-space: nowrap;
+}
+
+/* ── Game-cartridge stats bar (ALL profiles) — the personal bar is a cartridge:
+   solid body, rounded top, beveled, with a gold edge-connector strip at the bottom
+   (gold fingers on a green-tinted board, like RAM / a Sega cart). ── */
+.stats-bar:not(.king-bar) .stats {
+  position: relative;
+  background: var(--panel);
+  border: 1.5px solid var(--ink);
+  border-radius: 13px 13px 4px 4px;
+  padding-bottom: 15px;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), inset 0 -12px 16px rgba(var(--ink-rgb), 0.06), 0 4px 11px rgba(0, 0, 0, 0.16);
+}
+.stats-bar:not(.king-bar) .stats::before {  /* sticker-label line near the top of the cartridge */
+  content: ""; position: absolute; left: 14px; right: 14px; top: 5px; height: 2px; border-radius: 2px;
+  background: rgba(var(--ink-rgb), 0.10);
+}
+.stats-bar:not(.king-bar) .stats::after {  /* gold edge-connector fingers on a green-tinted strip */
+  content: ""; position: absolute; left: 16px; right: 16px; bottom: 4px; height: 6px; border-radius: 1px;
+  background: repeating-linear-gradient(90deg, #cda63f 0 4px, #19241a 4px 6px);
+}
+
+/* King Cozy bar — the GOLD CARTOON-MANGA SLOT the cartridge plugs into (founder only) */
+.king-bar { top: 48px; z-index: 56; }   /* pulled up so the cartridge tucks ~⅓ in; in FRONT so it covers the connector */
+.king-stats {
+  position: relative; cursor: pointer; align-items: center; overflow: visible;
+  color: #4a3208; padding-top: 13px;
+  border: 2px solid #5a3d10; border-radius: 15px;
+  background: linear-gradient(180deg, #ffe98c 0%, #f4cf5e 38%, #d89e2d 100%);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.7), inset 0 -8px 13px rgba(120, 70, 10, 0.42), 0 6px 15px rgba(0, 0, 0, 0.4);
+}
+.king-stats::before {  /* the slot mouth where the cartridge inserts */
+  content: ""; position: absolute; left: 28%; right: 28%; top: -2px; height: 12px; border-radius: 0 0 9px 9px;
+  background: rgba(60, 40, 10, 0.5); box-shadow: inset 0 3px 4px rgba(0, 0, 0, 0.5);
+}
+.king-stats:hover { box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.8), inset 0 -8px 13px rgba(120, 70, 10, 0.5), 0 8px 20px rgba(0, 0, 0, 0.45); }
+.king-crown { font-size: 14px; padding: 0 6px 0 4px; line-height: 1; align-self: center; filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.5)); }
+.king-stats .stat-chip { cursor: pointer; }
+.king-stats .stat-val { color: #4a3208; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35); }
+.king-stats .stat-label { color: rgba(74, 50, 8, 0.72); }
+.king-stats .stat-chip + .stat-chip { border-left-color: rgba(90, 61, 16, 0.32); }
+.king-stats .stat-chip:hover { background: rgba(120, 70, 10, 0.12); }
+.king-vine { position: absolute; bottom: -8px; width: 46px; height: 62px; pointer-events: none; z-index: 2; }
+.king-vine.kv-l { left: -24px; }
+.king-vine.kv-r { right: -24px; transform: scaleX(-1); }
+
+/* Time Machine — gentle: scrolling the board SEATS the cartridge deeper into the gold
+   slot (and recedes it slightly); the slot itself stays put. Reduced motion → --tm=0. */
+body.king-on .stats-bar:not(.king-bar) .stats {
+  transform-origin: center top;
+  transform: translateY(calc(var(--tm, 0) * 14px)) scale(calc(1 - var(--tm, 0) * 0.05));
+  filter: blur(calc(var(--tm, 0) * 0.7px));
+  opacity: calc(1 - var(--tm, 0) * 0.12);
+  transition: transform 0.16s ease-out, filter 0.16s ease-out, opacity 0.16s ease-out;
+  will-change: transform, filter, opacity;
 }
 
 /* period chip on each span widget's title bar */
@@ -2057,6 +2177,7 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 
   /* floating chrome: keep it, fit the narrow screen, scroll if crowded */
   .stats-bar { top: 0; padding: calc(6px + env(safe-area-inset-top)) 8px 0; }
+  .king-bar { top: calc(34px + env(safe-area-inset-top)); padding-top: 0; }   /* cartridge tucks into the slot on phones too */
   .stats { max-width: 100%; }
   .dock-bar { padding: 0 8px calc(8px + env(safe-area-inset-bottom)); }
   .dock { max-width: calc(100vw - 16px); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }

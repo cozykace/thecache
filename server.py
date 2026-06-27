@@ -46,7 +46,14 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/api/ping":
-            return self._json(200, {"ok": True})
+            # founder lock: only the machine holding the local .founder secret is King.
+            # Name-typing can never unlock it; the public demo (no backend) is always false.
+            return self._json(200, {"ok": True, "founder": os.path.exists(os.path.join(HERE, ".founder"))})
+        if path == "/api/king-stats":
+            # founder-only deep stats — refuse unless this machine holds the .founder secret
+            if not os.path.exists(os.path.join(HERE, ".founder")):
+                return self._json(403, {"ok": False})
+            return self._json(200, dict({"ok": True}, **store.king_stats()))
         if path == "/api/connect-status":
             return self._json(200, {"connected": os.path.exists(os.path.join(HERE, ".simplefin"))})
         if path == "/api/other-merchants":
