@@ -48,7 +48,7 @@
          reads as a clean, scrollable board of widgets instead of a cramped app.
          Desktop keeps the full interactive UI. */
       @media (max-width: 640px) {
-        #sidebarToggle, #themeToggle, #bgToggle, .zoom-control,
+        #sidebarToggle, #themeToggle, #bgToggle, #pagesToggle, .zoom-control,
         .status-bar, .stats-bar, .dock-bar { display: none !important; }
         .board-canvas {
           padding-top: calc(46px + env(safe-area-inset-top)) !important;
@@ -63,6 +63,7 @@
 
     <!-- toggle: opens the sidebar -->
     <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open menu">☰</button>
+    <button id="pagesToggle" class="pages-toggle pg-add-btn" aria-label="Pages">+</button>
 
     <!-- theme toggle: light / dark -->
     <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode"></button>

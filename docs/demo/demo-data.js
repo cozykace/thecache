@@ -8,6 +8,8 @@
 (function () {
   "use strict";
 
+  window.__CACHE_DEMO__ = true;  // app.js hides cloud-account UI in the demo (no real signups on the instance)
+
   // ── seed localStorage (only when unset, so a visitor's tweaks/toggles persist) ──
   function seed(k, v) { try { if (localStorage.getItem(k) == null) localStorage.setItem(k, v); } catch (e) {} }
   seed("money.theme", "cache");

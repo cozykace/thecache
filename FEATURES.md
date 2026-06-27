@@ -4,7 +4,7 @@ A living, product-facing list of what THE CACHE does — kept current as we ship
 
 **The promise:** have a good time facing the skeletons in your closet. A **free**, calm, playful, provably-private way to plan, forecast, and feel proud of your life — built to work just as well for disabled people, immigrants, and anyone overwhelmed by data that's hard to understand or use. Money is just the start; the goal is a secure home for any part of your life you want to track.
 
-_Last updated: 2026-06-26_
+_Last updated: 2026-06-27_
 
 ## Connect your money
 - **Automatic bank sync** — link real accounts (read-only) and pull balances + transactions on demand.
@@ -57,3 +57,5 @@ _Last updated: 2026-06-26_
 - **Permanent ledger** — nothing is lost once it's synced.
 - **Daily local backups.**
 - **Plain files you own** — your data is simple JSON on your disk.
+- **Encrypted backups** — seal a copy of everything with a passphrase only you know (end-to-end: the file is unreadable without it). Download it, push it to your own WebDAV (Nextcloud / Fastmail / a NAS), and restore any time.
+- **Cache cloud (beta) — your cache, anywhere.** Make an account and sync your cache to the cloud, then use it on any device. It's **end-to-end encrypted**: your data is sealed in your browser before it ever leaves, so the cloud only ever stores an unreadable blob — it can never see your money. Your account password logs you in; your backup passphrase encrypts the data — keep them different and only *you* hold the key. Run local, cloud, or both. Free to run locally forever; the cloud is opt-in.

@@ -2654,6 +2654,88 @@ async function pushBackupToWebdav(pass) {
   if (!res || !res.ok) throw new Error((res && res.error) || "push failed");
   return fn;
 }
+
+// ── The Cache cloud (PocketBase) — accounts + an E2E-encrypted blob sync. The browser
+//    talks to PocketBase over its REST API with fetch (no SDK); the data is encrypted
+//    here with the passphrase before it ever leaves, so PocketBase only stores ciphertext.
+const CLOUD_KEY = "money.cloud";
+const CLOUD_DEFAULT_URL = "https://thecache.pockethost.io";
+function cloudState() { try { return JSON.parse(localStorage.getItem(CLOUD_KEY) || "{}") || {}; } catch (e) { return {}; } }
+function cloudSaveState(s) { localStorage.setItem(CLOUD_KEY, JSON.stringify(s)); }
+function cloudUrl() { return ((cloudState().url || CLOUD_DEFAULT_URL) + "").replace(/\/+$/, ""); }
+function cloudErr(d) {
+  if (!d) return "";
+  try { const f = Object.values(d.data || {})[0]; if (f && f.message) return f.message; } catch (e) {}
+  return d.message || "";
+}
+async function cloudLogin(url, email, password) {
+  const base = (url || "").replace(/\/+$/, "");
+  const r = await fetch(base + "/api/collections/users/auth-with-password", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identity: email, password }) });
+  const d = await r.json();
+  if (!r.ok || !d.token) throw new Error(cloudErr(d) || "login failed");
+  cloudSaveState({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: cloudState().recordId });
+  return d;
+}
+async function cloudSignup(url, email, password) {
+  const base = (url || "").replace(/\/+$/, "");
+  const r = await fetch(base + "/api/collections/users/records", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, passwordConfirm: password }) });
+  const d = await r.json();
+  if (!r.ok) throw new Error(cloudErr(d) || "sign up failed");
+  return cloudLogin(base, email, password);   // auto log in
+}
+function cloudLogout() { cloudSaveState({ url: cloudState().url || CLOUD_DEFAULT_URL }); }
+async function cloudFindVaultId(s) {
+  if (s.recordId) return s.recordId;
+  const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
+  const d = await r.json();
+  if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault (is the 'vaults' collection created?)");
+  return d.items && d.items[0] ? d.items[0].id : null;
+}
+async function cloudPush(passphrase) {
+  const s = cloudState();
+  if (!s.token) throw new Error("log in first");
+  const data = await (await fetch("/api/export-data")).json();
+  if (!data || !data.ok) throw new Error("couldn't read your data");
+  const count = Object.keys(data.files || {}).length;
+  const blob = await encryptJSON({ files: data.files, exported: data.exported }, passphrase);
+  const hdr = { Authorization: s.token, "Content-Type": "application/json" };
+  let id = await cloudFindVaultId(s), r;
+  if (id) r = await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "PATCH", headers: hdr, body: JSON.stringify({ blob }) });
+  else r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify({ owner: s.userId, blob }) });
+  const d = await r.json();
+  if (!r.ok) throw new Error(cloudErr(d) || "cloud backup failed (create the 'vaults' collection?)");
+  cloudSaveState(Object.assign(cloudState(), { recordId: d.id || id, lastPush: new Date().toISOString(), lastPushCount: count, bytes: (blob || "").length }));
+  return { count, bytes: (blob || "").length };
+}
+// "3 minutes ago" style relative time for the cloud status line
+function cloudAgo(iso) {
+  if (!iso) return "";
+  const t = new Date(iso).getTime(); if (!t) return "";
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 45) return "just now";
+  const m = Math.round(s / 60); if (m < 60) return m + (m === 1 ? " minute ago" : " minutes ago");
+  const h = Math.round(m / 60); if (h < 24) return h + (h === 1 ? " hour ago" : " hours ago");
+  const d = Math.round(h / 24); return d + (d === 1 ? " day ago" : " days ago");
+}
+async function cloudPull(passphrase) {
+  const s = cloudState();
+  if (!s.token) throw new Error("log in first");
+  const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
+  const d = await r.json();
+  if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault");
+  const rec = d.items && d.items[0];
+  if (!rec || !rec.blob) throw new Error("no cloud backup yet — push one first");
+  let obj;
+  try { obj = await decryptJSON(rec.blob, passphrase); } catch (e) { throw new Error("wrong passphrase or corrupt backup"); }
+  const res = await (await fetch("/api/import-data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: (obj && obj.files) || {} }) })).json();
+  if (!res || !res.ok) throw new Error((res && res.error) || "restore failed");
+  cloudSaveState(Object.assign(cloudState(), { recordId: rec.id }));
+  return res;
+}
 // ── Click sparks: rapid clicking shoots theme-colored sparks from the cursor —
 //    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
 //    you click in quick succession. ──
@@ -3000,6 +3082,23 @@ function openSettings() {
         '<button class="set-btn" id="setWdPush">⬆ Back up to WebDAV now</button>' +
       '</div>' +
       '<div class="set-hint" id="setWdMsg"></div>' +
+      (window.__CACHE_DEMO__ ? "" :
+      '<div class="set-sec">☁️ Cache cloud (beta)</div>' +
+      '<div class="set-hint">Sync your <b>end-to-end encrypted</b> cache to the cloud and use it anywhere. The cloud only ever stores the sealed blob — it can’t read your data. Your <b>account password</b> logs you in; your <b>backup passphrase</b> (above) encrypts the data — keep them different for true E2E.</div>' +
+      '<label class="set-row"><span>Cloud URL</span><input id="setCloudUrl" type="text" autocomplete="off" value="https://thecache.pockethost.io"></label>' +
+      '<label class="set-row"><span>Email</span><input id="setCloudEmail" type="email" autocomplete="off" placeholder="you@email.com"></label>' +
+      '<label class="set-row"><span>Account password</span><input id="setCloudPass" type="password" autocomplete="off" placeholder="cloud account password"></label>' +
+      '<div class="cloud-status" id="setCloudStatus"></div>' +
+      '<div class="set-bk-row">' +
+        '<button class="set-btn" id="setCloudSignup">Sign up</button>' +
+        '<button class="set-btn" id="setCloudLogin">Log in</button>' +
+        '<button class="set-btn" id="setCloudLogout">Log out</button>' +
+      '</div>' +
+      '<div class="set-bk-row">' +
+        '<button class="set-btn" id="setCloudPush">⬆ Back up to cloud</button>' +
+        '<button class="set-btn" id="setCloudPull">⬇ Restore from cloud</button>' +
+      '</div>' +
+      '<div class="set-hint cloud-msg" id="setCloudMsg"></div>') +
       '<div class="set-themes" id="setThemes"></div>' +
       '<div class="set-sec">Fonts</div>' +
       '<div class="set-fonts" id="setFonts"></div>' +
@@ -3072,6 +3171,62 @@ function openSettings() {
     try { const fn = await pushBackupToWebdav(p); wdMsg.textContent = "✓ Encrypted backup pushed to WebDAV as " + fn; }
     catch (e) { wdMsg.textContent = "Backup to WebDAV failed: " + (e.message || e); }
   });
+  // Cache cloud (PocketBase) — hidden in the demo
+  const clUrl = modal.querySelector("#setCloudUrl");
+  if (clUrl) {
+  const clEmail = modal.querySelector("#setCloudEmail"),
+        clPass = modal.querySelector("#setCloudPass"), clMsg = modal.querySelector("#setCloudMsg"),
+        clStatus = modal.querySelector("#setCloudStatus");
+  // Persistent at-a-glance state: are you logged in? when did you last back up?
+  function paintCloudStatus() {
+    const s = cloudState();
+    if (!s.token) {
+      clStatus.className = "cloud-status off";
+      clStatus.innerHTML = '<span class="cloud-led"></span><div><b>Not connected</b><span class="cloud-sub">Sign up or log in to sync this cache.</span></div>';
+      return;
+    }
+    const last = s.lastPush
+      ? "Last backup: <b>" + cloudAgo(s.lastPush) + "</b>" + (s.lastPushCount ? " · " + s.lastPushCount + " files sealed" : "")
+      : "No backup yet — hit <b>⬆ Back up to cloud</b>.";
+    clStatus.className = "cloud-status on" + (s.lastPush ? " saved" : "");
+    clStatus.innerHTML = '<span class="cloud-led"></span><div><b>Connected as ' + escapeHtml(s.email || "") + '</b><span class="cloud-sub">' + last + '</span></div>';
+  }
+  // big, obvious feedback — green flash on success, red on failure, grey while working
+  function clSay(text, kind) {
+    clMsg.textContent = text;
+    clMsg.className = "set-hint cloud-msg" + (kind ? " " + kind : "");
+    if (kind === "ok") { clMsg.classList.remove("flash"); void clMsg.offsetWidth; clMsg.classList.add("flash"); }
+  }
+  (function paintCloud() { const s = cloudState(); if (s.url) clUrl.value = s.url; if (s.token) clEmail.value = s.email || ""; paintCloudStatus(); })();
+  modal.querySelector("#setCloudSignup").addEventListener("click", async () => {
+    clSay("Creating account…", "work");
+    try { await cloudSignup(clUrl.value.trim(), clEmail.value.trim(), clPass.value); paintCloudStatus(); clSay("✓ Account created — you're logged in as " + cloudState().email + ". Now set a backup passphrase above and hit ⬆ Back up to cloud.", "ok"); }
+    catch (e) { clSay("Sign up failed: " + (e.message || e), "err"); }
+  });
+  modal.querySelector("#setCloudLogin").addEventListener("click", async () => {
+    clSay("Logging in…", "work");
+    try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); paintCloudStatus(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
+    catch (e) { clSay("Login failed: " + (e.message || e), "err"); }
+  });
+  modal.querySelector("#setCloudLogout").addEventListener("click", () => { cloudLogout(); clPass.value = ""; paintCloudStatus(); clSay("Logged out.", ""); });
+  modal.querySelector("#setCloudPush").addEventListener("click", async () => {
+    const p = (bkPass.value || "").trim();
+    if (!cloudState().token) { clSay("Log in first (above).", "err"); return; }
+    if (p.length < 6) { clSay("Set the backup passphrase (in the section above) — it encrypts your data before upload.", "err"); return; }
+    clSay("Encrypting + syncing to cloud…", "work");
+    try { const res = await cloudPush(p); paintCloudStatus(); clSay("✓ Backed up to the cloud — " + res.count + " files sealed & encrypted. Safe to use on another device.", "ok"); }
+    catch (e) { clSay("Cloud backup failed: " + (e.message || e), "err"); }
+  });
+  modal.querySelector("#setCloudPull").addEventListener("click", async () => {
+    const p = (bkPass.value || "").trim();
+    if (!cloudState().token) { clSay("Log in first (above).", "err"); return; }
+    if (p.length < 6) { clSay("Enter the backup passphrase (above) to decrypt.", "err"); return; }
+    if (!confirm("Restore from cloud will OVERWRITE your current data (snapshotted first). Continue?")) return;
+    clSay("Pulling + decrypting…", "work");
+    try { const res = await cloudPull(p); clSay("✓ Restored " + res.written + " files from cloud. Reloading…", "ok"); setTimeout(() => location.reload(), 1500); }
+    catch (e) { clSay("Cloud restore failed: " + (e.message || e), "err"); }
+  });
+  }  // end cloud (hidden in demo)
 
   const privBtn = modal.querySelector("#setPrivacy");
   const paintPriv = () => {
@@ -3433,19 +3588,34 @@ function defaultLayout() {
     clock: { type: "clock", x: Math.round(cx + 14), y: Math.round(cy - 80), w: 260, h: 160 },
   };
 }
-function loadLayout() {
+// ── Pages: up to 6 independent board layouts you switch between ──
+const PAGES_KEY = "money.pages";
+const MAX_PAGES = 6;
+function loadPages() {
   try {
-    const saved = localStorage.getItem(LAYOUT_KEY);
-    if (!saved) return defaultLayout();
-    const obj = JSON.parse(saved);
-    Object.keys(obj).forEach((id) => { if (!obj[id].type) obj[id].type = id; });
-    return obj;
-  } catch (e) {
-    return defaultLayout();
-  }
+    const p = JSON.parse(localStorage.getItem(PAGES_KEY) || "null");
+    if (p && Array.isArray(p.list) && p.list.length) {
+      if (typeof p.active !== "number" || p.active < 0 || p.active >= p.list.length) p.active = 0;
+      return p;
+    }
+  } catch (e) {}
+  let l0 = null;
+  try { l0 = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "null"); } catch (e) {}  // migrate the existing board → Page 1
+  return { active: 0, list: [{ name: "Page 1", layout: l0 || defaultLayout() }] };
+}
+let PAGES = loadPages();
+function savePages() { try { localStorage.setItem(PAGES_KEY, JSON.stringify(PAGES)); } catch (e) {} }
+function loadLayout() {
+  const pg = PAGES.list[PAGES.active] || PAGES.list[0];
+  let obj;
+  try { obj = JSON.parse(JSON.stringify(pg && pg.layout ? pg.layout : defaultLayout())); }
+  catch (e) { obj = defaultLayout(); }
+  Object.keys(obj).forEach((id) => { if (obj[id] && !obj[id].type) obj[id].type = id; });
+  return obj;
 }
 function saveLayout() {
-  localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));   // mirror the active board (back-compat)
+  if (PAGES.list[PAGES.active]) { PAGES.list[PAGES.active].layout = layout; savePages(); }
 }
 
 // ── Saved views: snapshot the whole board under a name, jump back anytime ──
@@ -3468,6 +3638,87 @@ function applyView(name) {
   Object.keys(layout).forEach((id) => makeAny(id, layout[id]));
   drawIcons();
   Store.emit();  // refill the rebuilt widgets + drop the removed ones' subscriptions
+}
+
+// ── Pages: switch / add / delete / rename, and the top-left button + window ──
+function rebuildBoard() {
+  Object.keys(nodes).forEach((id) => { if (nodes[id]) nodes[id].remove(); delete nodes[id]; });
+  Object.keys(layout).forEach((id) => makeAny(id, layout[id]));
+  drawIcons();
+  Store.emit();
+}
+function loadActivePage() {
+  layout = loadLayout();
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+  rebuildBoard();
+  renderPagesBtn();
+}
+function switchPage(i) {
+  if (i === PAGES.active || i < 0 || i >= PAGES.list.length) return;
+  saveLayout();                       // snapshot the current page first
+  PAGES.active = i; savePages();
+  loadActivePage();
+}
+function addPage() {
+  if (PAGES.list.length >= MAX_PAGES) { flash("6 pages max"); return; }
+  saveLayout();
+  PAGES.list.push({ name: "Page " + (PAGES.list.length + 1), layout: {} });  // new page = blank canvas
+  PAGES.active = PAGES.list.length - 1; savePages();
+  loadActivePage();
+  flash("Page " + PAGES.list.length + " added — add widgets from the library");
+}
+function deletePage(i) {
+  if (PAGES.list.length <= 1 || i < 0 || i >= PAGES.list.length) return;
+  PAGES.list.splice(i, 1);
+  if (PAGES.active > i) PAGES.active -= 1;
+  if (PAGES.active >= PAGES.list.length) PAGES.active = PAGES.list.length - 1;
+  savePages();
+  loadActivePage();
+}
+function renamePage(i, name) {
+  if (!PAGES.list[i] || !name || !name.trim()) return;
+  PAGES.list[i].name = name.trim().slice(0, 24); savePages(); renderPagesBtn();
+}
+function renderPagesBtn() {
+  const b = document.getElementById("pagesToggle");
+  if (!b) return;
+  const n = PAGES.list.length;
+  if (n <= 1) { b.innerHTML = "+"; b.classList.add("pg-add-btn"); b.title = "Add a page"; }
+  else { b.innerHTML = '<span class="pg-num">' + n + "</span>"; b.classList.remove("pg-add-btn"); b.title = "Pages (" + n + ") — switch or add"; }
+}
+function closePagesWindow() {
+  ["pagesPop", "pagesBackdrop"].forEach((id) => { const e = document.getElementById(id); if (e) e.remove(); });
+}
+function openPagesWindow() {
+  closePagesWindow();
+  const back = document.createElement("div"); back.className = "theme-backdrop"; back.id = "pagesBackdrop";
+  back.addEventListener("pointerdown", closePagesWindow);
+  const pop = document.createElement("div"); pop.className = "pages-pop"; pop.id = "pagesPop";
+  pop.innerHTML = '<div class="pg-head">Pages</div>' +
+    PAGES.list.map((p, i) =>
+      '<div class="pg-item' + (i === PAGES.active ? " active" : "") + '" data-i="' + i + '">' +
+        '<span class="pg-name" data-i="' + i + '">' + escapeHtml(p.name) + "</span>" +
+        '<button class="pg-rename" data-rn="' + i + '" title="Rename" aria-label="Rename">✎</button>' +
+        (PAGES.list.length > 1 ? '<button class="pg-del" data-del="' + i + '" title="Delete page" aria-label="Delete">✕</button>' : "") +
+      "</div>").join("") +
+    (PAGES.list.length < MAX_PAGES ? '<button class="pg-addrow">+ Add page</button>' : '<div class="pg-max">6 pages max</div>');
+  document.body.appendChild(back); document.body.appendChild(pop);
+  pop.querySelectorAll(".pg-item").forEach((row) => row.addEventListener("click", (e) => {
+    if (e.target.closest(".pg-del") || e.target.closest(".pg-rename")) return;
+    switchPage(+row.dataset.i); closePagesWindow();
+  }));
+  pop.querySelectorAll(".pg-rename").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const i = +b.dataset.rn, nm = prompt("Rename page:", PAGES.list[i].name);
+    if (nm !== null) { renamePage(i, nm); closePagesWindow(); openPagesWindow(); }
+  }));
+  pop.querySelectorAll(".pg-del").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const i = +b.dataset.del;
+    if (confirm("Delete “" + PAGES.list[i].name + "” and all its widgets? This can't be undone.")) { deletePage(i); closePagesWindow(); }
+  }));
+  const addRow = pop.querySelector(".pg-addrow");
+  if (addRow) addRow.addEventListener("click", () => { addPage(); closePagesWindow(); });
 }
 function renderViews() {
   const host = document.getElementById("viewList");
@@ -4253,6 +4504,14 @@ document.getElementById("bgToggle").addEventListener("click", (e) => {
   else openBgPop();
 });
 applyBg(localStorage.getItem(BG_KEY) || "");  // restore the chosen background on load
+
+// Pages button (top-left): + to add the 2nd page, then a count that opens the pages window
+(function () {
+  const b = document.getElementById("pagesToggle");
+  if (!b) return;
+  b.addEventListener("click", (e) => { e.stopPropagation(); if (PAGES.list.length <= 1) addPage(); else openPagesWindow(); });
+  renderPagesBtn();
+})();
 
 // ── Sync health (bottom-right) ─────────────────────────────
 const syncHealth = document.getElementById("syncHealth");
