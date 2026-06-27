@@ -4391,6 +4391,10 @@ function buildConstellation(svg, months) {
 // soundtrack). Add more filenames here as you approve them (drop the .mp3 in
 // "av assets/"); one is picked at random per trip.
 const TRIP_SONGS = ["av%20assets/slingshot%20the%20airplane%20v4.mp3"];
+const TRIP_SONG_START = 3;  // skip the intro — start (and loop) from the 3-second mark
+// Cockpit / visualizer design language — vivid, monday.com-style colors. Each
+// data domain gets one color, reused across the Ledger's dashboard bubbles.
+const LG_COLORS = { sources: "#00c875", cash: "#fdab3d", spend: "#e2445c", months: "#a25ddc", exp: "#ffcb00" };
 function fadeAudio(a, to, ms, then) {
   if (!a) return;
   const from = a.volume, t0 = performance.now();
@@ -4420,7 +4424,8 @@ function openLedger() {
       '<div class="lg-headline" id="lgHeadline"></div>' +
       '<div class="lg-reward lg-hidden" id="lgReward"></div>' +
       '<svg class="lg-const" id="lgConst" viewBox="0 0 1000 320" preserveAspectRatio="xMidYMid meet"></svg>' +
-      '<button class="lg-back">↩ back to the cache</button>' +
+      '<button class="lg-back">↩ Return</button>' +
+      '<div class="lg-dash" id="lgDash"></div>' +
     "</div>" +
     '<button class="lg-mute lg-hidden" title="Mute the music">🔊</button>' +
     '<div class="lg-flash"></div>';
@@ -4428,7 +4433,10 @@ function openLedger() {
   let song = null;
   try {  // preload the trip song NOW (while the booking screen shows) so it starts the instant you book
     song = new Audio(TRIP_SONGS[Math.floor(Math.random() * TRIP_SONGS.length)]);
-    song.loop = true; song.volume = 0; song.preload = "auto"; song.load();
+    song.loop = false; song.volume = 0; song.preload = "auto";  // loop manually so it restarts at the 3s mark, not 0
+    song.addEventListener("loadedmetadata", () => { try { song.currentTime = TRIP_SONG_START; } catch (e) {} });
+    song.addEventListener("ended", () => { try { song.currentTime = TRIP_SONG_START; song.play().catch(() => {}); } catch (e) {} });
+    song.load();
   } catch (e) { song = null; }
   const cv = root.querySelector(".lg-canvas"), ctx = cv.getContext("2d");
   let W, H, cx, cy;
@@ -4438,15 +4446,26 @@ function openLedger() {
   const rs = (s) => { s.x = (Math.random() - 0.5) * W * 1.2; s.y = (Math.random() - 0.5) * H * 1.2; s.z = Math.random() * W; s.pz = s.z; };
   for (let i = 0; i < N; i++) { const s = {}; rs(s); stars.push(s); }
   let speed = 1.2, target = 0.5, mode = "idle", raf;  // calm drift while you decide; warp on book
+  let yaw = 0, pitch = 0, tYaw = 0, tPitch = 0;       // drag to orbit the field in 3D
   const loop = () => {
     ctx.fillStyle = "rgba(6,4,15," + (mode === "warp" ? 0.2 : 0.36) + ")"; ctx.fillRect(0, 0, W, H);
     speed += (target - speed) * 0.06;
+    if (mode === "idle" && target > 0.035) target *= 0.984;        // once you've arrived, the stars settle toward a halt
+    yaw += (tYaw - yaw) * 0.08; pitch += (tPitch - pitch) * 0.08;  // ease toward where you dragged
+    const cosY = Math.cos(yaw), sinY = Math.sin(yaw), cosX = Math.cos(pitch), sinX = Math.sin(pitch);
+    const proj = (x, y, zRaw) => {                                 // rotate the point, then project (identity when yaw=pitch=0)
+      const zc = zRaw - W / 2;
+      const rx = x * cosY + zc * sinY, rz = -x * sinY + zc * cosY;
+      const ry = y * cosX - rz * sinX, rz2 = y * sinX + rz * cosX;
+      const z = Math.max(1, rz2 + W / 2), k = 140 / z;
+      return [cx + rx * k, cy + ry * k, z];
+    };
     for (const s of stars) {
       s.pz = s.z; s.z -= speed * (mode === "idle" ? 2.2 : 24); if (s.z < 1) { rs(s); s.pz = s.z; }
-      const k = 140 / s.z, px = cx + s.x * k, py = cy + s.y * k, pk = 140 / s.pz, ppx = cx + s.x * pk, ppy = cy + s.y * pk;
-      const a = Math.min(1, (1 - s.z / W) * 1.3), lw = Math.max(0.4, (1 - s.z / W) * 2.6);
+      const cur = proj(s.x, s.y, s.z), prev = proj(s.x, s.y, s.pz);
+      const a = Math.min(1, Math.max(0, 1 - cur[2] / W) * 1.3), lw = Math.max(0.4, (1 - cur[2] / W) * 2.6);
       ctx.strokeStyle = "rgba(205,214,255," + a + ")"; ctx.lineWidth = lw;
-      ctx.beginPath(); ctx.moveTo(ppx, ppy); ctx.lineTo(px, py); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(cur[0], cur[1]); ctx.stroke();
     }
     raf = requestAnimationFrame(loop);
   };
@@ -4459,7 +4478,7 @@ function openLedger() {
     const calm = reduceMotion();                                 // seizure-safe path: no warp strobe, no flash, no whoosh
     board.classList.add("lg-hidden"); intro.classList.remove("lg-hidden");
     muteBtn.classList.remove("lg-hidden");                        // mute available the whole trip
-    if (song) { song.volume = 0; song.play().then(() => fadeAudio(song, 0.45, 500)).catch(() => { song = null; }); }  // starts right now (preloaded)
+    if (song) { try { song.currentTime = TRIP_SONG_START; } catch (e) {} song.volume = 0; song.play().then(() => fadeAudio(song, 0.45, 500)).catch(() => { song = null; }); }  // starts right now (preloaded), from 3s
     if (!calm) {
       mode = "warp"; target = 11;                                 // the slingshot — kick into the journey
       try { const warp = new Audio("av%20assets/warp.wav"); warp.volume = 0.5; warp.play().catch(() => {}); } catch (e) {}  // the whoosh
@@ -4471,7 +4490,25 @@ function openLedger() {
       fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
       fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
       awardTripExp();                                             // every trip pays out EXP
+      buildDash();                                                // light up the cockpit
     }, calm ? 700 : 1450);
+  };
+  const buildDash = () => {                                       // spaceship-cockpit readouts along the bottom
+    const dash = root.querySelector("#lgDash");
+    if (!dash) return;
+    dash.innerHTML =
+      '<button class="lg-bubble" data-k="sources" style="--c:' + LG_COLORS.sources + '">' +
+        '<span class="lg-bub-ico">🛰</span>' +
+        '<span class="lg-bub-val" id="lgBubSources">…</span>' +
+        '<span class="lg-bub-lbl">data sources</span>' +
+      "</button>";
+    requestAnimationFrame(() => dash.classList.add("lg-dash-show"));
+    const grab = (u) => fetch(u + "?t=" + Date.now()).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    Promise.all([grab("data/balances.json"), grab("data/toggl.json")]).then(([d, tg]) => {
+      const orgs = {}; ((d && d.accounts) || []).forEach((a) => { orgs[a.org || "Bank"] = 1; });
+      const count = Object.keys(orgs).length + (tg ? 1 : 0);
+      const el = root.querySelector("#lgBubSources"); if (el) el.textContent = count || "0";
+    });
   };
   const awardTripExp = () => {
     const gained = 25;
@@ -4502,6 +4539,21 @@ function openLedger() {
     muteBtn.classList.toggle("lg-muted", song.muted);
     muteBtn.title = song.muted ? "Unmute the music" : "Mute the music";
   });
+  // click-drag to orbit the visualizer in 3D (empty space only — never on a control/the viz)
+  let dragging = false, lastX = 0, lastY = 0;
+  led.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button, a, .lg-dash, #lgConst")) return;
+    dragging = true; lastX = e.clientX; lastY = e.clientY; led.classList.add("lg-dragging");
+  });
+  root.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    tYaw += (e.clientX - lastX) * 0.005;
+    tPitch = Math.max(-0.55, Math.min(0.55, tPitch + (e.clientY - lastY) * 0.004));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  const endDrag = () => { dragging = false; led.classList.remove("lg-dragging"); };
+  root.addEventListener("pointerup", endDrag);
+  root.addEventListener("pointercancel", endDrag);
   const onKey = (e) => { if (e.key === "Escape") close(); };
   window.addEventListener("resize", size);
   document.addEventListener("keydown", onKey);
