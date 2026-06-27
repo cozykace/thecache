@@ -36,13 +36,20 @@ Your cache levels up as you do the work — every interaction earns EXP.
 - **Themes & Fonts** (Settings) — make the whole look yours.
 - **Favorites** — star any widget or dock item to pin it to the top.
 
-## Accessibility
-Menu → **♿ Accessibility**. We're building this out over time — what's here now:
+## Accessibility Hub
+Accessibility isn't a checkbox bolted on at the end here — it's a first-class part of THE CACHE, and one of the real reasons to run this build. Menu → **♿ Accessibility Hub**.
+
+**Comfort presets** — one click sets a whole vibe:
+- **🌙 Calm** — gentle motion, high contrast, larger text.
+- **🔆 Crisp** — maximum readability, motion left as-is.
+- **🚀 Full FX** — every effect on, default size.
+
+**Fine-tune** anything underneath:
 - **Motion & flashing** — *Reduce* calms the warp, removes the white flash, and stops looping animation (seizure-safe). *System* follows your device's "reduce motion" setting automatically; *Full* keeps every effect.
-- **Contrast** — *High* strengthens borders and text for easier reading.
+- **Contrast** — *High* strengthens borders and text.
 - **Text & UI size** — scale the whole interface up (*Large* / *Largest*).
 
-Need something we don't have yet? Menu → ⚑ Report a bug or request — it goes straight to the team.
+This hub grows with the people who use it. Need a screen-reader pass, a color-blind-safe palette, bigger touch targets, anything at all? Menu → ⚑ Report a bug or request — **accessibility asks jump the line.**
 
 ## Keeping it updated
 Menu → **Update app** previews exactly what's changing (and the download size) before you pull. Nothing happens until you choose; you can skip an update with no nagging.
@@ -53,7 +60,9 @@ Menu → **Update app** previews exactly what's changing (and the download size)
 - **Something looks broken?** Menu → ⚑ Report a bug or request — it comes straight to the team.
 
 ## Developer Center — build your own
-THE CACHE itself is proprietary (the visuals, animations, and code are the author's art — please don't copy them). But the **approach** is something we're happy to share, for tinkerers who want to build their own private, local-first money tool:
+THE CACHE itself is proprietary (the visuals, animations, and code are the author's art — please don't copy them). Running the real build gets you the things that are genuinely hard to do yourself: the **Accessibility Hub** and seizure-safe motion handling baked through every screen, the polished UI, and the ongoing care. That's a big part of what your copy is worth.
+
+That said, the **approach** is something we're happy to share, for tinkerers who want to build their own private, local-first money tool:
 - **Local-first architecture** — a tiny local server (Python's standard library is enough) serves a browser UI at `localhost`. Your data lives in plain files on your machine; nothing goes to a server you don't control.
 - **Bank data** — [SimpleFIN](https://www.simplefin.org) is a read-only way to pull balances + transactions without handing over your bank login. You connect with a one-time setup token.
 - **The pattern that makes it trustworthy** — one canonical data layer that every part of the UI reads from, atomic + crash-durable writes, an append-only ledger, and automatic local backups. (We go deep on this in future Developer Center entries.)

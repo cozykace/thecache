@@ -2580,6 +2580,20 @@ applyA11y();
 try { matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", applyA11y); } catch (e) {}
 
 function closeA11y() { ["a11yBackdrop", "a11yModal"].forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); }); }
+// One-click comfort loadouts — bundle the fine-tune settings into a vibe.
+const A11Y_PRESETS = [
+  { id: "calm",  t: "🌙 Calm",    d: "Gentle motion · high contrast · larger", set: { motion: "reduce", contrast: "high",   text: "lg" } },
+  { id: "crisp", t: "🔆 Crisp",   d: "Max readability, motion as-is",          set: { motion: "auto",   contrast: "high",   text: "lg" } },
+  { id: "full",  t: "🚀 Full FX", d: "Every effect, default size",             set: { motion: "full",   contrast: "normal", text: "base" } },
+];
+function a11yMatchesPreset(p) { return Object.keys(p.set).every((k) => a11yGet(k) === p.set[k]); }
+function a11yApplyPreset(p) {
+  Object.keys(p.set).forEach((k) => {
+    const v = p.set[k];
+    if (v && v !== A11Y[k].def) localStorage.setItem(A11Y[k].key, v); else localStorage.removeItem(A11Y[k].key);
+  });
+  applyA11y();
+}
 function openA11y() {
   closeA11y();
   const back = document.createElement("div"); back.className = "cat-backdrop"; back.id = "a11yBackdrop";
@@ -2588,26 +2602,42 @@ function openA11y() {
   const seg = (name, opts) => '<div class="a11y-seg" role="group" data-name="' + name + '">' +
     opts.map((o) => '<button class="a11y-opt' + (a11yGet(name) === o.v ? " on" : "") + '" data-v="' + o.v + '">' + o.t + "</button>").join("") + "</div>";
   modal.innerHTML =
-    '<div class="cat-head"><span>♿ Accessibility</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="cat-head"><span>♿ Accessibility Hub</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="a11y-body">' +
+      '<div class="a11y-intro">Built for how <em>you</em> actually use it. Tune anything here — and if something you need is missing, that request comes first.</div>' +
+      '<div class="a11y-sec">Comfort presets</div>' +
+      '<div class="a11y-presets">' +
+        A11Y_PRESETS.map((p) => '<button class="a11y-preset' + (a11yMatchesPreset(p) ? " on" : "") + '" data-p="' + p.id + '"><b>' + p.t + "</b><span>" + p.d + "</span></button>").join("") +
+      "</div>" +
+      '<div class="a11y-sec">Fine-tune</div>' +
       '<div class="a11y-row"><div class="a11y-lbl"><b>Motion &amp; flashing</b><span>Calms the warp, removes the white flash, and stops looping animation — seizure-safe. <em>System</em> follows your device setting.</span></div>' +
         seg("motion", [{ v: "auto", t: "System" }, { v: "reduce", t: "Reduce" }, { v: "full", t: "Full" }]) + "</div>" +
       '<div class="a11y-row"><div class="a11y-lbl"><b>Contrast</b><span>Stronger borders and text for easier reading.</span></div>' +
         seg("contrast", [{ v: "normal", t: "Normal" }, { v: "high", t: "High" }]) + "</div>" +
       '<div class="a11y-row"><div class="a11y-lbl"><b>Text &amp; UI size</b><span>Scale the whole interface up.</span></div>' +
         seg("text", [{ v: "base", t: "Default" }, { v: "lg", t: "Large" }, { v: "xl", t: "Largest" }]) + "</div>" +
-      '<div class="a11y-note">More options will land here over time. Need something specific? Menu → ⚑ Report a bug or request.</div>' +
+      '<div class="a11y-note">This hub grows with the people who use it. Need a screen-reader pass, a color-blind-safe palette, bigger touch targets, anything? Menu → ⚑ Report a bug or request — accessibility asks jump the line.</div>' +
     "</div>";
   document.body.appendChild(back); document.body.appendChild(modal);
   modal.querySelector(".cat-close").addEventListener("click", closeA11y);
+  const sync = () => {  // reflect current state across segments + presets
+    modal.querySelectorAll(".a11y-seg").forEach((segEl) => {
+      const name = segEl.dataset.name;
+      segEl.querySelectorAll(".a11y-opt").forEach((b) => b.classList.toggle("on", b.dataset.v === a11yGet(name)));
+    });
+    modal.querySelectorAll(".a11y-preset").forEach((pb) => {
+      const p = A11Y_PRESETS.find((x) => x.id === pb.dataset.p);
+      pb.classList.toggle("on", !!p && a11yMatchesPreset(p));
+    });
+  };
   modal.querySelectorAll(".a11y-seg").forEach((segEl) => {
     const name = segEl.dataset.name;
     segEl.querySelectorAll(".a11y-opt").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        a11ySet(name, btn.dataset.v);
-        segEl.querySelectorAll(".a11y-opt").forEach((b) => b.classList.toggle("on", b === btn));
-      });
+      btn.addEventListener("click", () => { a11ySet(name, btn.dataset.v); sync(); });
     });
+  });
+  modal.querySelectorAll(".a11y-preset").forEach((pb) => {
+    pb.addEventListener("click", () => { const p = A11Y_PRESETS.find((x) => x.id === pb.dataset.p); if (p) { a11yApplyPreset(p); sync(); } });
   });
 }
 
