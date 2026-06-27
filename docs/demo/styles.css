@@ -1489,10 +1489,12 @@ body.blessed .cursor-ball {
 .wk-body strong { color: var(--ink); font-weight: 700; }
 .wk-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 /* Enter the Ledger — skull CTA + full-screen hyperspace warp + cosmic ledger space */
-.ledger-pill { font-size: 14px; line-height: 1; background: rgba(var(--ink-rgb), 0.06); border: 1px solid var(--edge-soft);
-  border-radius: 999px; padding: 5px 11px; cursor: pointer; color: var(--ink); transition: transform 0.2s, filter 0.2s;
-  animation: lg-bob 3.4s ease-in-out infinite; }
-.ledger-pill:hover { transform: scale(1.16); filter: drop-shadow(0 0 9px var(--accent)); }
+.ledger-pill { display: inline-flex; align-items: center; font-size: 14px; line-height: 1; background: rgba(var(--ink-rgb), 0.06);
+  border: 1px solid var(--edge-soft); border-radius: 999px; padding: 5px 11px; cursor: pointer; color: var(--ink);
+  transition: transform 0.2s, filter 0.2s; animation: lg-bob 3.4s ease-in-out infinite; }
+.ledger-pill .lp-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.62); }
+.ledger-pill:hover { transform: scale(1.1); filter: drop-shadow(0 0 9px var(--accent)); }
+.ledger-pill:hover .lp-label { color: var(--accent); }
 @keyframes lg-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 .lg-space { position: fixed; inset: 0; z-index: 100000; background: #06040f; overflow: hidden;
   font-family: ui-monospace, Menlo, monospace; animation: lg-in 0.3s ease; }
