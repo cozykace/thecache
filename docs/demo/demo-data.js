@@ -193,6 +193,8 @@
     if (url.indexOf("/api/downloads") !== -1) return J({ ok: true, downloads: 0 });
     if (url.indexOf("/api/export-data") !== -1) return J({ ok: true, files: {}, exported: 0, count: 0 });
     if (url.indexOf("/api/import-data") !== -1) return J({ ok: true, written: 0, files: [], snapshot: "demo" });
+    if (url.indexOf("/api/webdav-push") !== -1) return J({ ok: false, error: "WebDAV isn't available in the demo" });
+    if (url.indexOf("/api/webdav-config") !== -1) return J({ ok: true, configured: false, url: "", user: "" });
     if (url.indexOf("/api/devtree") !== -1) return J({ ok: true,
       roadmap: { shipped: 100, in_progress: 5, planned: 30, in_progress_items: ["Cache cloud", "Form builder"], planned_items: ["Beast Mode", "WebDAV backups", "DMs + find friends"] },
       files: [{ file: "app.js", todo: 3, bad: 0, markers: [{ sev: "todo", kind: "TODO", line: 42, text: "// TODO: polish empty state" }] }],

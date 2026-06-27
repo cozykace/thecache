@@ -39,3 +39,6 @@ BRAND.md
 
 # Cloud architecture plan — private security/strategy doc
 CLOUD-PLAN.md
+
+# WebDAV backup target (url/user/pass) — local only, never commit
+.webdav

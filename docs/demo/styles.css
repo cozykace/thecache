@@ -12,11 +12,25 @@
   --edge: rgba(var(--ink-rgb), 0.30);
   --edge-soft: rgba(var(--ink-rgb), 0.14);
 }
-:root[data-theme="dark"] {
-  --ink-rgb: 232, 227, 213;
-  --paper: #14130e;
-  --panel: #1d1b14;
-  --accent: #e0734a;
+:root[data-theme="dark"] {        /* BEAST MODE — fully red, feral */
+  --ink-rgb: 255, 211, 206;              /* light warm-red text */
+  --paper: #1c0307;                      /* deep blood red */
+  --panel: #320810;                      /* lifted red panel */
+  --accent: #ff3a46;                     /* hot red */
+  --edge: rgba(255, 80, 88, 0.45);       /* red-glowing borders */
+  --edge-soft: rgba(255, 80, 88, 0.20);
+  --widget-bg: rgba(255, 70, 80, 0.08);  /* widgets glow red, not white-washed */
+}
+:root[data-theme="dark"] body {          /* red room + red dot-grid */
+  background-color: #160206;
+  background-image: radial-gradient(rgba(255, 70, 80, 0.13) 1px, transparent 1px);
+}
+/* BEAST: a single red color-blend overlay → recolors EVERYTHING to a shade of red
+   (hue/saturation from the red, brightness kept from each element, so contrast holds).
+   Catches every stray green/amber/icon/chart with no per-color work. */
+:root[data-theme="dark"] body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none;
+  z-index: 2147483000; background: #d11626; mix-blend-mode: color;
 }
 :root[data-theme="terminal"] {
   --ink-rgb: 143, 227, 136;

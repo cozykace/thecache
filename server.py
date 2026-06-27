@@ -99,6 +99,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, store.export_data())  # client encrypts the bundle (E2E backup)
         if path == "/api/devtree":
             return self._json(200, store.dev_tree())
+        if path == "/api/webdav-config":
+            return self._json(200, store.webdav_config_get())
         if path == "/api/work":
             return self._json(200, store.work_summary())
         if path == "/api/income-monthly":
@@ -259,6 +261,20 @@ class Handler(SimpleHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError):
                 return self._json(400, {"error": "bad request"})
             return self._json(200, store.import_data(data.get("files") or {}))
+        if self.path == "/api/webdav-config":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            return self._json(200, store.webdav_config_save(data.get("url"), data.get("user"), data.get("pass")))
+        if self.path == "/api/webdav-push":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            return self._json(200, store.webdav_push(data.get("filename"), data.get("data")))
         if self.path == "/api/categorize":
             try:
                 n = int(self.headers.get("Content-Length", 0))

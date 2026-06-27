@@ -1847,3 +1847,51 @@ def dev_tree():
     files.sort(key=lambda f: (-f["bad"], -f["todo"], f["file"]))
     return {"ok": True, "roadmap": rm, "files": files,
             "totals": {"todo": tot_todo, "bad": tot_bad, "files_flagged": len(files)}}
+
+
+WEBDAV = os.path.join(HERE, ".webdav")  # gitignored: {url, user, pass} for backup target
+
+
+def webdav_config_get():
+    c = _read(WEBDAV, {}) or {}
+    return {"ok": True, "configured": bool(c.get("url")), "url": c.get("url", ""), "user": c.get("user", "")}
+
+
+def webdav_config_save(url, user, pw):
+    url = (url or "").strip()
+    if not url:
+        try:
+            os.remove(WEBDAV)
+        except Exception:
+            pass
+        return {"ok": True, "configured": False}
+    _write(WEBDAV, {"url": url, "user": (user or "").strip(), "pass": pw or ""})
+    return {"ok": True, "configured": True}
+
+
+def webdav_push(filename, data):
+    """PUT an already-encrypted blob to the configured WebDAV server. The server only
+    forwards ciphertext — it never encrypts (E2E happens in the browser)."""
+    import urllib.request
+    import urllib.error
+    import base64
+    c = _read(WEBDAV, {}) or {}
+    if not c.get("url"):
+        return {"ok": False, "error": "WebDAV isn't set up yet"}
+    if not isinstance(filename, str) or not filename or "/" in filename or "\\" in filename:
+        return {"ok": False, "error": "bad filename"}
+    if not isinstance(data, str) or not data:
+        return {"ok": False, "error": "nothing to back up"}
+    target = c["url"].rstrip("/") + "/" + filename
+    req = urllib.request.Request(target, data=data.encode("utf-8"), method="PUT",
+                                 headers={"Content-Type": "application/octet-stream", "User-Agent": "thecache"})
+    if c.get("user"):
+        tok = base64.b64encode((c["user"] + ":" + (c.get("pass") or "")).encode()).decode()
+        req.add_header("Authorization", "Basic " + tok)
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r:
+            return {"ok": True, "status": r.status, "file": filename}
+    except urllib.error.HTTPError as e:
+        return {"ok": False, "error": "WebDAV returned " + str(e.code) + " " + str(e.reason)}
+    except Exception as e:
+        return {"ok": False, "error": "couldn't reach WebDAV: " + str(e)[:140]}

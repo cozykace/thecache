@@ -2643,6 +2643,17 @@ async function restoreEncryptedBackup(file, pass) {
   if (!res || !res.ok) throw new Error((res && res.error) || "restore failed");
   return res;
 }
+// Encrypt locally (browser, E2E) then hand the ciphertext to the local server to PUT
+// onto the user's own WebDAV — the WebDAV host only ever sees the sealed blob.
+async function pushBackupToWebdav(pass) {
+  const d = await (await fetch("/api/export-data")).json();
+  if (!d || !d.ok) throw new Error("couldn't read your data");
+  const env = await encryptJSON({ files: d.files, exported: d.exported }, pass);
+  const fn = "cache-backup-" + new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "") + ".cache";
+  const res = await (await fetch("/api/webdav-push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: fn, data: env }) })).json();
+  if (!res || !res.ok) throw new Error((res && res.error) || "push failed");
+  return fn;
+}
 // ── Click sparks: rapid clicking shoots theme-colored sparks from the cursor —
 //    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
 //    you click in quick succession. ──
@@ -2980,6 +2991,15 @@ function openSettings() {
         '<input id="setBkFile" type="file" accept=".cache" style="display:none">' +
       '</div>' +
       '<div class="set-hint" id="setBkMsg"></div>' +
+      '<div class="set-hint" style="margin-top:6px">Or push the encrypted backup to your own <b>WebDAV</b> (Nextcloud, Fastmail, a NAS) — it only ever stores the sealed file, never the passphrase.</div>' +
+      '<label class="set-row"><span>WebDAV URL</span><input id="setWdUrl" type="text" autocomplete="off" placeholder="https://dav.example.com/thecache/"></label>' +
+      '<label class="set-row"><span>Username</span><input id="setWdUser" type="text" autocomplete="off" placeholder="optional"></label>' +
+      '<label class="set-row"><span>Password</span><input id="setWdPass" type="password" autocomplete="off" placeholder="optional"></label>' +
+      '<div class="set-bk-row">' +
+        '<button class="set-btn" id="setWdSave">Save WebDAV</button>' +
+        '<button class="set-btn" id="setWdPush">⬆ Back up to WebDAV now</button>' +
+      '</div>' +
+      '<div class="set-hint" id="setWdMsg"></div>' +
       '<div class="set-themes" id="setThemes"></div>' +
       '<div class="set-sec">Fonts</div>' +
       '<div class="set-fonts" id="setFonts"></div>' +
@@ -3030,6 +3050,27 @@ function openSettings() {
       setTimeout(() => location.reload(), 1600);
     } catch (e) { bkMsg.textContent = "Restore failed: " + (e.message || e); }
     bkFile.value = "";
+  });
+  // WebDAV backup target
+  const wdUrl = modal.querySelector("#setWdUrl"), wdUser = modal.querySelector("#setWdUser"),
+        wdPass = modal.querySelector("#setWdPass"), wdMsg = modal.querySelector("#setWdMsg");
+  fetch("/api/webdav-config").then((r) => r.json()).then((c) => {
+    if (c && c.configured) { wdUrl.value = c.url || ""; wdUser.value = c.user || ""; wdMsg.textContent = "Connected to " + (c.url || "your WebDAV") + "."; }
+  }).catch(() => {});
+  modal.querySelector("#setWdSave").addEventListener("click", async () => {
+    wdMsg.textContent = "Saving…";
+    try {
+      const c = await (await fetch("/api/webdav-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: wdUrl.value.trim(), user: wdUser.value.trim(), pass: wdPass.value }) })).json();
+      wdMsg.textContent = c.configured ? "✓ WebDAV saved." : "WebDAV cleared.";
+    } catch (e) { wdMsg.textContent = "Couldn’t save: " + (e.message || e); }
+  });
+  modal.querySelector("#setWdPush").addEventListener("click", async () => {
+    const p = (bkPass.value || "").trim();
+    if (p.length < 6) { wdMsg.textContent = "Set the backup passphrase (above) first — it encrypts the file before it leaves."; return; }
+    if (!wdUrl.value.trim()) { wdMsg.textContent = "Add + save your WebDAV URL first."; return; }
+    wdMsg.textContent = "Encrypting + uploading…";
+    try { const fn = await pushBackupToWebdav(p); wdMsg.textContent = "✓ Encrypted backup pushed to WebDAV as " + fn; }
+    catch (e) { wdMsg.textContent = "Backup to WebDAV failed: " + (e.message || e); }
   });
 
   const privBtn = modal.querySelector("#setPrivacy");
@@ -4017,7 +4058,7 @@ const THEMES = [
   { id: "mono", label: "Mono (auto)", bg: "#f3f2ef", accent: "#1c1c1a" },
   { id: "cache", label: "The Cache", bg: "#16140c", accent: "#FFD409" },
   { id: "light", label: "Oat Milk", bg: "#ece6d6", accent: "#c9542e" },
-  { id: "dark", label: "Goblin Mode", bg: "#14130e", accent: "#e0734a" },
+  { id: "dark", label: "Beast Mode", bg: "#1c0307", accent: "#ff3a46" },
   { id: "terminal", label: "Gamer Sweat", bg: "#0c0f0a", accent: "#8fe388" },
   { id: "blueprint", label: "Bluetooth CEO", bg: "#0e1830", accent: "#6aa6ff" },
   { id: "mist", label: "Foggy Brain", bg: "#e8ecf0", accent: "#4a6da7" },
