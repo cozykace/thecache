@@ -54,6 +54,11 @@ class Handler(SimpleHTTPRequestHandler):
             if not os.path.exists(os.path.join(HERE, ".founder")):
                 return self._json(403, {"ok": False})
             return self._json(200, dict({"ok": True}, **store.king_stats()))
+        if path == "/api/downloads":
+            # GitHub Release download count → King dashboard; also logged to PostHog
+            # (founder machine only) whenever the total changes.
+            founder = os.path.exists(os.path.join(HERE, ".founder"))
+            return self._json(200, store.downloads_snapshot(report=founder))
         if path == "/api/connect-status":
             return self._json(200, {"connected": os.path.exists(os.path.join(HERE, ".simplefin"))})
         if path == "/api/other-merchants":

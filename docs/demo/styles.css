@@ -72,13 +72,15 @@
   :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) {
     --ink-rgb: 235, 235, 232;
     --paper: #0d0d0c;
-    --panel: #1a1a18;
+    --panel: #121210;
+    --widget-bg: var(--paper);   /* widgets sit flush with the canvas (like light mono), defined only by the border */
   }
 }
 :root[data-theme="mono"][data-monomode="dark"] {   /* DARK forced — ignore the system setting */
   --ink-rgb: 235, 235, 232;
   --paper: #0d0d0c;
-  --panel: #1a1a18;
+  --panel: #121210;
+  --widget-bg: var(--paper);   /* widgets sit flush with the canvas (like light mono), defined only by the border */
 }
 :root[data-theme="mono"] body { background-image: none; }   /* drop the dotted paper texture — calmer, less early-internet */
 html { background: var(--paper); }
@@ -127,7 +129,7 @@ body.panning .cursor-ball { display: none !important; }
   position: absolute;
   display: flex;
   flex-direction: column;
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--widget-bg, rgba(255, 255, 255, 0.18));
   border: 1px solid var(--edge);
   border-radius: 14px;
   overflow: hidden;
@@ -1847,16 +1849,42 @@ body.blessed .cursor-ball {
 .king-vine.kv-l { left: -24px; }
 .king-vine.kv-r { right: -24px; transform: scaleX(-1); }
 
-/* Time Machine — gentle: scrolling the board SEATS the cartridge deeper into the gold
-   slot (and recedes it slightly); the slot itself stays put. Reduced motion → --tm=0. */
+/* Scroll-driven plug: at the very top the cartridge sits UNPLUGGED (lifted out, gold
+   slot dropped away — a clear gap). Scroll the board down → it CLUNKS in (cartridge
+   seats, slot snaps up with a squash + bounce). Back to the top → it pops apart.
+   Founder only (body.king-on); JS toggles .cart-in off board.scrollTop. */
 body.king-on .stats-bar:not(.king-bar) .stats {
   transform-origin: center top;
-  transform: translateY(calc(var(--tm, 0) * 14px)) scale(calc(1 - var(--tm, 0) * 0.05));
-  filter: blur(calc(var(--tm, 0) * 0.7px));
-  opacity: calc(1 - var(--tm, 0) * 0.12);
-  transition: transform 0.16s ease-out, filter 0.16s ease-out, opacity 0.16s ease-out;
-  will-change: transform, filter, opacity;
+  transform: translateY(-9px);                 /* unplugged: lifted out */
+  transition: transform 0.34s cubic-bezier(0.4, 1.3, 0.5, 1);
 }
+body.king-on .king-stats {
+  transform-origin: center top;
+  transform: translateY(18px);                 /* unplugged: slot dropped away */
+  transition: transform 0.34s cubic-bezier(0.4, 1.3, 0.5, 1);
+}
+body.king-on.cart-in .stats-bar:not(.king-bar) .stats {
+  transform: translateY(0);                     /* plugged */
+  animation: cartridgeSeat 0.5s cubic-bezier(0.4, 1.4, 0.5, 1);
+}
+body.king-on.cart-in .king-stats {
+  transform: translateY(0);                     /* plugged */
+  animation: slotClunk 0.52s ease-out 0.16s;
+}
+@keyframes cartridgeSeat {
+  0%   { transform: translateY(-9px); }
+  55%  { transform: translateY(5px); }          /* punch in past the line */
+  76%  { transform: translateY(-2px); }
+  100% { transform: translateY(0); }
+}
+@keyframes slotClunk {
+  0%   { transform: translateY(18px) scaleY(1); }
+  34%  { transform: translateY(6px) scaleY(0.9); }   /* impact squash */
+  66%  { transform: translateY(-3px) scaleY(1.02); } /* spring back */
+  100% { transform: translateY(0) scaleY(1); }
+}
+html[data-reduce-motion="1"] body.king-on .stats-bar:not(.king-bar) .stats,
+html[data-reduce-motion="1"] body.king-on .king-stats { transition: none; animation: none; }
 
 /* period chip on each span widget's title bar */
 .w-period {

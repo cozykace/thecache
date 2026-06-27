@@ -1566,6 +1566,49 @@ def rebuild_from_ledger(window_days=30, now=None):
     return len(window), len(txns)
 
 
+DOWNLOADS = os.path.join(DATA, "downloads.json")
+# Public PostHog project (ingest) key — same one the front-end uses; safe to ship.
+_PH_KEY = "phc_ttvrXfZjNFpSohYHsptHVV86QZXsQDiZJVpnmgMFogAr"
+
+
+def _posthog_capture(event, props):
+    """Fire-and-forget a server-side PostHog event (never raises)."""
+    import urllib.request
+    try:
+        body = json.dumps({"api_key": _PH_KEY, "event": event,
+                           "distinct_id": "thecache-releases", "properties": props or {}}).encode()
+        req = urllib.request.Request("https://us.i.posthog.com/capture/", data=body,
+                                     headers={"Content-Type": "application/json", "User-Agent": "thecache"})
+        urllib.request.urlopen(req, timeout=6).read()
+    except Exception:
+        pass
+
+
+def downloads_snapshot(report=False):
+    """Total GitHub Release asset downloads for the repo. Caches the last good count
+    locally; when `report` (founder machine) and the total changed, logs it to PostHog
+    as `cache_download_total` so downloads are charted over time."""
+    import urllib.request
+    prev = _read(DOWNLOADS, {}) or {}
+    total = None
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/cozykace/thecache/releases?per_page=100",
+            headers={"User-Agent": "thecache", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            rels = json.load(r)
+        total = sum(a.get("download_count", 0) for rel in rels for a in rel.get("assets", []))
+    except Exception:
+        total = None
+    if total is None:  # network/API hiccup — serve the last known number
+        return {"ok": True, "downloads": prev.get("count", 0), "stale": True}
+    if total != prev.get("count"):
+        _write(DOWNLOADS, {"count": total, "updated": int(time.time())})
+        if report:
+            _posthog_capture("cache_download_total", {"count": total})
+    return {"ok": True, "downloads": total}
+
+
 def king_stats():
     """Founder-only deep stats for the King Cozy secret window: the size of the
     build (commits / files / lines) + how much life-data is tracked (ledger /

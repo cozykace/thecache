@@ -190,6 +190,7 @@
     if (url.indexOf("data/balances.json") !== -1) return J(balances);
     if (url.indexOf("data/monthly.json") !== -1) return J(monthly);
     if (url.indexOf("/api/ping") !== -1) return J({ ok: true });
+    if (url.indexOf("/api/downloads") !== -1) return J({ ok: true, downloads: 0 });
     if (url.indexOf("/api/connect-status") !== -1) return J({ connected: true });
     if (url.indexOf("/api/summary") !== -1) return J(summary);
     if (url.indexOf("/api/work-monthly") !== -1) return J(workMonthly);

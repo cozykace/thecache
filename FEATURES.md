@@ -2,7 +2,9 @@
 
 A living, product-facing list of what THE CACHE does — kept current as we ship, ready for when this goes live to other people.
 
-_Last updated: 2026-06-25_
+**The promise:** have a good time facing the skeletons in your closet. A calm, playful, private way to face your money — built to be just as good for immigrants and for anyone who's overwhelmed by keeping track of a lot of data that's hard to understand or use.
+
+_Last updated: 2026-06-26_
 
 ## Connect your money
 - **Automatic bank sync** — link real accounts (read-only) and pull balances + transactions on demand.

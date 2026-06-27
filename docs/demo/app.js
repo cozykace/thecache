@@ -2167,8 +2167,9 @@ function openKingCozy() {
       set("kc-fixes", (md.match(/\bfix(?:ed|es)?\b/gi) || []).length);
     }).catch(() => {});
   fetch("https://api.github.com/repos/cozykace/thecache")
-    .then((r) => r.json()).then((d) => { set("kc-stars", d.stargazers_count); set("kc-forks", d.forks_count); set("kc-downloads", 0); })
+    .then((r) => r.json()).then((d) => { set("kc-stars", d.stargazers_count); set("kc-forks", d.forks_count); })
     .catch(() => {});
+  fetch("/api/downloads?t=" + Date.now()).then((r) => r.json()).then((d) => { if (d && d.ok) set("kc-downloads", d.downloads); }).catch(() => {});
   fetch("/api/king-stats?t=" + Date.now()).then((r) => r.json()).then((d) => {
     if (!d || !d.ok) return;
     set("kc-commits", d.commits); set("kc-loc", d.loc); set("kc-files", d.files);
@@ -2560,6 +2561,29 @@ function playShing() {
   try {
     if (!_shing) _shing = new Audio("av%20assets/shing.wav");
     const a = _shing.cloneNode(); a.volume = 0.3; a.play().catch(() => {});
+  } catch (e) {}
+}
+// Synthesized crowd applause/cheer (no audio asset) — a swelling burst of filtered
+// noise with scattered louder claps. Played when a trip lands. Never throws.
+let _actx;
+function playApplause() {
+  try {
+    _actx = _actx || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _actx, dur = 2.4, len = Math.floor(ctx.sampleRate * dur);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate), ch = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const t = i / ctx.sampleRate;
+      const swell = Math.min(1, t / 0.22) * Math.pow(1 - t / dur, 1.5);  // quick rise, long decay
+      let v = (Math.random() * 2 - 1);
+      if (Math.random() < 0.006) v *= 3.2;                               // scattered claps poke through
+      ch[i] = Math.max(-1, Math.min(1, v * swell));
+    }
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 650;
+    const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1900; bp.Q.value = 0.5;
+    const g = ctx.createGain(); g.gain.value = 0.34;
+    src.connect(hp); hp.connect(bp); bp.connect(g); g.connect(ctx.destination);
+    src.start();
   } catch (e) {}
 }
 let _sparkAlive = 0;
@@ -4723,6 +4747,8 @@ function openLedger() {
     }
     setTimeout(() => {                                            // arrive: you're at your cache
       intro.classList.add("lg-hidden"); led.classList.remove("lg-hidden"); mode = "idle"; target = 0.5; flash.classList.remove("on");
+      if (!calm && !(song && song.muted)) playApplause();         // the crowd cheers as you land
+
       const head = root.querySelector("#lgHeadline"), svg = root.querySelector("#lgConst");
       fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
       fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
@@ -5725,6 +5751,7 @@ function buildKingBar() {
       chip("kb-fixes", "…", "fixes") +
       chip("kb-stars", "…", "stars") +
       chip("kb-forks", "…", "forks") +
+      chip("kb-downloads", "…", "downloads") +
       chip("kb-events", "…", "events 7d") +
       chip("kb-people", "…", "people 7d") +
     "</div>";
@@ -5748,6 +5775,7 @@ function buildKingBar() {
     fetch("https://api.github.com/repos/cozykace/thecache")
       .then((r) => r.json()).then((d) => { set("kb-stars", d.stargazers_count); set("kb-forks", d.forks_count); })
       .catch(() => {});
+    fetch("/api/downloads?t=" + Date.now()).then((r) => r.json()).then((d) => { if (d && d.ok) set("kb-downloads", d.downloads); }).catch(() => {});
     fetch("/api/posthog-stats?t=" + Date.now()).then((r) => r.json()).then((d) => {
       if (d && d.ok) { set("kb-events", d.total || 0); set("kb-people", d.users || 0); }
       else { set("kb-events", "—"); set("kb-people", "—"); }
@@ -5765,29 +5793,30 @@ let KING = false;
 function applyKing() {
   if (!KING) return;
   buildKingBar();
-  document.body.classList.add("king-on");  // enables the Time Machine bar layering (founder only)
+  document.body.classList.add("king-on");  // founder: enables the cartridge clunk-in (CSS) + plug-in layout
   const k = document.getElementById("kingCozy");
   if (k) k.style.display = "";  // reveal the King menu item
   syncBadges();  // award the Founder badge now that the lock is confirmed
 }
 fetch("/api/ping").then((r) => r.json()).then((d) => { KING = !!(d && d.founder); applyKing(); }).catch(() => {});
 
-// ── Time Machine bar layering: scroll the board down and the personal stats bar
-//    recedes (shrinks + blurs) behind the King Cozy bar, like the macOS Time
-//    Machine depth stack. CSS does the transform off a 0→1 --tm var; this just
-//    feeds it (rAF-throttled). Founder-only via body.king-on; respects reduced motion. ──
-(function timeMachineBars() {
+// Scroll-driven cartridge plug: at the top the bar sits unplugged; scroll down → it
+// clunks into the gold slot; back to the top → it pops out. CSS does the motion off
+// body.cart-in. Hysteresis (plug >40, unplug <8) keeps it from flickering at the edge.
+(function plugScroll() {
   const board = document.getElementById("board");
-  const root = document.documentElement;
   if (!board) return;
-  let ticking = false;
-  const apply = () => {
+  if (reduceMotion()) { document.body.classList.add("cart-in"); return; }  // stay seated, no motion
+  let inDock = false, ticking = false;
+  const update = () => {
     ticking = false;
-    const p = reduceMotion() ? 0 : Math.max(0, Math.min(1, board.scrollTop / 150));
-    root.style.setProperty("--tm", p.toFixed(3));
+    const want = inDock ? board.scrollTop > 8 : board.scrollTop > 40;
+    if (want === inDock) return;
+    inDock = want;
+    document.body.classList.toggle("cart-in", want);
   };
-  board.addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(apply); } }, { passive: true });
-  apply();
+  board.addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
+  update();
 })();
 
 // ── Boot ───────────────────────────────────────────────────

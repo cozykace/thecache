@@ -33,3 +33,6 @@ __pycache__/
 # Founder lock — presence of this file marks THIS machine as King Cozy.
 # Never commit: it's what keeps founder-only surfaces personal to you.
 .founder
+
+# Brand/design references — private, local only
+BRAND.md

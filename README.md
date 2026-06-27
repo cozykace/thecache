@@ -51,9 +51,15 @@ Click **Connect** in the app (left sidebar) to find these options.
 - All data lives in a local `data/` folder that is **never committed or uploaded**.
 - Your SimpleFIN connection and any secrets stay on your machine.
 
-## Mac
+## Run it yourself (Mac)
 
-Double-click `start.command` (or run `python3 server.py`), then open http://localhost:5173.
+1. **Get the code** — download the latest **`thecache.zip`** from [Releases](https://github.com/cozykace/thecache/releases), then double-click it to unzip.
+2. **Start it** — open the `thecache` folder and **double-click `start.command`**. Your browser opens to **http://localhost:5173**.
+   - First time, macOS may say *"can't be opened because it is from an unidentified developer."* That's normal for a downloaded script — **right-click `start.command` → Open → Open**. You only do this once.
+   - If it says **Python isn't installed**, the script will point you to install it. Easiest: run `xcode-select --install` in Terminal (free, Apple's tools), or grab Python from [python.org](https://www.python.org/downloads/). Then double-click `start.command` again.
+3. **Add your money** — click **Connect** in the app: just explore, connect your bank (SimpleFIN), or import a CSV (same options as above).
+
+To stop it, close the Terminal window that opened. To start again later, double-click `start.command`.
 
 ---
 
