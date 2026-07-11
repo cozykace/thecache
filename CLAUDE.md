@@ -77,6 +77,7 @@ The board is desktop-first today (drag / zoom / pan), but build everything new s
 
 ## Workflow
 
+- **Cache check-in (project manager).** When Cozy says **"cache check-in"**, "standup", "where are we", or "get me back on task" — and when the scheduled `cache-standup` task runs — follow **`PROJECT-MANAGER.md`**: a fast status snapshot, the 1-3 next moves, dropped threads, a north-star gut-check, and always **one big baby-step action** to close. It's the antidote to a 150-item backlog. Edit `PROJECT-MANAGER.md` to change how it behaves.
 - **I can't see localhost** (sandbox can't reach the user's loopback). The user is the eyes — hand back and ask them to look; for risky visuals, preview with the visualize tool first. Don't ship intricate generative SVG blind.
 - **The backend doesn't hot-reload.** After editing `*.py`, the user must restart `python3 server.py`. Static files (`*.js/.css/.html`) just need a browser reload.
 - **Verify before handing back:** `node --check app.js`; `python3 -c "import store"` (and run a quick logic check that prints counts/placeholders, never real data).

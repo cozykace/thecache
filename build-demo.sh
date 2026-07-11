@@ -17,6 +17,10 @@ cp "$HERE/app.js"     "$DEST/app.js"
 cp "$HERE/styles.css" "$DEST/styles.css"
 cp "$HERE/cursor.js"  "$DEST/cursor.js"
 
+# skins (art/sound pipeline) — copy the default skin so the Base can load real art
+rm -rf "$DEST/skins"
+cp -R "$HERE/skins" "$DEST/skins"
+
 # referenced images only (logo mask + goat head/sprite masks)
 cp "$HERE/goat-head.png"   "$DEST/goat-head.png"
 cp "$HERE/goat-sprite.png" "$DEST/goat-sprite.png"

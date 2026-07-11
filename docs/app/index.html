@@ -3,66 +3,36 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>THE CACHE — Live demo</title>
-    <!-- Installable: on iPhone, Share → Add to Home Screen → opens fullscreen like an app -->
-    <link rel="icon" type="image/png" href="goat-head.png" />
+    <title>THE CACHE</title>
+    <link rel="icon" type="image/png" href="av assets/goat-pixel.png" />
+    <!-- Installable web app: "Add to Home Screen" on iPhone → fullscreen app w/ icon (needs a hosted HTTPS URL) -->
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="goat-head.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="The Cache" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="theme-color" content="#16140c" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" content="#ffffff" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
-    <!-- demo defaults to the brand theme; apply before paint to avoid a flash -->
+    <!-- apply saved theme before paint to avoid a flash -->
     <script>
       try {
-        var t = localStorage.getItem("money.theme") || "cache";
-        document.documentElement.setAttribute("data-theme", t);
+        var t = localStorage.getItem("money.theme");
+        if (t) document.documentElement.setAttribute("data-theme", t);
         var bg = localStorage.getItem("money.bg");
         if (bg) document.documentElement.setAttribute("data-bg", bg);
       } catch (e) {}
     </script>
-    <!-- seeds demo data + intercepts backend calls; MUST run before app.js -->
-    <script src="demo-data.js"></script>
-    <style>
-      /* demo-only chrome */
-      #demoBadge {
-        position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 9999;
-        background: var(--accent); color: #16140c; pointer-events: none;
-        font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; font-weight: 700;
-        letter-spacing: 0.12em; text-transform: uppercase; padding: 6px 13px; border-radius: 999px;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-      }
-      /* "Update app" pulls from git — meaningless in the static demo */
-      #updateApp { display: none; }
-      /* Hide scrollbars in the embed (still scrollable — just no visible bar) */
-      html, body, .board, .board-canvas { scrollbar-width: none !important; -ms-overflow-style: none !important; }
-      html::-webkit-scrollbar, body::-webkit-scrollbar,
-      .board::-webkit-scrollbar, .board-canvas::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
-      /* Embed showcase mode on narrow screens: hide the app's floating chrome
-         (menu/theme/bg toggles, zoom, status + stats + dock bars) so the embed
-         reads as a clean, scrollable board of widgets instead of a cramped app.
-         Desktop keeps the full interactive UI. */
-      @media (max-width: 640px) {
-        #sidebarToggle, #themeToggle, #bgToggle, #pagesToggle, .zoom-control,
-        .status-bar, .stats-bar, .dock-bar { display: none !important; }
-        .board-canvas {
-          padding-top: calc(46px + env(safe-area-inset-top)) !important;
-          padding-bottom: 24px !important;
-        }
-        #demoBadge { top: 8px; font-size: 10px; padding: 5px 10px; }
-      }
-    </style>
   </head>
   <body>
-    <div id="demoBadge">Live demo · play numbers</div>
-
+    <a class="skip-link" href="#board">Skip to dashboard</a>
     <!-- toggle: opens the sidebar -->
     <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open menu">☰</button>
+
+    <!-- pages: add a page (+) or switch between up to 6 (top-left) -->
     <button id="pagesToggle" class="pages-toggle pg-add-btn" aria-label="Pages">+</button>
 
     <!-- theme toggle: light / dark -->
@@ -71,22 +41,48 @@
     <button id="bgToggle" class="theme-toggle bg-toggle" aria-label="Backgrounds"><i data-lucide="sparkles"></i></button>
 
     <!-- the sliding pane: menu + libraries live here -->
-    <aside id="sidebar" class="sidebar">
+    <aside id="sidebar" class="sidebar" role="navigation" aria-label="Main menu">
       <header class="sidebar-head">
-        <span class="brand"><span class="brand-dot"></span><span class="brand-logo" role="img" aria-label="THE CACHE"></span></span>
+        <span class="brand"><span class="brand-dot"></span><span class="brand-name" id="brandName">THE CACHE</span></span>
         <button id="sidebarClose" class="sidebar-close" aria-label="Close menu">✕</button>
       </header>
 
       <div class="sidebar-scroll">
         <div class="sidebar-greeting" id="greeting" style="display:none"></div>
         <div class="sidebar-xp" id="sidebarXp"></div>
+        <div class="sidebar-trust" id="trustBadge"></div>
+        <div class="sidebar-health" id="healthBadge"></div>
+        <section class="sidebar-section">
+          <div class="section-title">Menu</div>
+          <button class="menu-item king-item" id="kingCozy" style="display:none">👑 King Cozy</button>
+          <button class="menu-item" id="connectBank">⚡ Connect a bank</button>
+          <button class="menu-item" id="openSettings">⚙ Settings</button>
+          <button class="menu-item" id="openA11y">♿ Accessibility</button>
+          <button class="menu-item" id="manageCats" data-tier="2">▦ Manage categories</button>
+          <button class="menu-item" id="helpWiki">📖 Help &amp; Learn</button>
+          <button class="menu-item" id="reportBug">⚑ Report a bug or request</button>
+          <button class="menu-item" id="importStatement" data-tier="3">↓ Import statement (CSV)</button>
+          <button class="menu-item" id="tidyLayout" data-tier="2">↹ Tidy layout</button>
+          <button class="menu-item" id="resetLayout" data-tier="2">↺ Reset layout</button>
+          <button class="menu-item" id="updateApp">⟳ Update app</button>
+        </section>
+
         <section class="sidebar-section">
           <div class="section-title">Widget Library</div>
+          <div class="gutter-ctrl" data-tier="2">
+            <span class="gutter-end">less</span>
+            <span class="gutter-track-wrap">
+              <input id="gutterSlider" type="range" min="6" max="42" step="1" class="gutter-slider" aria-label="Widget spacing" />
+              <i class="gt-tick" style="left:0%"></i><i class="gt-tick" style="left:33.33%"></i><i class="gt-tick" style="left:66.66%"></i><i class="gt-tick" style="left:100%"></i>
+            </span>
+            <span class="gutter-end">more</span>
+          </div>
+          <div class="section-hint" data-tier="2">spacing between widgets · snaps to 4 sizes, or drag freely between</div>
           <div id="library" class="library"></div>
           <div class="section-hint">click to add / remove from the board</div>
         </section>
 
-        <section class="sidebar-section" id="iconSection">
+        <section class="sidebar-section" id="iconSection" data-tier="2">
           <button class="section-toggle" id="iconToggle" type="button">
             <span class="section-title">Icon Library</span>
             <span class="section-caret">▾</span>
@@ -98,36 +94,24 @@
           </div></div>
         </section>
 
-        <section class="sidebar-section">
-          <div class="section-title">Menu</div>
-          <button class="menu-item" id="connectBank">⚡ Connect a bank</button>
-          <button class="menu-item" id="openSettings">⚙ Settings</button>
-          <button class="menu-item" id="manageCats">▦ Manage categories</button>
-          <button class="menu-item" id="reportBug">⚑ Report a bug or request</button>
-          <button class="menu-item" id="importStatement">↓ Import statement (CSV)</button>
-          <button class="menu-item" id="tidyLayout">↹ Tidy layout</button>
-          <button class="menu-item" id="resetLayout">↺ Reset layout</button>
-          <button class="menu-item" id="updateApp">⟳ Update app</button>
-        </section>
-
-        <section class="sidebar-section">
+        <section class="sidebar-section" data-tier="2">
           <div class="section-title">Saved views</div>
           <div id="viewList" class="library"></div>
           <button class="menu-item" id="saveView">+ Save current view</button>
           <div class="section-hint">snapshot this layout to jump back to it anytime</div>
         </section>
 
-        <section class="sidebar-section">
+        <section class="sidebar-section" data-tier="3">
           <div class="section-title">Dock</div>
           <div id="dockMenu" class="library"></div>
           <div class="section-hint">show / hide dock items · drag them in the dock to reorder</div>
         </section>
       </div>
-      <div class="sidebar-version">live demo · thecache.app</div>
+      <div class="sidebar-version"><span class="brand-logo" role="img" aria-label="THE CACHE"></span><span class="ver-url">thecache.app</span></div>
     </aside>
 
     <!-- the board: a scroll viewport holding a scalable canvas of widgets -->
-    <div id="board" class="board"><div id="boardCanvas" class="board-canvas"></div></div>
+    <div id="board" class="board" role="main" aria-label="Your dashboard" tabindex="-1"><div id="boardCanvas" class="board-canvas"></div></div>
 
     <!-- zoom the sandbox -->
     <div class="zoom-control">
@@ -144,8 +128,10 @@
 
     <!-- bottom-right status: data sources + sync health -->
     <div class="status-bar">
+      <div class="built-on" title="Built on THE CACHE">built on <span class="brand-logo built-logo" role="img" aria-label="THE CACHE"></span></div>
       <button id="dailyBtn" class="ledger-pill" title="daily check-in — log today"><span class="lp-uni" aria-hidden="true">📝</span><span class="lp-label">daily</span></button>
       <button id="baseBtn" class="ledger-pill view-toggle" title="switch view — Base ⇄ Widgets" aria-label="switch between Base and Widgets"><i data-lucide="layout-grid"></i></button>
+      <button id="ledgerBtn" class="ledger-pill" title="visit your cache — your life in data"><span class="lp-uni" aria-hidden="true">🦄</span><span class="lp-label">visit</span></button>
       <button id="statusBtn" class="status-pill status-main" title="status & next actions"><span class="status-dot"></span><span class="status-text">…</span></button>
       <button id="soundtrack" class="status-pill" title="soundtrack on / off"><span class="snd-note">♪</span></button>
       <button id="roadmapBtn" class="status-pill" title="roadmap / backlog"><i data-lucide="map"></i>&nbsp;roadmap</button>
@@ -167,6 +153,7 @@
       } catch (e) { /* app works fine without it */ }
     </script>
     <script defer src="https://unpkg.com/lucide@latest"></script>
+    <script defer src="webcache.js"></script>
     <script defer src="app.js"></script>
     <script defer src="cursor.js"></script>
   </body>

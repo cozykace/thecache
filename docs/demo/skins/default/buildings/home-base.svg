@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 200" role="img" aria-label="building">
+  <!-- PLACEHOLDER building. Replace in a skin. Convention: 240x200 viewBox, clean iso
+       box on the flat grid, flat fills. currentColor = the building's TYPE color and
+       is used for the roof so a building obviously reads as income/expense/home at a glance. -->
+  <polygon points="120,50 192,92 120,134 48,92" fill="currentColor"/>
+  <polygon points="48,92 120,134 120,184 48,142" fill="#e7ded0"/>
+  <polygon points="192,92 120,134 120,184 192,142" fill="#d8cfbd"/>
+  <polygon points="150,152 170,140 170,168 150,180" fill="#000" opacity="0.26"/>
+</svg>

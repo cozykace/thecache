@@ -1720,9 +1720,50 @@ def king_stats():
     }
 
 
+def api_snapshot():
+    """Precompute the read-only GET responses so a browser client with NO backend
+    (the hosted web app on a phone) can serve the whole dashboard from the decrypted
+    bundle — true zero-knowledge: the desktop computes, the phone only reads.
+    Best-effort: any single failure just omits that endpoint."""
+    out = {}
+    def grab(key, fn):
+        try:
+            out[key] = fn()
+        except Exception:
+            pass
+    try:
+        txns = load_transactions()
+    except Exception:
+        txns = []
+    try:
+        ov = load_overrides()
+    except Exception:
+        ov = {}
+    grab("summary", lambda: period_summary())
+    grab("categories", lambda: {"categories": category_summary()})
+    grab("recurring", lambda: {"recurring": detect_recurring()})
+    grab("transfers", lambda: {"transfers": recurring_transfers()})
+    grab("deposits", lambda: {"deposits": deposit_sources(txns)})
+    grab("merchants", lambda: {"merchants": top_merchants(txns, ov)})
+    grab("other-merchants", lambda: {"merchants": other_merchants(txns, ov)})
+    grab("averages", lambda: averages())
+    grab("statistics", lambda: statistics())
+    grab("work", lambda: work_summary())
+    grab("income-monthly", lambda: monthly_income_by_source())
+    grab("work-monthly", lambda: monthly_hours_history())
+    grab("integrity", lambda: verify_ledger())
+    grab("issues", lambda: {"issues": find_issues()})
+    grab("subs", lambda: {"subs": load_subs()})
+    grab("income-links", lambda: {"links": load_income_links()})
+    grab("bugs", lambda: {"bugs": load_bugs()})
+    grab("devtree", lambda: dev_tree())
+    return out
+
+
 def export_data():
     """Bundle the user's data files (.json/.jsonl) into one object so the client can
-    encrypt + download it (E2E backup). Read-only — touches nothing."""
+    encrypt + download it (E2E backup) OR sync it to the cloud for the web app to read.
+    Read-only — touches nothing. `api` carries the precomputed dashboard views."""
     files = {}
     try:
         for name in sorted(os.listdir(DATA)):
@@ -1740,7 +1781,7 @@ def export_data():
                 pass
     except Exception:
         pass
-    return {"ok": True, "files": files, "exported": int(time.time()), "count": len(files)}
+    return {"ok": True, "files": files, "api": api_snapshot(), "exported": int(time.time()), "count": len(files)}
 
 
 def import_data(files):

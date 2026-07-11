@@ -2695,13 +2695,36 @@ async function cloudFindVaultId(s) {
   if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault (is the 'vaults' collection created?)");
   return d.items && d.items[0] ? d.items[0].id : null;
 }
+// Snapshot the user's money.* localStorage (deck, daily log, base, config) — the setup that
+// makes the app YOURS — so it rides in the encrypted bundle to any device. Excludes the auth token.
+function snapshotLocal() {
+  const out = {};
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && k !== "money.cloud") out[k] = localStorage.getItem(k); } } catch (e) {}
+  return out;
+}
+function restoreLocal(local) {
+  if (!local || typeof local !== "object") return 0;
+  let n = 0;
+  Object.keys(local).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud") { try { localStorage.setItem(k, local[k]); n++; } catch (e) {} } });
+  return n;
+}
 async function cloudPush(passphrase) {
   const s = cloudState();
   if (!s.token) throw new Error("log in first");
-  const data = await (await fetch("/api/export-data")).json();
-  if (!data || !data.ok) throw new Error("couldn't read your data");
-  const count = Object.keys(data.files || {}).length;
-  const blob = await encryptJSON({ files: data.files, exported: data.exported }, passphrase);
+  let files = {}, api = {}, exported;
+  if (window.__CACHE_WEB__) {
+    // the web app has no local backend — preserve the cloud's existing financial data, update only your setup
+    try {
+      const gid = await cloudFindVaultId(s);
+      if (gid) { const gr = await fetch(cloudUrl() + "/api/collections/vaults/records/" + gid, { headers: { Authorization: s.token } }); const gd = await gr.json(); if (gd && gd.blob) { const cur = await decryptJSON(gd.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; } }
+    } catch (e) {}
+  } else {
+    const data = await (await fetch("/api/export-data")).json();
+    if (!data || !data.ok) throw new Error("couldn't read your data");
+    files = data.files || {}; api = data.api || {}; exported = data.exported;
+  }
+  const count = Object.keys(files).length;
+  const blob = await encryptJSON({ files, api, local: snapshotLocal(), exported }, passphrase);
   const hdr = { Authorization: s.token, "Content-Type": "application/json" };
   let id = await cloudFindVaultId(s), r;
   if (id) r = await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "PATCH", headers: hdr, body: JSON.stringify({ blob }) });
@@ -2733,6 +2756,7 @@ async function cloudPull(passphrase) {
   try { obj = await decryptJSON(rec.blob, passphrase); } catch (e) { throw new Error("wrong passphrase or corrupt backup"); }
   const res = await (await fetch("/api/import-data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: (obj && obj.files) || {} }) })).json();
   if (!res || !res.ok) throw new Error((res && res.error) || "restore failed");
+  if (obj && obj.local) res.localRestored = restoreLocal(obj.local);   // bring your deck / base / config back too
   cloudSaveState(Object.assign(cloudState(), { recordId: rec.id }));
   return res;
 }
@@ -3084,21 +3108,32 @@ function openSettings() {
       '<div class="set-hint" id="setWdMsg"></div>' +
       (window.__CACHE_DEMO__ ? "" :
       '<div class="set-sec">☁️ Cache cloud (beta)</div>' +
-      '<div class="set-hint">Sync your <b>end-to-end encrypted</b> cache to the cloud and use it anywhere. The cloud only ever stores the sealed blob — it can’t read your data. Your <b>account password</b> logs you in; your <b>backup passphrase</b> (above) encrypts the data — keep them different for true E2E.</div>' +
-      '<label class="set-row"><span>Cloud URL</span><input id="setCloudUrl" type="text" autocomplete="off" value="https://thecache.pockethost.io"></label>' +
-      '<label class="set-row"><span>Email</span><input id="setCloudEmail" type="email" autocomplete="off" placeholder="you@email.com"></label>' +
-      '<label class="set-row"><span>Account password</span><input id="setCloudPass" type="password" autocomplete="off" placeholder="cloud account password"></label>' +
-      '<div class="cloud-status" id="setCloudStatus"></div>' +
-      '<div class="set-bk-row">' +
-        '<button class="set-btn" id="setCloudSignup">Sign up</button>' +
-        '<button class="set-btn" id="setCloudLogin">Log in</button>' +
-        '<button class="set-btn" id="setCloudLogout">Log out</button>' +
+      '<div class="set-hint">Run your cache on any device. It’s <b>end-to-end encrypted</b> — your data is sealed in this browser before it leaves, so the cloud can never read it. Free local stays the default; the cloud is opt-in.</div>' +
+      '<div class="cloud-guide" id="setCloudGuide"></div>' +
+      '<div class="cloud-step" id="cloudStep1">' +
+        '<div class="cloud-step-h"><span class="cloud-num">1</span><span class="cloud-step-t">Your account</span><span class="cloud-chk" id="cloudChk1"></span></div>' +
+        '<label class="set-row"><span>Cloud URL</span><input id="setCloudUrl" type="text" autocomplete="off" value="https://thecache.pockethost.io"></label>' +
+        '<label class="set-row"><span>Email</span><input id="setCloudEmail" type="email" autocomplete="off" placeholder="you@email.com"></label>' +
+        '<label class="set-row"><span>Password</span><input id="setCloudPass" type="password" autocomplete="off" placeholder="a password for your cloud account"></label>' +
+        '<div class="set-bk-row">' +
+          '<button class="set-btn" id="setCloudSignup">Create account</button>' +
+          '<button class="set-btn" id="setCloudLogin">Log in</button>' +
+          '<button class="set-btn cloud-btn-sub" id="setCloudLogout">Log out</button>' +
+        '</div>' +
       '</div>' +
-      '<div class="set-bk-row">' +
-        '<button class="set-btn" id="setCloudPush">⬆ Back up to cloud</button>' +
-        '<button class="set-btn" id="setCloudPull">⬇ Restore from cloud</button>' +
+      '<div class="cloud-step" id="cloudStep2">' +
+        '<div class="cloud-step-h"><span class="cloud-num">2</span><span class="cloud-step-t">Your encryption key</span><span class="cloud-chk" id="cloudChk2"></span></div>' +
+        '<label class="set-row"><span>Passphrase</span><input id="setCloudPhrase" type="password" autocomplete="off" placeholder="a secret only you know"></label>' +
+        '<div class="set-hint">This is what encrypts your data. Keep it <b>different</b> from your password, and <b>write it down</b> — without it, your backup can’t be opened. That’s the price of true privacy: not even we can recover it for you.</div>' +
       '</div>' +
-      '<div class="set-hint cloud-msg" id="setCloudMsg"></div>') +
+      '<div class="cloud-step" id="cloudStep3">' +
+        '<div class="cloud-step-h"><span class="cloud-num">3</span><span class="cloud-step-t">Sync</span><span class="cloud-chk" id="cloudChk3"></span></div>' +
+        '<div class="set-bk-row">' +
+          '<button class="set-btn" id="setCloudPush">⬆ Back up to cloud</button>' +
+          '<button class="set-btn" id="setCloudPull">⬇ Restore from cloud</button>' +
+        '</div>' +
+        '<div class="set-hint cloud-msg" id="setCloudMsg"></div>' +
+      '</div>') +
       '<div class="set-themes" id="setThemes"></div>' +
       '<div class="set-sec">Fonts</div>' +
       '<div class="set-fonts" id="setFonts"></div>' +
@@ -3171,25 +3206,57 @@ function openSettings() {
     try { const fn = await pushBackupToWebdav(p); wdMsg.textContent = "✓ Encrypted backup pushed to WebDAV as " + fn; }
     catch (e) { wdMsg.textContent = "Backup to WebDAV failed: " + (e.message || e); }
   });
-  // Cache cloud (PocketBase) — hidden in the demo
+  // Cache cloud (PocketBase) — hidden in the demo. A guided 3-step flow:
+  //   1 account · 2 encryption key · 3 sync — each step checks off, a banner says what's next.
   const clUrl = modal.querySelector("#setCloudUrl");
   if (clUrl) {
   const clEmail = modal.querySelector("#setCloudEmail"),
         clPass = modal.querySelector("#setCloudPass"), clMsg = modal.querySelector("#setCloudMsg"),
-        clStatus = modal.querySelector("#setCloudStatus");
-  // Persistent at-a-glance state: are you logged in? when did you last back up?
-  function paintCloudStatus() {
+        clPhrase = modal.querySelector("#setCloudPhrase"), clGuide = modal.querySelector("#setCloudGuide"),
+        clPush = modal.querySelector("#setCloudPush"), clPull = modal.querySelector("#setCloudPull"),
+        clSignup = modal.querySelector("#setCloudSignup"), clLogin = modal.querySelector("#setCloudLogin"),
+        clLogout = modal.querySelector("#setCloudLogout"),
+        clStep = [null, modal.querySelector("#cloudStep1"), modal.querySelector("#cloudStep2"), modal.querySelector("#cloudStep3")],
+        clChk = [null, modal.querySelector("#cloudChk1"), modal.querySelector("#cloudChk2"), modal.querySelector("#cloudChk3")];
+  // one shared encryption key across the app: keep the cloud passphrase + the backup passphrase in sync
+  clPhrase.addEventListener("input", () => { bkPass.value = clPhrase.value; refreshCloud(); });
+  if (bkPass) bkPass.addEventListener("input", () => { clPhrase.value = bkPass.value; refreshCloud(); });
+  const phrase = () => (clPhrase.value || "").trim();
+  // Repaint the whole stepper: checkmarks, which step is active, the next-step banner, button enabling.
+  function refreshCloud() {
     const s = cloudState();
-    if (!s.token) {
-      clStatus.className = "cloud-status off";
-      clStatus.innerHTML = '<span class="cloud-led"></span><div><b>Not connected</b><span class="cloud-sub">Sign up or log in to sync this cache.</span></div>';
-      return;
+    const inAccount = !!s.token, hasKey = phrase().length >= 6, hasBackup = !!s.lastPush;
+    // step checkmarks + active highlight
+    [[1, inAccount], [2, hasKey], [3, hasBackup]].forEach(([n, done]) => {
+      clChk[n].textContent = done ? "✓" : "";
+      clChk[n].className = "cloud-chk" + (done ? " on" : "");
+      clStep[n].classList.toggle("done", done);
+    });
+    const active = !inAccount ? 1 : !hasKey ? 2 : 3;
+    clStep.forEach((el, n) => el && el.classList.toggle("active", n === active));
+    // account buttons
+    clSignup.style.display = inAccount ? "none" : "";
+    clLogin.style.display = inAccount ? "none" : "";
+    clLogout.style.display = inAccount ? "" : "none";
+    // sync buttons only live once you're logged in + have a key
+    const canSync = inAccount && hasKey;
+    [clPush, clPull].forEach((b) => { b.disabled = !canSync; b.classList.toggle("is-disabled", !canSync); });
+    clPull.disabled = !canSync || !hasBackup; clPull.classList.toggle("is-disabled", clPull.disabled);
+    // the big "where am I / what next" banner
+    let cls = "cloud-guide", html;
+    if (!inAccount) {
+      html = '<b>Step 1 — create your account</b><span class="cloud-sub">Pick an email + password below and hit <b>Create account</b> (or <b>Log in</b> if you have one).</span>';
+    } else if (!hasKey) {
+      cls += " mid";
+      html = '<b>✓ Signed in as ' + escapeHtml(s.email || "") + '</b><span class="cloud-sub"><b>Step 2 — set your encryption passphrase</b> below (6+ characters). It’s the key that seals your data.</span>';
+    } else if (!hasBackup) {
+      cls += " mid";
+      html = '<b>✓ Signed in &amp; key set — you’re ready</b><span class="cloud-sub"><b>Step 3 — hit ⬆ Back up to cloud</b> to seal &amp; upload your cache.</span>';
+    } else {
+      cls += " done";
+      html = '<b>✓ All set — your cache is in the cloud</b><span class="cloud-sub">Last backup <b>' + cloudAgo(s.lastPush) + '</b>' + (s.lastPushCount ? ' · ' + s.lastPushCount + ' files sealed' : '') + '. Sign in with this email + passphrase on any device to restore.</span>';
     }
-    const last = s.lastPush
-      ? "Last backup: <b>" + cloudAgo(s.lastPush) + "</b>" + (s.lastPushCount ? " · " + s.lastPushCount + " files sealed" : "")
-      : "No backup yet — hit <b>⬆ Back up to cloud</b>.";
-    clStatus.className = "cloud-status on" + (s.lastPush ? " saved" : "");
-    clStatus.innerHTML = '<span class="cloud-led"></span><div><b>Connected as ' + escapeHtml(s.email || "") + '</b><span class="cloud-sub">' + last + '</span></div>';
+    clGuide.className = cls; clGuide.innerHTML = html;
   }
   // big, obvious feedback — green flash on success, red on failure, grey while working
   function clSay(text, kind) {
@@ -3197,33 +3264,31 @@ function openSettings() {
     clMsg.className = "set-hint cloud-msg" + (kind ? " " + kind : "");
     if (kind === "ok") { clMsg.classList.remove("flash"); void clMsg.offsetWidth; clMsg.classList.add("flash"); }
   }
-  (function paintCloud() { const s = cloudState(); if (s.url) clUrl.value = s.url; if (s.token) clEmail.value = s.email || ""; paintCloudStatus(); })();
-  modal.querySelector("#setCloudSignup").addEventListener("click", async () => {
+  (function initCloud() { const s = cloudState(); if (s.url) clUrl.value = s.url; if (s.token) clEmail.value = s.email || ""; if (bkPass && bkPass.value) clPhrase.value = bkPass.value; refreshCloud(); })();
+  clSignup.addEventListener("click", async () => {
     clSay("Creating account…", "work");
-    try { await cloudSignup(clUrl.value.trim(), clEmail.value.trim(), clPass.value); paintCloudStatus(); clSay("✓ Account created — you're logged in as " + cloudState().email + ". Now set a backup passphrase above and hit ⬆ Back up to cloud.", "ok"); }
-    catch (e) { clSay("Sign up failed: " + (e.message || e), "err"); }
+    try { await cloudSignup(clUrl.value.trim(), clEmail.value.trim(), clPass.value); refreshCloud(); clSay("✓ Account created — you’re signed in. Now do Step 2: set your encryption passphrase.", "ok"); }
+    catch (e) { clSay("Couldn’t create account: " + (e.message || e), "err"); }
   });
-  modal.querySelector("#setCloudLogin").addEventListener("click", async () => {
+  clLogin.addEventListener("click", async () => {
     clSay("Logging in…", "work");
-    try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); paintCloudStatus(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
+    try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); refreshCloud(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
     catch (e) { clSay("Login failed: " + (e.message || e), "err"); }
   });
-  modal.querySelector("#setCloudLogout").addEventListener("click", () => { cloudLogout(); clPass.value = ""; paintCloudStatus(); clSay("Logged out.", ""); });
-  modal.querySelector("#setCloudPush").addEventListener("click", async () => {
-    const p = (bkPass.value || "").trim();
-    if (!cloudState().token) { clSay("Log in first (above).", "err"); return; }
-    if (p.length < 6) { clSay("Set the backup passphrase (in the section above) — it encrypts your data before upload.", "err"); return; }
+  clLogout.addEventListener("click", () => { cloudLogout(); clPass.value = ""; refreshCloud(); clSay("Logged out.", ""); });
+  clPush.addEventListener("click", async () => {
+    if (!cloudState().token) { clSay("Do Step 1 first — create or log into your account.", "err"); return; }
+    if (phrase().length < 6) { clSay("Do Step 2 first — set an encryption passphrase (6+ characters).", "err"); return; }
     clSay("Encrypting + syncing to cloud…", "work");
-    try { const res = await cloudPush(p); paintCloudStatus(); clSay("✓ Backed up to the cloud — " + res.count + " files sealed & encrypted. Safe to use on another device.", "ok"); }
+    try { const res = await cloudPush(phrase()); refreshCloud(); clSay("✓ Backed up to the cloud — " + res.count + " files sealed & encrypted. Safe to use on another device.", "ok"); }
     catch (e) { clSay("Cloud backup failed: " + (e.message || e), "err"); }
   });
-  modal.querySelector("#setCloudPull").addEventListener("click", async () => {
-    const p = (bkPass.value || "").trim();
-    if (!cloudState().token) { clSay("Log in first (above).", "err"); return; }
-    if (p.length < 6) { clSay("Enter the backup passphrase (above) to decrypt.", "err"); return; }
+  clPull.addEventListener("click", async () => {
+    if (!cloudState().token) { clSay("Do Step 1 first — log into your account.", "err"); return; }
+    if (phrase().length < 6) { clSay("Enter your encryption passphrase (Step 2) to decrypt.", "err"); return; }
     if (!confirm("Restore from cloud will OVERWRITE your current data (snapshotted first). Continue?")) return;
     clSay("Pulling + decrypting…", "work");
-    try { const res = await cloudPull(p); clSay("✓ Restored " + res.written + " files from cloud. Reloading…", "ok"); setTimeout(() => location.reload(), 1500); }
+    try { const res = await cloudPull(phrase()); clSay("✓ Restored " + res.written + " files from cloud. Reloading…", "ok"); setTimeout(() => location.reload(), 1500); }
     catch (e) { clSay("Cloud restore failed: " + (e.message || e), "err"); }
   });
   }  // end cloud (hidden in demo)
@@ -5262,7 +5327,630 @@ function openLedger() {
   root.querySelector(".lg-cancel").addEventListener("click", close);
   root.querySelector(".lg-back").addEventListener("click", close);
 }
-document.getElementById("ledgerBtn").addEventListener("click", openLedger);
+// ── THE BASE — a full-screen base-builder view of your real life. Home Base is the
+//    centerpiece: configure your household (people + pets + their upkeep) and it stays
+//    coherent with your cache. Each building == a widget (two lenses, one truth). v1. ──
+const HOMEBASE_KEY = "money.homebase";
+// Inline fallback art for the "home-base" building (the skin loader tries skins/default first).
+// currentColor tints the roof/flag/window to the app accent, so it themes.
+const HOMEBASE_ART =
+  '<svg viewBox="0 0 240 200" role="img" aria-label="building">' +
+  '<polygon points="120,50 192,92 120,134 48,92" fill="currentColor"/>' +
+  '<polygon points="48,92 120,134 120,184 48,142" fill="#e7ded0"/>' +
+  '<polygon points="192,92 120,134 120,184 192,142" fill="#d8cfbd"/>' +
+  '<polygon points="150,152 170,140 170,168 150,180" fill="#000" opacity="0.26"/></svg>';
+function loadHomeBase() {
+  try { const d = JSON.parse(localStorage.getItem(HOMEBASE_KEY) || "null"); if (d && Array.isArray(d.residents)) return { name: d.name || "Home Base", residents: d.residents }; } catch (e) {}
+  return { name: "Home Base", residents: [{ name: "You", type: "adult", cost: 0 }] };
+}
+function saveHomeBase(d) { try { localStorage.setItem(HOMEBASE_KEY, JSON.stringify(d)); } catch (e) {} }
+// Resolve a building's art from the active skin (skins/default/), inline fallback if unavailable.
+async function skinArt(id) {
+  try {
+    const skin = await (await fetch("skins/default/skin.json")).json();
+    const p = skin && skin.buildings && skin.buildings[id] && skin.buildings[id].art;
+    if (p) { const svg = await (await fetch("skins/default/" + p)).text(); if (svg.indexOf("<svg") !== -1) return svg; }
+  } catch (e) {}
+  return id === "home-base" ? HOMEBASE_ART : "";
+}
+// The Base is a PEER view of the board (not an overlay): toggling it shows the base ground
+// in place of the widget canvas while the dock + all chrome stay put. The dock's base pill flips it.
+// ── Base building model: a base is a set of typed, positioned, titleable buildings ──
+const BASE_KEY = "money.base";
+const BLD_TYPES = [
+  { id: "home", label: "Home Base", emoji: "🏠", color: "#7d6cf0" },   // purple
+  { id: "income", label: "Income source", emoji: "💰", color: "#2ec16b" },   // green
+  { id: "expense", label: "Expense", emoji: "💸", color: "#e0533d" },   // red
+  { id: "group", label: "Group / district", emoji: "🏘️", color: "#d99a2b" },   // amber
+];
+function bldMeta(t) { return BLD_TYPES.find((x) => x.id === t) || BLD_TYPES[0]; }
+function loadBase() {
+  try { const d = JSON.parse(localStorage.getItem(BASE_KEY) || "null"); if (d && Array.isArray(d.buildings) && d.buildings.length) return d; } catch (e) {}
+  const hb = loadHomeBase();  // migrate the old single Home Base into the new model
+  return { buildings: [{ id: "home", type: "home", name: hb.name, x: 0, y: 0, residents: hb.residents }] };
+}
+function saveBase(d) { try { localStorage.setItem(BASE_KEY, JSON.stringify(d)); } catch (e) {} }
+
+let _baseBuilt = false, _baseRefresh = function () {};
+function buildBase() {
+  if (_baseBuilt) return;
+  _baseBuilt = true;
+  const base = loadBase();
+  const money = (n) => (n < 0 ? "-" : "") + "$" + Math.abs(Math.round(n)).toLocaleString();
+  const RES_TYPES = ["adult", "kid", "pet", "dog", "cat", "other"];
+  let incomePerMonth = null, selected = null;
+
+  const ground = document.createElement("div"); ground.id = "baseSpace"; ground.className = "base-space";
+  ground.innerHTML =
+    '<div class="base-ground" id="baseGround">' +
+      '<div class="base-world" id="baseWorld"></div>' +
+      '<div class="base-tools"><button class="base-tool primary" id="baseDaily"><i data-lucide="pencil-line"></i> Daily check-in</button>' +
+        '<button class="base-tool" id="baseAdd"><i data-lucide="plus"></i> Building</button>' +
+        '<button class="base-tool" id="baseAutofill"><i data-lucide="sparkles"></i> Auto-fill from cache</button></div>' +
+      '<div class="base-hint" id="baseHint">tap a building to set it up · <b>+ Building</b> to place one · <b>WASD</b> to pan</div>' +
+    '</div>';
+  document.body.appendChild(ground);
+  const world = ground.querySelector("#baseWorld"), hint = ground.querySelector("#baseHint");
+
+  const sheet = document.createElement("div"); sheet.id = "baseSheet"; sheet.className = "base-sheet base-hidden";
+  sheet.innerHTML =
+    '<div class="bs-head"><span class="bs-title" id="bsTitle"></span><button class="bs-close" aria-label="close">✕</button></div>' +
+    '<div class="bs-scroll" id="bsScroll"></div>';
+  document.body.appendChild(sheet);
+  const scroll = sheet.querySelector("#bsScroll"), titleEl = sheet.querySelector("#bsTitle");
+  const openSheet = () => sheet.classList.remove("base-hidden");
+  const closeSheet = () => { sheet.classList.add("base-hidden"); selected = null; };
+  sheet.querySelector(".bs-close").addEventListener("click", closeSheet);
+  const persist = () => saveBase(base);
+
+  let artSvg = HOMEBASE_ART;  // one fetch, reused for every building; color tints per type
+  skinArt("home-base").then((svg) => { artSvg = svg; renderWorld(); });
+
+  function bldBadge(b) {
+    const c = (b.count || 1) > 1 ? " · " + b.count + " sources" : "";
+    if (b.type === "home") return "upkeep " + money((b.residents || []).reduce((a, r) => a + (r.cost || 0), 0)) + "/mo";
+    if (b.type === "income") return "+" + money(b.amount || 0) + "/mo" + c;
+    if (b.type === "expense") return "−" + money(b.amount || 0) + "/mo" + c;
+    return bldMeta(b.type).label;
+  }
+  function renderWorld() {
+    world.innerHTML = "";
+    base.buildings.forEach((b) => {
+      const el = document.createElement("button");
+      el.className = "base-bld"; el.dataset.id = b.id;
+      el.style.left = "calc(50% + " + (b.x || 0) + "px)";
+      el.style.top = "calc(50% + " + (b.y || 0) + "px)";
+      el.style.color = bldMeta(b.type).color;
+      el.style.setProperty("--bld-scale", Math.min(2.4, 1 + ((b.count || 1) - 1) * 0.3).toFixed(2));  // bigger when combined
+      el.innerHTML = '<div class="bh-art">' + artSvg + "</div><div class=\"bh-name\">" + escapeHtml(b.name || "") + '</div><div class="bh-badge">' + escapeHtml(bldBadge(b)) + "</div>";
+      attachDrag(el, b);
+      world.appendChild(el);
+    });
+  }
+
+  // drag to move a building; a tap (no real movement) opens it instead
+  function attachDrag(el, b) {
+    let sx = 0, sy = 0, bx = 0, by = 0, moved = false, dragging = false;
+    el.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.stopPropagation();
+      dragging = true; moved = false; sx = e.clientX; sy = e.clientY; bx = b.x || 0; by = b.y || 0;
+      try { el.setPointerCapture(e.pointerId); } catch (er) {}
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (!moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) moved = true;
+      if (moved) { b.x = Math.round(bx + dx); b.y = Math.round(by + dy); el.style.left = "calc(50% + " + b.x + "px)"; el.style.top = "calc(50% + " + b.y + "px)"; }
+    });
+    el.addEventListener("pointerup", (e) => {
+      if (!dragging) return;
+      dragging = false;
+      try { el.releasePointerCapture(e.pointerId); } catch (er) {}
+      if (moved) persist(); else openBuilding(b.id);
+    });
+    el.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); });  // never let a building click trigger placement
+  }
+  function openBuilding(id) { const b = base.buildings.find((x) => x.id === id); if (!b) return; selected = id; paintSheet(b); openSheet(); }
+  function calcHome(b) {
+    const upEl = scroll.querySelector("#bsUp"); if (!upEl) return;
+    const up = (b.residents || []).reduce((a, r) => a + (r.cost || 0), 0);
+    upEl.textContent = money(up);
+    const inEl = scroll.querySelector("#bsIn"), netEl = scroll.querySelector("#bsNet");
+    if (incomePerMonth == null) { inEl.textContent = "—"; netEl.textContent = "—"; netEl.style.color = ""; return; }
+    inEl.textContent = money(incomePerMonth);
+    const net = incomePerMonth - up;
+    netEl.textContent = (net >= 0 ? "+" : "") + money(net).replace("-", "");
+    netEl.style.color = net >= 0 ? "#2ec16b" : "#e0533d";
+  }
+  function recomputeMerged(b) {
+    if (b.members) { b.amount = b.members.reduce((a, m) => a + (m.amount || 0), 0); b.count = b.members.length; }
+    const t = scroll.querySelector("#bsTotal");
+    if (t) t.textContent = (b.type === "income" ? "+" : "−") + money(b.amount || 0) + "/mo";
+  }
+  function splitOut(b, i) {
+    if (!b.members || !b.members[i]) return;
+    const m = b.members.splice(i, 1)[0];
+    base.buildings.push({ id: "b" + Date.now() + Math.floor(Math.random() * 1e5), type: b.type, name: m.name, x: (b.x || 0) + 120, y: (b.y || 0) + 70, amount: m.amount || 0 });
+    if (b.members.length <= 1) { const last = b.members[0]; if (last) { b.name = last.name; b.amount = last.amount || 0; } delete b.members; b.count = 1; }
+    else { b.amount = b.members.reduce((a, x) => a + (x.amount || 0), 0); b.count = b.members.length; }
+    persist(); renderWorld(); paintSheet(b);
+  }
+  function paintSheet(b) {
+    const meta = bldMeta(b.type);
+    titleEl.textContent = meta.emoji + " " + (b.name || meta.label);
+    let html =
+      '<label class="bs-namerow"><span class="bs-namelbl">Name</span><input id="bsName" class="bs-name-in"></label>' +
+      '<div class="bs-namerow"><span class="bs-namelbl">Type</span><select id="bsBldType" class="bs-name-in">' +
+        BLD_TYPES.map((t) => '<option value="' + t.id + '"' + (t.id === b.type ? " selected" : "") + ">" + t.emoji + " " + t.label + "</option>").join("") + "</select></div>";
+    if (b.type === "home") {
+      html +=
+        '<div class="bs-sec"><span>Household</span><button class="bs-add" id="bsAddRes">+ add</button></div>' +
+        '<div class="bs-hint">everyone you provide for — people and pets — and what each costs you per month.</div>' +
+        '<div id="bsResidents" class="bs-list"></div>' +
+        '<div class="bs-totals">' +
+          '<div class="bs-stat"><div class="bs-k">Monthly in</div><div class="bs-v" id="bsIn">—</div><div class="bs-note">from your cache</div></div>' +
+          '<div class="bs-stat"><div class="bs-k">Household upkeep</div><div class="bs-v" id="bsUp">—</div><div class="bs-note">you set this</div></div>' +
+          '<div class="bs-stat"><div class="bs-k">Left over</div><div class="bs-v" id="bsNet">—</div><div class="bs-note">in − upkeep</div></div>' +
+        "</div>";
+      const genSpend = loadLog().filter((e) => e && e.dest && e.dest.kind === "money" && !(e.dest.target || "") && (e.ts || "").slice(0, 7) === todayKey().slice(0, 7)).reduce((a, e) => a + (parseFloat(e.value) || 0), 0);
+      if (genSpend) html += '<div class="bs-logged">📝 daily-logged spend this month (unassigned): <b>' + money(genSpend) + "</b> — route a Spend question at a building to file it there.</div>";
+    } else if (b.type === "income" || b.type === "expense") {
+      const isMerged = b.members && b.members.length > 1;
+      if (isMerged) {
+        html +=
+          '<div class="bs-sec"><span>' + (b.type === "income" ? "Income sources" : "Expenses grouped here") + '</span>' +
+            '<span class="bs-total" id="bsTotal">' + (b.type === "income" ? "+" : "−") + money(b.amount || 0) + "/mo</span></div>" +
+          '<div class="bs-hint">the sources merged into this building — split any back out with ⤴.</div>' +
+          '<div id="bsMembers" class="bs-list"></div>';
+      } else {
+        html +=
+          '<label class="bs-namerow"><span class="bs-namelbl">' + (b.type === "income" ? "Monthly income" : "Monthly cost") + '</span>' +
+          '<input id="bsAmount" class="bs-name-in" type="number" inputmode="decimal" value="' + (b.amount || 0) + '"></label>' +
+          '<div class="bs-hint">' + (b.type === "income" ? "money this source brings in each month." : "what this costs you each month.") + "</div>";
+      }
+      const loggedMo = loadLog().filter((e) => e && e.dest && e.dest.kind === "money" && (e.dest.target || "") === b.name && (e.ts || "").slice(0, 7) === todayKey().slice(0, 7)).reduce((a, e) => a + (parseFloat(e.value) || 0), 0);
+      if (loggedMo) html += '<div class="bs-logged">📝 logged this month via check-ins: <b>' + money(loggedMo) + "</b></div>";
+      const others = base.buildings.filter((x) => x.type === b.type && x.id !== b.id);
+      if (others.length) {
+        html +=
+          '<div class="bs-sec"><span>Combine</span></div>' +
+          '<div class="bs-hint">merge another ' + (b.type === "income" ? "income source" : "expense") + ' into this to make one bigger building.</div>' +
+          '<div class="bs-combine"><select id="bsMergeSel" class="bs-name-in">' +
+            others.map((o) => '<option value="' + o.id + '">' + escapeHtml(o.name || "(unnamed)") + " · " + money(o.amount || 0) + "/mo</option>").join("") +
+          '</select><button class="bs-add" id="bsMerge">Merge in</button></div>';
+      }
+    } else {
+      html += '<div class="bs-hint">a district to group things under. (grouping tools coming soon.)</div>';
+    }
+    if (b.id !== "home") html += '<button class="bs-del" id="bsDel">Remove building</button>';
+    html += '<div class="bs-coh">Every change here ripples the whole base — what’s in the game is real.</div>';
+    scroll.innerHTML = html;
+
+    const nameIn = scroll.querySelector("#bsName"); nameIn.value = b.name || "";
+    nameIn.addEventListener("input", () => { b.name = nameIn.value; titleEl.textContent = meta.emoji + " " + (nameIn.value || meta.label); renderWorld(); persist(); });
+    scroll.querySelector("#bsBldType").addEventListener("change", (e) => {
+      b.type = e.target.value;
+      if ((b.type === "income" || b.type === "expense") && b.amount == null) b.amount = 0;
+      if (b.type === "home" && !b.residents) b.residents = [];
+      persist(); renderWorld(); paintSheet(b);
+    });
+    if (b.type === "home") {
+      const R = scroll.querySelector("#bsResidents");
+      const renderRes = () => {
+        R.innerHTML = "";
+        b.residents.forEach((r, i) => {
+          const row = document.createElement("div"); row.className = "bs-row";
+          row.innerHTML =
+            '<input class="bs-name" value="' + escapeHtml(r.name || "") + '" aria-label="name">' +
+            '<select class="bs-type" aria-label="type">' + RES_TYPES.map((t) => '<option' + (t === r.type ? " selected" : "") + ">" + t + "</option>").join("") + "</select>" +
+            '<input class="bs-cost" type="number" inputmode="decimal" value="' + (r.cost || 0) + '" aria-label="monthly cost">' +
+            '<button class="bs-x" aria-label="remove">✕</button>';
+          row.querySelector(".bs-name").addEventListener("input", (e) => { r.name = e.target.value; persist(); });
+          row.querySelector(".bs-type").addEventListener("change", (e) => { r.type = e.target.value; persist(); });
+          row.querySelector(".bs-cost").addEventListener("input", (e) => { r.cost = parseFloat(e.target.value) || 0; calcHome(b); renderWorld(); persist(); });
+          row.querySelector(".bs-x").addEventListener("click", () => { b.residents.splice(i, 1); renderRes(); calcHome(b); renderWorld(); persist(); });
+          R.appendChild(row);
+        });
+      };
+      renderRes();
+      scroll.querySelector("#bsAddRes").addEventListener("click", () => { b.residents.push({ name: "New", type: "adult", cost: 0 }); renderRes(); calcHome(b); renderWorld(); persist(); });
+      calcHome(b);
+    } else if (b.type === "income" || b.type === "expense") {
+      const amountEl = scroll.querySelector("#bsAmount");
+      if (amountEl) amountEl.addEventListener("input", (e) => { b.amount = parseFloat(e.target.value) || 0; renderWorld(); persist(); });
+      const M = scroll.querySelector("#bsMembers");
+      if (M) {
+        const renderMembers = () => {
+          M.innerHTML = "";
+          b.members.forEach((m, i) => {
+            const row = document.createElement("div"); row.className = "bs-row";
+            row.innerHTML =
+              '<input class="bs-name" value="' + escapeHtml(m.name || "") + '" aria-label="source name">' +
+              '<input class="bs-cost" type="number" inputmode="decimal" value="' + (m.amount || 0) + '" aria-label="amount">' +
+              '<button class="bs-x" title="split out into its own building" aria-label="split out">⤴</button>';
+            row.querySelector(".bs-name").addEventListener("input", (e) => { m.name = e.target.value; renderWorld(); persist(); });
+            row.querySelector(".bs-cost").addEventListener("input", (e) => { m.amount = parseFloat(e.target.value) || 0; recomputeMerged(b); renderWorld(); persist(); });
+            row.querySelector(".bs-x").addEventListener("click", () => { splitOut(b, i); });
+            M.appendChild(row);
+          });
+        };
+        renderMembers();
+      }
+      const mergeBtn = scroll.querySelector("#bsMerge");
+      if (mergeBtn) mergeBtn.addEventListener("click", () => {
+        const other = base.buildings.find((x) => x.id === scroll.querySelector("#bsMergeSel").value);
+        if (!other) return;
+        const mine = (b.members && b.members.length) ? b.members : [{ name: b.name, amount: b.amount || 0 }];
+        const theirs = (other.members && other.members.length) ? other.members : [{ name: other.name, amount: other.amount || 0 }];
+        b.members = mine.concat(theirs);
+        b.amount = b.members.reduce((a, m) => a + (m.amount || 0), 0);
+        b.count = b.members.length;
+        base.buildings = base.buildings.filter((x) => x.id !== other.id);
+        persist(); renderWorld(); paintSheet(b);
+      });
+    }
+    const del = scroll.querySelector("#bsDel");
+    if (del) del.addEventListener("click", () => { base.buildings = base.buildings.filter((x) => x.id !== b.id); persist(); renderWorld(); closeSheet(); });
+  }
+
+  // ── placement: + Building → click the grid to drop one (banks +2 EXP) ──
+  let placeMode = false, camX = 0, camY = 0;
+  const setHint = () => { hint.innerHTML = placeMode ? "click anywhere on the grid to place your building" : "tap a building to set it up · <b>+ Building</b> to place one · <b>WASD</b> to pan"; };
+  ground.querySelector("#baseDaily").addEventListener("click", (e) => { e.stopPropagation(); openDaily(); });
+  ground.querySelector("#baseAdd").addEventListener("click", (e) => { e.stopPropagation(); placeMode = !placeMode; ground.classList.toggle("placing", placeMode); setHint(); });
+  ground.addEventListener("click", (e) => {
+    if (!placeMode) return;
+    placeMode = false; ground.classList.remove("placing"); setHint();
+    const b = { id: "b" + Date.now() + Math.floor(Math.random() * 1000), type: "income", name: "New building",
+      x: Math.round(e.clientX - window.innerWidth / 2 - camX), y: Math.round(e.clientY - window.innerHeight / 2 - camY), amount: 0 };
+    base.buildings.push(b); persist(); renderWorld();
+    addExp(2);
+    if (typeof expSpark === "function") try { expSpark(e.clientX, e.clientY, 2); } catch (er) {}
+    if (typeof logChar === "function") try { logChar("build", "Placed a building · +2 EXP"); } catch (er) {}
+    openBuilding(b.id);
+  });
+
+  // ── Auto-fill: read the real cache and build income + expense buildings from it.
+  //    Income flows in from the left, expenses out to the right (ready for streets). ──
+  function autofillFromCache() {
+    hint.textContent = "reading your cache…";
+    fetch("data/balances.json?t=" + Date.now()).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!d) { hint.textContent = "couldn't read your cache — is the app synced?"; return; }
+      const mo = (amt, w) => Math.round((amt || 0) / (w || 30) * 30);   // window amount → monthly
+      const pretty = (s) => (s || "").replace(/[-_]+/g, " ").replace(/\b\w/g, (m) => m.toUpperCase()).trim();
+      const have = new Set(base.buildings.map((b) => b.type + "|" + (b.name || "").toLowerCase()));
+      const rid = (p) => "b" + Date.now() + Math.floor(Math.random() * 1e5) + p;
+      let added = 0;
+      const iw = (d.income && d.income.window_days) || 30;
+      let incs = ((d.income && d.income.sources) || []).slice();
+      const tagged = incs.filter((s) => s.tagged); if (tagged.length) incs = tagged;
+      incs = incs.slice(0, 6);
+      incs.forEach((s, i) => {
+        const name = pretty(s.source || s.key || "Income"), key = "income|" + name.toLowerCase();
+        if (have.has(key)) return;
+        base.buildings.push({ id: rid("i" + i), type: "income", name, x: -330, y: Math.round((i - (incs.length - 1) / 2) * 150), amount: mo(s.amount, iw) });
+        have.add(key); added++;
+      });
+      const sw = (d.spending && d.spending.window_days) || 30;
+      const exps = ((d.spending && d.spending.categories) || []).slice().sort((a, b) => (b.amount || 0) - (a.amount || 0)).slice(0, 6);
+      exps.forEach((c, i) => {
+        const name = pretty(c.key || "Expense"), key = "expense|" + name.toLowerCase();
+        if (have.has(key)) return;
+        base.buildings.push({ id: rid("e" + i), type: "expense", name, x: 330, y: Math.round((i - (exps.length - 1) / 2) * 150), amount: mo(c.amount, sw) });
+        have.add(key); added++;
+      });
+      persist(); renderWorld();
+      if (added) { addExp(2 * added); if (typeof logChar === "function") try { logChar("build", "Auto-filled " + added + " buildings from cache · +" + (2 * added) + " EXP"); } catch (er) {} }
+      hint.textContent = added ? ("built " + added + " buildings from your cache · +" + (2 * added) + " EXP · rename or remove any of them") : "your cache buildings are already placed";
+    }).catch(() => { hint.textContent = "couldn't read your cache."; });
+  }
+  ground.querySelector("#baseAutofill").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (confirm("Build income + expense buildings from your cache?\n\nOne per income source + top spending category. You can rename, retype, or remove any of them.")) autofillFromCache();
+  });
+
+  _baseRefresh = function () {
+    incomePerMonth = null;
+    fetch("data/balances.json?t=" + Date.now()).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (d && d.income && typeof d.income.per_month === "number") {
+        incomePerMonth = d.income.per_month;
+        const b = base.buildings.find((x) => x.id === selected); if (b && b.type === "home") calcHome(b);
+      }
+    }).catch(() => {});
+  };
+
+  // ── WASD camera panning — drive around the base like an RTS ──
+  let panRAF = 0;
+  const keys = { w: false, a: false, s: false, d: false };
+  const PAN = 9;  // px per frame while a key is held
+  function panLoop() {
+    let dx = 0, dy = 0;
+    if (keys.w) dy += PAN; if (keys.s) dy -= PAN; if (keys.a) dx += PAN; if (keys.d) dx -= PAN;
+    if (dx || dy) { camX += dx; camY += dy; world.style.transform = "translate(" + camX + "px," + camY + "px)"; }
+    panRAF = (keys.w || keys.a || keys.s || keys.d) ? requestAnimationFrame(panLoop) : 0;
+  }
+  const isTyping = () => { const a = document.activeElement; return !!(a && (a.tagName === "INPUT" || a.tagName === "SELECT" || a.tagName === "TEXTAREA" || a.isContentEditable)); };
+  document.addEventListener("keydown", (e) => {
+    if (!baseInView() || isTyping() || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === "w" || k === "a" || k === "s" || k === "d") {
+      if (!keys[k]) { keys[k] = true; if (!panRAF) panRAF = requestAnimationFrame(panLoop); }
+      e.preventDefault();
+    }
+  });
+  document.addEventListener("keyup", (e) => { const k = e.key.toLowerCase(); if (k in keys) keys[k] = false; });
+  window.addEventListener("blur", () => { keys.w = keys.a = keys.s = keys.d = false; });  // don't get stuck panning
+
+  renderWorld();
+  if (typeof drawIcons === "function") try { drawIcons(); } catch (e) {}  // render the tool icons
+}
+function baseInView() { return document.body.classList.contains("view-base"); }
+// The dock's view toggle: one pill whose icon IS the current view (house = Base, 2×2 grid = Widgets),
+// plus the current view's name shown by the dock label.
+function updateViewToggle() {
+  const inBase = baseInView();
+  const b = document.getElementById("baseBtn");
+  if (b) {
+    b.innerHTML = '<i data-lucide="' + (inBase ? "house" : "layout-grid") + '"></i>';
+    b.title = inBase ? "switch to Widgets" : "switch to Base";
+    if (typeof drawIcons === "function") try { drawIcons(); } catch (e) {}
+  }
+  const v = document.getElementById("dockView");
+  if (v) v.textContent = "· " + (inBase ? "Base" : "Widgets");
+}
+function setBaseView(on) {
+  buildBase();
+  document.body.classList.toggle("view-base", on);
+  updateViewToggle();
+  if (on) { _baseRefresh(); }
+  else { const s = document.getElementById("baseSheet"); if (s) s.classList.add("base-hidden"); const h = document.getElementById("baseHint"); if (h) h.style.opacity = ""; }
+}
+function toggleBaseView() { setBaseView(!baseInView()); }
+(function () { const b = document.getElementById("baseBtn"); if (b) b.addEventListener("click", toggleBaseView); })();
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !baseInView()) return;
+  const s = document.getElementById("baseSheet");
+  if (s && !s.classList.contains("base-hidden")) { s.classList.add("base-hidden"); const h = document.getElementById("baseHint"); if (h) h.style.opacity = ""; }
+  else setBaseView(false);
+});
+
+// ── Daily check-in — a customizable deck of "log items" you design. Each item asks a
+//    question (chunky input) and routes its answer into a cache store (money / tracker /
+//    day-log), so logging once feeds the whole base. This is the data-entry engine. ──
+const DECK_KEY = "money.deck", LOG_KEY = "money.log";
+const DEFAULT_DECK = [
+  { id: "meals", emoji: "🍳", prompt: "How did you eat today?", input: "choice",
+    options: [["🍳", "Cooked"], ["🍔", "Ate out"], ["🥡", "Both"]], dest: { kind: "dayflag", target: "meals" } },
+  { id: "spend", emoji: "💸", prompt: "Spend anything today?", input: "amount", dest: { kind: "money", target: "" } },
+  { id: "energy", emoji: "⚡", prompt: "How's your energy?", input: "scale",
+    options: [["🪫", "Low"], ["🔋", "OK"], ["⚡", "High"]], dest: { kind: "tracker", target: "Energy" } },
+];
+const DAILY_FUNNIES = ["your cache thanks you 🙏", "skeletons: mildly less scary 💀", "another brick in the base 🧱",
+  "the goat is proud of you 🐐", "data so fresh it squeaks ✨", "high-res life unlocked 📈", "fed and watered 🌱"];
+function loadDeck() { try { const d = JSON.parse(localStorage.getItem(DECK_KEY) || "null"); if (Array.isArray(d) && d.length) return d; } catch (e) {} return JSON.parse(JSON.stringify(DEFAULT_DECK)); }
+function saveDeck(d) { try { localStorage.setItem(DECK_KEY, JSON.stringify(d)); } catch (e) {} }
+function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || []; } catch (e) { return []; } }
+function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); return true; } catch (e) { return false; } }
+function todayKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function dailyBurst(host, x, y) {
+  if (reduceMotion()) return;
+  const C = ["#ff3b30", "#ff9500", "#ffcc00", "#2ec16b", "#0a84ff", "#7d6cf0", "#ff6bd6"];
+  for (let n = 0; n < 32; n++) {
+    const p = document.createElement("span"); const em = n % 6 === 0;
+    p.textContent = em ? (n % 12 === 0 ? "🐐" : "✨") : "";
+    p.style.cssText = "position:absolute;left:" + x + "px;top:" + y + "px;pointer-events:none;font-size:18px;" + (em ? "" : "width:9px;height:9px;border-radius:50%;background:" + C[n % C.length] + ";");
+    host.appendChild(p);
+    const a = (Math.PI * 2 * n) / 32 + Math.random() * 0.5, d = 70 + Math.random() * 120;
+    p.animate([{ transform: "translate(-50%,-50%)", opacity: 1 }, { transform: "translate(-50%,-50%) translate(" + Math.cos(a) * d + "px," + (Math.sin(a) * d - 30) + "px) scale(.3) rotate(" + (Math.random() * 540 - 270) + "deg)", opacity: 0 }], { duration: 800 + Math.random() * 350, easing: "cubic-bezier(.16,.8,.3,1)" });
+  }
+}
+function buildDailyInput(holder, it, onAnswer) {
+  const t = it.input, opts = it.options && it.options.length ? it.options : null;
+  let locked = false;  // one-shot: a rendered question can only be answered once (kills double-tap corruption)
+  const answer = (v) => { if (locked) return; locked = true; onAnswer(v); };
+  const tap = (v) => { if (locked) return; locked = true; setTimeout(() => onAnswer(v), 110); };
+  const focusIn = (sel) => { const inp = holder.querySelector(sel); if (inp) requestAnimationFrame(() => { try { inp.focus(); inp.scrollIntoView({ block: "center" }); } catch (e) {} }); };
+  if (t === "choice" || t === "scale") {
+    const list = opts || [["✅", "Yes"], ["🚫", "No"]];
+    holder.innerHTML = '<div class="daily-opts">' + list.map((o) => { const em = Array.isArray(o) ? o[0] : "", lb = Array.isArray(o) ? o[1] : o; return '<button class="daily-btn" data-v="' + escapeHtml(lb) + '">' + (em ? '<span class="e">' + em + "</span>" : "") + "<span>" + escapeHtml(lb) + "</span></button>"; }).join("") + "</div>";
+    holder.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => tap(b.dataset.v)));
+  } else if (t === "yesno") {
+    holder.innerHTML = '<div class="daily-opts"><button class="daily-btn" data-v="yes"><span class="e">✅</span><span>Yes</span></button><button class="daily-btn" data-v="no"><span class="e">🚫</span><span>No</span></button></div>';
+    holder.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => tap(b.dataset.v)));
+  } else if (t === "amount") {
+    holder.innerHTML = '<button class="daily-none" data-v="0">🎉 None today</button><div class="daily-chips">' + ["5", "10", "20", "40", "75"].map((c) => '<button class="daily-chip" data-v="' + c + '">$' + c + "</button>").join("") + '<button class="daily-chip" data-v="__other">Other</button></div>';
+    holder.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.v === "__other") { holder.innerHTML = '<input class="daily-note" id="dcAmt" type="number" inputmode="decimal" placeholder="amount…"><button class="daily-cta" id="dcGo">Next</button>'; holder.querySelector("#dcGo").addEventListener("click", () => answer(parseFloat(holder.querySelector("#dcAmt").value) || 0)); focusIn("#dcAmt"); return; }
+      tap(parseFloat(b.dataset.v) || 0);
+    }));
+  } else if (t === "count") {
+    let n = 0; holder.innerHTML = '<div class="daily-stepper"><button class="daily-step" data-d="-1">−</button><span class="daily-num" id="dcN">0</span><button class="daily-step" data-d="1">+</button></div><button class="daily-cta" id="dcGo">Next</button>';
+    holder.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => { n = Math.max(0, n + parseInt(b.dataset.d, 10)); holder.querySelector("#dcN").textContent = n; }));
+    holder.querySelector("#dcGo").addEventListener("click", () => answer(n));
+  } else if (t === "duration") {
+    holder.innerHTML = '<button class="daily-none" data-v="0">😌 None</button><div class="daily-chips">' + ["1", "2", "3", "4", "6", "8"].map((c) => '<button class="daily-chip" data-v="' + c + '">' + c + "h</button>").join("") + "</div>";
+    holder.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => tap(parseFloat(b.dataset.v) || 0)));
+  } else {
+    holder.innerHTML = '<input class="daily-note" id="dcNote" placeholder="type a note…"><button class="daily-cta" id="dcGo">Next</button>';
+    holder.querySelector("#dcGo").addEventListener("click", () => answer(holder.querySelector("#dcNote").value));
+    focusIn("#dcNote");
+  }
+}
+function openDaily() {
+  if (document.getElementById("dailySpace")) return;
+  const deck = loadDeck();
+  const root = document.createElement("div"); root.id = "dailySpace"; root.className = "daily-space";
+  root.innerHTML =
+    '<div class="daily-top"><button class="daily-icn" id="dailyClose" aria-label="close">✕</button>' +
+      '<div class="daily-dots" id="dailyDots"></div>' +
+      '<button class="daily-icn" id="dailyGear" aria-label="customize" title="customize your deck">⚙</button></div>' +
+    '<div class="daily-stage" id="dailyStage"></div>';
+  document.body.appendChild(root);
+  const stage = root.querySelector("#dailyStage"), dotsEl = root.querySelector("#dailyDots");
+  let i = 0, done = false; const answers = [];
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  function onKey(e) { if (e.key === "Escape") close(); }
+  document.addEventListener("keydown", onKey);
+  root.querySelector("#dailyClose").addEventListener("click", close);
+  root.querySelector("#dailyGear").addEventListener("click", () => { close(); openDeckEditor(); });
+  function dots() { dotsEl.innerHTML = ""; for (let s = 0; s < deck.length; s++) { const d = document.createElement("span"); d.className = "daily-dot" + (s < i ? " done" : (s === i && !done ? " on" : "")); dotsEl.appendChild(d); } }
+  function advance(v) { if (done) return; answers.push({ item: deck[i], value: v }); i++; if (i >= deck.length) finish(); else render(); }
+  function render() {
+    if (!deck.length) { finish(); return; }
+    dots();
+    const it = deck[i];
+    const body = document.createElement("div"); body.className = "daily-body daily-in";
+    body.innerHTML = '<div class="daily-q">' + escapeHtml(it.prompt || "") + "</div>";
+    const holder = document.createElement("div"); holder.className = "daily-input"; body.appendChild(holder);
+    buildDailyInput(holder, it, advance);
+    stage.innerHTML = ""; stage.appendChild(body);
+  }
+  function finish() {
+    done = true; dots();
+    const day = todayKey(), log = loadLog(), now = Date.now();
+    answers.forEach((a) => { if (a.value === undefined || a.value === null || a.value === "") return; log.push({ ts: day, at: now, itemId: a.item.id, prompt: a.item.prompt, input: a.item.input, value: a.value, dest: a.item.dest || null }); });
+    const ok = saveLog(log);
+    const b = document.createElement("div"); b.className = "daily-body daily-in daily-done";
+    if (!ok) {   // storage full / write failed — DON'T claim success or award EXP
+      b.innerHTML = '<div class="daily-goat">😬</div><div class="daily-big">Couldn’t save</div>' +
+        '<div class="daily-funny">your browser storage looks full — nothing was logged. Free up space and try again.</div>' +
+        '<button class="daily-cta" id="dailyDone">Close</button>';
+      stage.innerHTML = ""; stage.appendChild(b);
+      b.querySelector("#dailyDone").addEventListener("click", close);
+      return;
+    }
+    const gained = answers.filter((a) => a.value !== undefined && a.value !== null && a.value !== "").length * 2;
+    if (gained) addExp(gained);
+    if (typeof logChar === "function") try { logChar("log", "Daily check-in · +" + gained + " EXP"); } catch (e) {}
+    b.innerHTML = '<div id="dailyGoat" class="daily-goat">🐐</div><div class="daily-big">Logged!</div>' +
+      '<div id="dailyExp" class="daily-exp">+0 EXP</div><div class="daily-funny">' + DAILY_FUNNIES[Math.floor(Math.random() * DAILY_FUNNIES.length)] + "</div>" +
+      '<button class="daily-cta" id="dailyDone">Done</button>';
+    stage.innerHTML = ""; stage.appendChild(b);
+    const r = stage.getBoundingClientRect(); dailyBurst(stage, r.width / 2, r.height * 0.36);
+    const goat = b.querySelector("#dailyGoat"); if (!reduceMotion()) goat.animate([{ transform: "scale(.4) rotate(-12deg)" }, { transform: "scale(1.15) rotate(6deg)" }, { transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.2,1.3,.4,1)" });
+    const expEl = b.querySelector("#dailyExp"); let v = 0; const iv = setInterval(() => { v++; expEl.textContent = "+" + v + " EXP"; if (v >= gained) { expEl.textContent = "+" + gained + " EXP"; clearInterval(iv); } }, 42); if (gained === 0) { expEl.textContent = "+0 EXP"; clearInterval(iv); }
+    b.querySelector("#dailyDone").addEventListener("click", close);
+  }
+  render();
+}
+function openDeckEditor() {
+  if (document.getElementById("deckEditor")) return;
+  const deck = loadDeck();
+  const root = document.createElement("div"); root.id = "deckEditor"; root.className = "daily-space deck-editor";
+  root.innerHTML =
+    '<div class="daily-top"><div class="deck-title">Customize your daily deck</div><button class="daily-cta sm" id="deckClose">Done</button></div>' +
+    '<div class="deck-scroll" id="deckList"></div>' +
+    '<div class="deck-foot"><button class="daily-cta ghost" id="deckAdd">＋ Add a question</button><button class="daily-cta" id="deckRun">▶ Run check-in</button></div>';
+  document.body.appendChild(root);
+  const listEl = root.querySelector("#deckList");
+  const INPUTS = ["choice", "scale", "yesno", "amount", "count", "duration", "note"];
+  const bldNames = (function () { try { return (loadBase().buildings || []).map((b) => b.name).filter(Boolean); } catch (e) { return []; } })();
+  const persist = () => saveDeck(deck);
+  const optStr = (o) => (!o || !o.length) ? "" : o.map((x) => Array.isArray(x) ? x[1] : x).join(", ");
+  const parseOpts = (s) => s.split(",").map((x) => x.trim()).filter(Boolean).map((lb) => ["", lb]);
+  // drag-to-reorder by the grip handle — pointer events so it works on touch + mouse
+  function attachRowDrag(row) {
+    const grip = row.querySelector(".deck-grip"); if (!grip) return;
+    grip.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      row.classList.add("dragging");
+      try { grip.setPointerCapture(e.pointerId); } catch (er) {}
+      const move = (ev) => {
+        const rows = [...listEl.querySelectorAll(".deck-row")];
+        for (const r of rows) {
+          if (r === row) continue;
+          const rect = r.getBoundingClientRect();
+          if (ev.clientY >= rect.top && ev.clientY <= rect.bottom) {
+            listEl.insertBefore(row, ev.clientY < rect.top + rect.height / 2 ? r : r.nextSibling);
+            break;
+          }
+        }
+      };
+      const up = () => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        row.classList.remove("dragging");
+        const order = [...listEl.querySelectorAll(".deck-row")].map((r) => r.__item).filter(Boolean);
+        deck.length = 0; order.forEach((x) => deck.push(x));
+        persist(); render();
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+      grip.addEventListener("pointercancel", up);   // interrupted drag still commits + re-syncs
+    });
+  }
+  function render() {
+    listEl.innerHTML = "";
+    deck.forEach((it, idx) => {
+      const row = document.createElement("div"); row.className = "deck-row";
+      row.innerHTML =
+        '<div class="deck-row-top"><button class="deck-grip" aria-label="drag to reorder">⠿</button>' +
+          '<input class="deck-emoji" value="' + escapeHtml(it.emoji || "📝") + '" maxlength="4" aria-label="emoji">' +
+          '<input class="deck-prompt" value="' + escapeHtml(it.prompt || "") + '" placeholder="your question">' +
+          '<button class="deck-del" aria-label="remove">✕</button></div>' +
+        '<div class="deck-row-cfg">' +
+          '<label>Answer<select class="deck-input">' + INPUTS.map((t) => "<option" + (t === it.input ? " selected" : "") + ">" + t + "</option>").join("") + "</select></label>" +
+          '<label>Store<select class="deck-kind">' + [["money", "💰 Money"], ["tracker", "📈 Tracker"], ["dayflag", "📅 Day-log"]].map((k) => '<option value="' + k[0] + '"' + ((it.dest && it.dest.kind) === k[0] ? " selected" : "") + ">" + k[1] + "</option>").join("") + "</select></label>" +
+          '<label class="deck-target">Where<input class="deck-tgt" value="' + escapeHtml((it.dest && it.dest.target) || "") + '" placeholder="name (e.g. Groceries)" list="deckBldNames"></label></div>' +
+        ((it.input === "choice" || it.input === "scale") ? '<div class="deck-row-cfg"><label class="deck-optlbl">Buttons<input class="deck-opts" value="' + escapeHtml(optStr(it.options)) + '" placeholder="Cooked, Ate out, Both"></label></div>' : "");
+      row.querySelector(".deck-emoji").addEventListener("input", (e) => { it.emoji = e.target.value; persist(); });
+      row.querySelector(".deck-prompt").addEventListener("input", (e) => { it.prompt = e.target.value; persist(); });
+      row.querySelector(".deck-input").addEventListener("change", (e) => { it.input = e.target.value; persist(); render(); });
+      row.querySelector(".deck-kind").addEventListener("change", (e) => { it.dest = it.dest || {}; it.dest.kind = e.target.value; persist(); });
+      row.querySelector(".deck-tgt").addEventListener("input", (e) => { it.dest = it.dest || {}; it.dest.target = e.target.value; persist(); });
+      const oi = row.querySelector(".deck-opts"); if (oi) oi.addEventListener("input", (e) => { it.options = parseOpts(e.target.value); persist(); });
+      row.__item = it;
+      row.querySelector(".deck-del").addEventListener("click", () => { deck.splice(idx, 1); persist(); render(); });
+      attachRowDrag(row);
+      listEl.appendChild(row);
+    });
+    if (!document.getElementById("deckBldNames")) { const dl = document.createElement("datalist"); dl.id = "deckBldNames"; dl.innerHTML = bldNames.map((n) => '<option value="' + escapeHtml(n) + '">').join(""); root.appendChild(dl); }
+  }
+  root.querySelector("#deckAdd").addEventListener("click", () => { deck.push({ id: "q" + Date.now() + Math.floor(Math.random() * 1000), emoji: "📝", prompt: "New question", input: "choice", options: [["👍", "Yes"], ["👎", "No"]], dest: { kind: "dayflag", target: "" } }); persist(); render(); });
+  root.querySelector("#deckClose").addEventListener("click", () => root.remove());
+  root.querySelector("#deckRun").addEventListener("click", () => { root.remove(); openDaily(); });
+  render();
+}
+(function () { const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", openDaily); })();
+
+// The visit unicorn goes psychedelic tie-dye and bursts into rainbow confetti, then we warp to the Ledger.
+function explodeUnicorn(btn, done) {
+  const uni = btn.querySelector(".lp-uni");
+  const r = btn.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const TIE = ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#0a84ff", "#5e5ce6", "#bf5af2"];
+  if (uni) uni.classList.add("tiedye");
+  const layer = document.createElement("div");
+  layer.className = "uni-burst";
+  document.body.appendChild(layer);
+  const N = 28;
+  for (let i = 0; i < N; i++) {
+    const p = document.createElement("span");
+    if (i % 5 === 0) { p.className = "uni-bit emoji"; p.textContent = (i % 10 === 0) ? "🦄" : "✨"; }
+    else { p.className = "uni-bit dot"; p.style.background = TIE[i % TIE.length]; }
+    p.style.left = cx + "px"; p.style.top = cy + "px";
+    layer.appendChild(p);
+    const ang = (Math.PI * 2 * i) / N + Math.random() * 0.6;
+    const dist = 70 + Math.random() * 110;
+    const dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist - 28;
+    p.animate(
+      [{ transform: "translate(-50%,-50%) scale(1) rotate(0deg)", opacity: 1 },
+       { transform: "translate(-50%,-50%) translate(" + dx + "px," + dy + "px) scale(0.15) rotate(" + (Math.random() * 560 - 280) + "deg)", opacity: 0 }],
+      { duration: 720 + Math.random() * 380, easing: "cubic-bezier(.16,.8,.3,1)" }
+    );
+  }
+  setTimeout(() => { if (typeof done === "function") done(); }, 380);   // warp ignites under the still-flying confetti
+  setTimeout(() => { layer.remove(); if (uni) uni.classList.remove("tiedye"); }, 1180);
+}
+(function () {
+  const lb = document.getElementById("ledgerBtn");
+  if (!lb) return;
+  lb.addEventListener("click", () => {
+    if (reduceMotion()) { openLedger(); return; }   // seizure-safe: skip the tie-dye strobe + burst
+    explodeUnicorn(lb, openLedger);
+  });
+})();
 document.getElementById("manageCats").addEventListener("click", () => { openCategoryManager(); setSidebar(false); });
 document.getElementById("reportBug").addEventListener("click", () => { openBugReport(); setSidebar(false); });
 document.getElementById("openA11y").addEventListener("click", () => { openA11y(); setSidebar(false); });
@@ -5800,6 +6488,8 @@ const DOCK_DEFS = [
   { id: "scale", label: "Scale" },
   { id: "datetime", label: "Date / time" },
   { id: "period", label: "Period" },
+  { id: "daily", label: "Daily check-in" },
+  { id: "base", label: "The Base" },
   { id: "ledger", label: "Visit your cache" },
   { id: "status", label: "Status" },
   { id: "soundtrack", label: "Soundtrack" },
@@ -5935,7 +6625,7 @@ function openClockSettings(anchor) {
 (function buildDock() {
   const bar = document.createElement("div");
   bar.className = "dock-bar";
-  bar.innerHTML = '<div id="dock" class="dock"><div class="dock-label">dock</div></div>';
+  bar.innerHTML = '<div id="dock" class="dock"><div class="dock-label">dock<span class="dock-view" id="dockView"></span></div></div>';
   document.body.appendChild(bar);
   const dock = bar.querySelector("#dock");
 
@@ -5962,6 +6652,8 @@ function openClockSettings(anchor) {
     scale: document.querySelector(".zoom-control"),
     datetime: dt,
     period: pd,
+    daily: document.getElementById("dailyBtn"),
+    base: document.getElementById("baseBtn"),
     ledger: document.getElementById("ledgerBtn"),
     status: document.getElementById("statusBtn"),
     soundtrack: document.getElementById("soundtrack"),
@@ -5984,6 +6676,7 @@ function openClockSettings(anchor) {
   if (oldBar) oldBar.remove();
 
   applyDockConfig(dock);
+  updateViewToggle();  // set the toggle icon (grid = Widgets on load) + the dock view name
 
   // drag to reorder (HTML5 DnD → clicks still work)
   let dragEl = null;

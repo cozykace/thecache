@@ -1,0 +1,13 @@
+{
+  "id": "default",
+  "name": "The Cache (default)",
+  "author": "King Cozy Cache",
+  "version": "0.1.0",
+  "note": "The built-in skin. Copy this whole folder to skins/<your-skin>/ and swap the assets to make your own. Every id below is what the app asks for; the path is what your skin provides.",
+  "buildings": {
+    "home-base": { "label": "Home Base", "art": "buildings/home-base.svg" }
+  },
+  "sounds": {
+    "place": "sounds/place.wav"
+  }
+}
