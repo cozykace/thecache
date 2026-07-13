@@ -1165,13 +1165,23 @@ body.panning .cursor-ball { display: none !important; }
 .tm-form label.tm-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; max-width: 240px; font-size: clamp(10px, 5cqmin, 12px); color: rgba(var(--ink-rgb), 0.7); }
 .tm-row span { text-align: left; min-width: 0; }
 .tm-row input {
-  width: 74px; flex-shrink: 0; min-height: 40px; padding: 0 10px; font-family: inherit; font-size: 14px;
+  width: clamp(48px, 30cqi, 74px); flex-shrink: 0; min-height: 40px; padding: 0 10px; font-family: inherit; font-size: 14px;
   text-align: right; border: 1px solid var(--edge); border-radius: 8px; background: var(--panel);
   color: var(--ink); font-variant-numeric: tabular-nums; box-sizing: border-box;
 }
 .tm-row input:focus { outline: none; border-color: var(--accent); }
 .tm-formnote { font-size: 9px; letter-spacing: 0.06em; color: rgba(var(--ink-rgb), 0.4); max-width: 240px; }
 .tm-form .tm-btn { flex: none; width: 100%; max-width: 240px; }
+/* squeezed small: shed the least-essential rows first so phase + time + controls
+   always fit inside the overflow:hidden body (a narrow widget == a phone) */
+@container (max-height: 252px) {
+  .is-timer .tm-foot { display: none; }
+  .is-timer .tm-main, .is-timer .tm-form { gap: 4px; }
+}
+@container (max-height: 190px) {
+  .is-timer .tm-track { display: none; }
+  .is-timer .tm-time { font-size: clamp(20px, 18cqmin, 44px); }
+}
 
 /* resize handle */
 /* resize from any corner; handles sit above the bar but below its buttons */
@@ -2517,6 +2527,14 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
     transform: none !important; flex: 0 0 auto;
     container-type: inline-size !important;   /* width-based container queries keep working with auto height */
   }
+  /* the help-card faces are absolute for the 3-D flip, which zeroes intrinsic
+     height — in the stack, put the front face back in flow so every widget gets
+     its natural height, and show "how this is calculated" as an overlay instead
+     of a flip (the flip's rotate would mirror a static face) */
+  .widget-flip { transform: none !important; transform-style: flat; }
+  .widget-face.face-front { position: static; }
+  .widget-face.face-back { transform: none; display: none; }
+  .widget.flipped .widget-face.face-back { display: flex; position: absolute; inset: 0; z-index: 3; }
   .widget-resize { display: none !important; }   /* no resizing on touch */
   .sticker { display: none !important; }          /* hide free-floating decor in a stack */
   .zoom-control { display: none !important; }     /* no zoom in stack mode */

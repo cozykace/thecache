@@ -914,6 +914,131 @@ const RENDERERS = {
     tick();
     setInterval(tick, 1000);
   },
+  // Work/rest cycle timer — the EF-energy spine's visible clock. Work a block,
+  // rest a block, longer rest every few cycles. The widget is a WINDOW onto the
+  // module-scope timer engine (see below primeChime): the engine keeps ticking
+  // across page switches and widget close, so a running block always chimes.
+  // No shame: pause/skip/end are always one tap and never punished.
+  timer(el) {
+    el.classList.add("is-timer");
+    const PHASE = { work: "work", rest: "rest", long: "long rest" };
+
+    el.innerHTML =
+      '<div class="tm-main">' +
+        '<div class="tm-top"><span class="tm-phase"></span><span class="tm-pips"></span></div>' +
+        '<div class="big tm-time">--:--</div>' +
+        '<div class="tm-track"><span class="tm-fill"></span></div>' +
+        '<div class="tm-controls"></div>' +
+        '<div class="tm-foot">' +
+          '<button class="tm-quiet tm-edit" type="button">presets</button>' +
+          '<button class="tm-quiet tm-sound" type="button"></button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="tm-form" hidden></div>';
+    const main = el.querySelector(".tm-main");
+    const form = el.querySelector(".tm-form");
+    const phaseEl = el.querySelector(".tm-phase");
+    const pipsEl = el.querySelector(".tm-pips");
+    const timeEl = el.querySelector(".tm-time");
+    const fillEl = el.querySelector(".tm-fill");
+    const ctrEl = el.querySelector(".tm-controls");
+    const soundEl = el.querySelector(".tm-sound");
+
+    const paintControls = () => {
+      if (timerSt.endsAt) ctrEl.innerHTML =
+        '<button class="tm-btn" data-a="pause" type="button">pause</button>' +
+        '<button class="tm-btn tm-ghost" data-a="skip" type="button">skip</button>' +
+        '<button class="tm-btn tm-ghost" data-a="end" type="button">end</button>';
+      else if (timerSt.pausedLeft != null) ctrEl.innerHTML =
+        '<button class="tm-btn" data-a="resume" type="button">resume</button>' +
+        '<button class="tm-btn tm-ghost" data-a="skip" type="button">skip</button>' +
+        '<button class="tm-btn tm-ghost" data-a="end" type="button">end</button>';
+      else ctrEl.innerHTML = '<button class="tm-btn" data-a="start" type="button">start</button>';
+      soundEl.textContent = timerSt.sound !== false ? "sound: on" : "sound: off";
+    };
+
+    const paintLive = () => {
+      el.dataset.phase = timerSt.phase;
+      const total = timerDur();
+      const left = timerSt.endsAt != null ? Math.max(0, timerSt.endsAt - Date.now())
+                 : timerSt.pausedLeft != null ? timerSt.pausedLeft : total;
+      const s = Math.ceil(left / 1000);
+      timeEl.textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+      fillEl.style.width = Math.max(0, Math.min(100, Math.round(100 * (1 - left / total)))) + "%";
+      phaseEl.textContent = PHASE[timerSt.phase] + (timerSt.pausedLeft != null ? " · paused" : "");
+      const L = timerEvery();
+      const done = timerSt.phase === "work" ? (timerSt.cycle - 1) % L : ((timerSt.cycle - 1) % L) + 1;
+      let pips = "";
+      for (let i = 0; i < L; i++)
+        pips += '<span class="tm-pip' + (i < done ? " done" : (i === done && timerSt.phase === "work") ? " now" : "") + '"></span>';
+      pipsEl.innerHTML = pips;
+    };
+
+    // the engine announces every phase turn / foreign-tab change on cache:timer;
+    // self-unhook once this widget leaves the DOM (house idiom, see energy)
+    const repaint = () => {
+      if (!el.isConnected) { document.removeEventListener("cache:timer", repaint); return; }
+      paintControls(); paintLive();
+    };
+    document.addEventListener("cache:timer", repaint);
+
+    ctrEl.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-a]");
+      if (!b) return;
+      const a = b.dataset.a;
+      if (a === "start" || a === "resume") {
+        primeChime(); // user gesture — unlock audio so the chime can fire later
+        timerSt.endsAt = Date.now() + (a === "resume" ? timerSt.pausedLeft : timerDur());
+        timerSt.pausedLeft = null;
+      } else if (a === "pause") {
+        timerSt.pausedLeft = Math.max(1000, timerSt.endsAt - Date.now());
+        timerSt.endsAt = null;
+      } else if (a === "skip") {
+        timerAdvance(false); // no chime, no EXP — and no shame either
+        timerSt.pausedLeft = null;
+        timerSt.endsAt = Date.now() + timerDur();
+      } else if (a === "end") {
+        timerSt.phase = "work"; timerSt.cycle = 1; timerSt.endsAt = null; timerSt.pausedLeft = null;
+      }
+      timerSave(); timerEmit();
+    });
+
+    soundEl.addEventListener("click", () => {
+      timerSt.sound = timerSt.sound === false;
+      timerSave(); timerEmit();
+    });
+
+    el.querySelector(".tm-edit").addEventListener("click", () => {
+      const field = (label, k, val, max) =>
+        '<label class="tm-row"><span>' + label + '</span>' +
+        '<input type="number" inputmode="numeric" min="1" max="' + max + '" step="1" data-k="' + k + '" value="' + val + '"></label>';
+      form.innerHTML =
+        field("work (min)", "work", timerPreset("work", 25), 180) +
+        field("rest (min)", "rest", timerPreset("rest", 5), 180) +
+        field("long rest (min)", "longRest", timerPreset("longRest", 15), 180) +
+        field("long rest every (blocks)", "longEvery", timerEvery(), 12) +
+        '<div class="tm-formnote">yours to change — takes effect when the next block starts</div>' +
+        '<button class="tm-btn" data-a="saveform" type="button">save</button>';
+      main.hidden = true; form.hidden = false;
+      form.querySelector('[data-a="saveform"]').addEventListener("click", () => {
+        form.querySelectorAll("input").forEach((i) => {
+          const n = parseFloat(i.value);
+          const max = parseInt(i.max) || 180;
+          // clamp to the nearest allowed value — never silently revert to defaults
+          if (n >= 1) timerSt[i.dataset.k] = Math.min(max, Math.round(n));
+        });
+        timerSave(); form.hidden = true; main.hidden = false;
+        timerEmit();
+      });
+    });
+
+    paintControls();
+    paintLive();
+    const pv = setInterval(() => { // paint-only; the module engine owns the transitions
+      if (!el.isConnected) { clearInterval(pv); return; }
+      paintLive();
+    }, 1000);
+  },
   date(el) {
     const now = new Date();
     el.innerHTML =
@@ -2883,6 +3008,98 @@ function playApplause() {
     src.start();
   } catch (e) {}
 }
+// A gentle two-note chime for the work/rest timer (no audio asset) — soft sine
+// dyad: ascending = back to work, descending = time to rest. Never throws.
+function playChime(up) {
+  try {
+    _actx = _actx || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _actx, t0 = ctx.currentTime;
+    const notes = up ? [523.25, 783.99] : [783.99, 523.25]; // C5→G5 / G5→C5
+    notes.forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      const at = t0 + i * 0.22;
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(0.14, at + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.9);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(at); o.stop(at + 1);
+    });
+  } catch (e) {}
+}
+// Create/resume the audio context during a user gesture (the timer's Start tap)
+// so the chime minutes later isn't blocked by autoplay rules.
+function primeChime() {
+  try {
+    _actx = _actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (_actx.state === "suspended") _actx.resume();
+  } catch (e) {}
+}
+// ── Work/rest timer engine (module scope) ──────────────────────────────
+// The engine outlives any widget instance: phase turns, chimes, and EXP keep
+// firing while you're on another page or the widget is closed. The widget is
+// just a window onto this state — it repaints on the "cache:timer" event.
+const TIMER_KEY = "money.timer";
+const timerSt = { work: 25, rest: 5, longRest: 15, longEvery: 4, phase: "work", cycle: 1, endsAt: null, pausedLeft: null, sound: true };
+// merge a stored snapshot, coercing anything corrupt — a bad value (wrong type,
+// hand-edited storage) must never wedge the timer
+function timerAdopt(raw) {
+  let s = {};
+  try { s = JSON.parse(raw) || {}; } catch (e) {}
+  Object.assign(timerSt, s);
+  if (timerSt.phase !== "rest" && timerSt.phase !== "long") timerSt.phase = "work";
+  timerSt.cycle = parseInt(timerSt.cycle) >= 1 ? parseInt(timerSt.cycle) : 1;
+  timerSt.endsAt = parseInt(timerSt.endsAt) > 0 ? parseInt(timerSt.endsAt) : null;
+  timerSt.pausedLeft = parseInt(timerSt.pausedLeft) > 0 ? parseInt(timerSt.pausedLeft) : null;
+  timerSt.sound = timerSt.sound !== false;
+}
+try { timerAdopt(localStorage.getItem(TIMER_KEY)); } catch (e) {}
+function timerSave() { try { localStorage.setItem(TIMER_KEY, JSON.stringify(timerSt)); } catch (e) {} }
+// presets clamp to their bounds instead of reverting to defaults — what the
+// user typed (or the nearest allowed value) is what runs
+function timerPreset(k, d) { const n = parseFloat(timerSt[k]); return n >= 1 ? Math.min(180, Math.round(n)) : d; }
+function timerEvery() { const n = parseInt(timerSt.longEvery); return n >= 1 ? Math.min(12, n) : 4; }
+function timerPhaseMins() { return timerSt.phase === "work" ? timerPreset("work", 25) : timerSt.phase === "long" ? timerPreset("longRest", 15) : timerPreset("rest", 5); }
+function timerDur() { return timerPhaseMins() * 60000; }
+function timerEmit() { document.dispatchEvent(new CustomEvent("cache:timer")); }
+// move to the next phase; live=true → this block genuinely finished just now
+// (chime + EXP). Skips and stale catch-ups advance silently — no fake rewards.
+function timerAdvance(live) {
+  if (timerSt.phase === "work") {
+    if (live) {
+      const w = timerPreset("work", 25);
+      addExp(2); logChar("log", "Finished a " + w + "-min work block · +2 EXP");
+      track("timer_work_done", { mins: w });
+      if (timerSt.sound !== false) playChime(false); // descending — wind down
+    }
+    timerSt.phase = (timerSt.cycle % timerEvery() === 0) ? "long" : "rest";
+    if (live) flash((timerSt.phase === "long" ? "Long rest — " : "Rest — ") + timerPhaseMins() + " min");
+  } else {
+    if (timerSt.phase === "long") timerSt.cycle = 1; else timerSt.cycle += 1;
+    timerSt.phase = "work";
+    if (live) {
+      if (timerSt.sound !== false) playChime(true); // ascending — back to it
+      flash("Back to it — " + timerPhaseMins() + " min");
+    }
+  }
+}
+function timerTick() {
+  if (!timerSt.endsAt) return;
+  let hops = 0;
+  while (timerSt.endsAt <= Date.now() && hops++ < 96) {
+    // live only if this is the first hop and it just happened (≤90s covers
+    // background-tab throttling); a stale reload catches up silently
+    timerAdvance(hops === 1 && Date.now() - timerSt.endsAt < 90000);
+    timerSt.endsAt += timerDur();
+  }
+  if (hops) { timerSave(); timerEmit(); }
+}
+setInterval(timerTick, 1000); // idles at one no-op compare per second when nothing runs
+window.addEventListener("storage", (e) => {
+  if (e.key !== TIMER_KEY) return;
+  timerAdopt(e.newValue); // another tab moved the timer — adopt it, don't fight it
+  timerEmit();
+});
 let _sparkAlive = 0;
 function expSpark(x, y, n, blessed) {
   if (reduceMotion()) return;  // no particle bursts when motion is reduced
@@ -3712,6 +3929,7 @@ const LIBRARY = [
   { type: "devtree", title: "Dev Tree", w: 340, h: 380 },
   { type: "worklog", title: "Time worked", w: 300, h: 270 },
   { type: "energy", title: "Energy", w: 300, h: 230 },
+  { type: "timer", title: "Work / rest timer", w: 300, h: 300 },
   { type: "bucket", title: "Brain Bucket", w: 300, h: 300 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
@@ -4007,6 +4225,7 @@ const WIDGET_INFO = {
   note: "<p>A free-text note you type — saved locally in your browser. No financial data.</p>",
   energy: "<p><b>Your energy pattern</b> — every ⚡ answer from the Daily check-in, one bar per day for the last 14 days (1–5).</p><p>The point: your executive-function energy <i>varies</i>, and that's not a flaw — seeing the pattern lets you plan around it instead of fighting it. A missing bar just means no log that day; that's information, never a failure.</p>",
   bucket: "<p><b>Your actively-held working memory</b> — notes and links you deliberately drop here so your brain doesn't have to hold them. Lives in your cache, syncs across your devices, and rides your backups + encrypted vault.</p><p>Toss anything with one tap — no shame. A gentle monthly cleanout prompt is a coming brick.</p>",
+  timer: "<p><b>Work a block, rest a block</b> — with a longer rest every few blocks. The visible countdown does the time-keeping so your head doesn't have to.</p><p>All four numbers are yours — tap <i>presets</i>. The defaults are just a starting point, not a prescription. Pausing, skipping, or ending early is always one tap and never punished. Finishing a work block earns +2 EXP.</p>",
 };
 
 function makeWidget(id, entry) {
