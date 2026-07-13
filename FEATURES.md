@@ -11,6 +11,7 @@ _Last updated: 2026-07-13_
 - **Build your own deck** — choose the questions, the answer types, and where each answer lands (Money, Health, a custom Tracker, or the Day-log); drag to reorder. A plain-language line explains every choice.
 - **The energy question** — "How's your energy right now?" on a one-tap 1–5 scale, from Drained to Charged. No wrong answer — Cache learns your pattern so you can plan around it.
 - **Your energy pattern, visible** — the Energy widget turns every answer into one bar per day across the last two weeks, with today's energy up top and your average below. It updates live the moment a check-in finishes. A missed day shows as a quiet dash — information, never a failure.
+- **Work / rest timer** — work a block, rest a block, with a longer rest every few blocks. The visible countdown does the time-keeping so your head doesn't have to, and gentle chimes mark the turns. All four numbers are yours to change, and pausing, skipping, or ending early is always one tap and never punished. Finishing a work block earns EXP.
 
 ## Build your life as a base
 - **The Base** — flip from the widget board to a full-screen city view of your life: place, name, and color-code buildings for your income, expenses, and home; drive around; merge related buildings into districts.
@@ -62,4 +63,4 @@ _Last updated: 2026-07-13_
 - **Encrypted backups & Cache cloud (beta)** — seal everything with a passphrase only you know; sync it end-to-end encrypted and open your cache anywhere. The server only ever stores an unreadable blob. Local is free forever; the cloud is opt-in.
 
 ## What's coming
-The roadmap tab (right in the app) shows what's next: check-ins that sync across your devices, a coached setup for first-time users, a work/rest timer, tasks that reward showing up, meals, and the rest of the twelve areas of life — one honest brick at a time.
+The roadmap tab (right in the app) shows what's next: tasks that reward showing up, meals, per-task energy estimates, and the rest of the twelve areas of life — one honest brick at a time.
