@@ -2896,6 +2896,26 @@ async function cloudSignup(url, email, password) {
   return cloudLogin(base, email, password);   // auto log in
 }
 function cloudLogout() { cloudSaveState({ url: cloudState().url || CLOUD_DEFAULT_URL }); }
+// PocketBase auth tokens expire (~14 days). Refresh on every real cloud touch so
+// regular use never logs you out — and when a session is truly dead, log out
+// honestly instead of letting requests degrade to guest and fail with a cryptic
+// "Failed to create record."
+async function cloudAuthCheck() {
+  const s = cloudState();
+  if (!s.token) return false;
+  try {
+    const r = await fetch(cloudUrl() + "/api/collections/users/auth-refresh", { method: "POST", headers: { Authorization: s.token } });
+    if (r.status === 401 || r.status === 403) {
+      cloudSaveState({ url: s.url, email: s.email, recordId: s.recordId });  // keep email — re-login is one password away
+      return false;
+    }
+    if (r.ok) {
+      const d = await r.json();
+      if (d && d.token) cloudSaveState(Object.assign(cloudState(), { token: d.token, userId: (d.record && d.record.id) || s.userId, email: (d.record && d.record.email) || s.email }));
+    }
+    return true;  // 5xx → don't log out over a server blip
+  } catch (e) { return true; }  // offline → keep state; the op itself surfaces the network error
+}
 async function cloudFindVaultId(s) {
   // always ask the server for the real current record (never trust a cached id — it can go stale
   // if the record was cleared, and then a PATCH 404s with "resource wasn't found")
@@ -2918,8 +2938,9 @@ function restoreLocal(local) {
   return n;
 }
 async function cloudPush(passphrase) {
-  const s = cloudState();
-  if (!s.token) throw new Error("log in first");
+  if (!cloudState().token) throw new Error("log in first");
+  if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again in Step 1 (your data is safe)");
+  const s = cloudState();  // fresh token after the refresh
   let files = {}, api = {}, exported;
   if (window.__CACHE_WEB__) {
     // the web app has no local backend — preserve the cloud's existing financial data, update only your setup
@@ -2940,7 +2961,7 @@ async function cloudPush(passphrase) {
   else r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify({ owner: s.userId, blob }) });
   if (r.status === 404) { id = null; r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify({ owner: s.userId, blob }) }); }  // record vanished → make a fresh one
   const d = await r.json();
-  if (!r.ok) throw new Error(cloudErr(d) || "cloud backup failed (create the 'vaults' collection?)");
+  if (!r.ok) throw new Error(cloudErr(d) || ("cloud backup failed (HTTP " + r.status + " — is the 'vaults' collection set up?)"));
   cloudSaveState(Object.assign(cloudState(), { recordId: d.id || id, lastPush: new Date().toISOString(), lastPushCount: count, bytes: (blob || "").length }));
   return { count, bytes: (blob || "").length };
 }
@@ -2955,8 +2976,9 @@ function cloudAgo(iso) {
   const d = Math.round(h / 24); return d + (d === 1 ? " day ago" : " days ago");
 }
 async function cloudPull(passphrase) {
-  const s = cloudState();
-  if (!s.token) throw new Error("log in first");
+  if (!cloudState().token) throw new Error("log in first");
+  if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again in Step 1 (your data is safe)");
+  const s = cloudState();  // fresh token after the refresh
   const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
   const d = await r.json();
   if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault");
@@ -3416,7 +3438,9 @@ function openSettings() {
       '<div class="cloud-guide" id="setCloudGuide"></div>' +
       '<div class="cloud-step" id="cloudStep1">' +
         '<div class="cloud-step-h"><span class="cloud-num">1</span><span class="cloud-step-t">Your account</span><span class="cloud-chk" id="cloudChk1"></span></div>' +
-        '<label class="set-row"><span>Cloud URL</span><input id="setCloudUrl" type="text" autocomplete="off" value="https://thecache.pockethost.io"></label>' +
+        '<div class="set-hint">This is your <b>Cache cloud</b> account — its own email + password, not your hosting (pockethost.io) login and not your bank.</div>' +
+        '<label class="set-row"><span>Cloud URL</span><input id="setCloudUrl" type="text" autocomplete="off" readonly value="https://thecache.pockethost.io">' +
+          '<button type="button" class="cloud-url-edit" id="setCloudUrlEdit" title="Only change this if you run your own cloud server">change</button></label>' +
         '<label class="set-row"><span>Email</span><input id="setCloudEmail" type="email" autocomplete="off" placeholder="you@email.com"></label>' +
         '<label class="set-row"><span>Password</span><input id="setCloudPass" type="password" autocomplete="off" placeholder="a password for your cloud account"></label>' +
         '<div class="set-bk-row">' +
@@ -3522,6 +3546,14 @@ function openSettings() {
         clLogout = modal.querySelector("#setCloudLogout"),
         clStep = [null, modal.querySelector("#cloudStep1"), modal.querySelector("#cloudStep2"), modal.querySelector("#cloudStep3")],
         clChk = [null, modal.querySelector("#cloudChk1"), modal.querySelector("#cloudChk2"), modal.querySelector("#cloudChk3")];
+  // the URL is locked by default — everyone uses the official cloud, and a typo here
+  // was a support nightmare. The small "change" unlock keeps self-hosting possible.
+  const clUrlEdit = modal.querySelector("#setCloudUrlEdit");
+  if (clUrlEdit) clUrlEdit.addEventListener("click", (e) => {
+    e.preventDefault();
+    clUrl.readOnly = false; clUrlEdit.style.display = "none";
+    clUrl.focus(); try { clUrl.select(); } catch (err) {}
+  });
   // one shared encryption key across the app: keep the cloud passphrase + the backup passphrase in sync
   clPhrase.addEventListener("input", () => { bkPass.value = clPhrase.value; refreshCloud(); });
   if (bkPass) bkPass.addEventListener("input", () => { clPhrase.value = bkPass.value; refreshCloud(); });
@@ -3568,7 +3600,12 @@ function openSettings() {
     clMsg.className = "set-hint cloud-msg" + (kind ? " " + kind : "");
     if (kind === "ok") { clMsg.classList.remove("flash"); void clMsg.offsetWidth; clMsg.classList.add("flash"); }
   }
-  (function initCloud() { const s = cloudState(); if (s.url) clUrl.value = s.url; if (s.token) clEmail.value = s.email || ""; if (bkPass && bkPass.value) clPhrase.value = bkPass.value; refreshCloud(); })();
+  (function initCloud() {
+    const s = cloudState(); if (s.url) clUrl.value = s.url; if (s.token) clEmail.value = s.email || ""; if (bkPass && bkPass.value) clPhrase.value = bkPass.value; refreshCloud();
+    // validate the stored session for real — a token quietly expires after ~14 days,
+    // and an eternal green check that fails on sync is worse than an honest re-login ask
+    if (s.token) cloudAuthCheck().then((ok) => { if (!ok) { refreshCloud(); clSay("Your cloud login expired — enter your password and hit Log in. Your data is safe.", "err"); } });
+  })();
   clSignup.addEventListener("click", async () => {
     clSay("Creating account…", "work");
     try { await cloudSignup(clUrl.value.trim(), clEmail.value.trim(), clPass.value); refreshCloud(); clSay("✓ Account created — you’re signed in. Now do Step 2: set your encryption passphrase.", "ok"); }

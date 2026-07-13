@@ -1054,6 +1054,14 @@ body.panning .cursor-ball { display: none !important; }
 .cloud-step-t { flex: 1 1 auto; min-width: 0; }
 .cloud-chk { flex: 0 0 auto; font-size: 14px; font-weight: 700; color: #2ec16b; min-width: 16px; text-align: right; }
 .cloud-btn-sub { flex: 0 0 auto; opacity: 0.7; }
+/* locked-by-default Cloud URL: dimmed until the explicit "change" unlock */
+.set-row input[readonly] { opacity: 0.6; }
+.cloud-url-edit {
+  flex: 0 0 auto; border: none; background: none; cursor: pointer; font-family: inherit;
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: rgba(var(--ink-rgb), 0.45); padding: 8px 2px 8px 8px; min-height: 32px;
+}
+.cloud-url-edit:hover { color: var(--accent); }
 .set-btn.is-disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
 /* Loud, color-coded result line */
 .cloud-msg { font-style: normal; font-size: 11px; padding: 2px 0; transition: color 0.15s ease; }
