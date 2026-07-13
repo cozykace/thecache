@@ -1828,6 +1828,19 @@ body.view-base #board { display: none; }               /* board hides while the 
 .en-log { margin-top: 8px; min-height: 44px; width: 100%; border: 1.5px solid var(--accent); border-radius: 12px;
   background: transparent; color: var(--ink); font-family: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
 .en-log:active { transform: scale(0.98); }
+
+/* ── Setup wizard (reuses the daily-space look; these are the wizard-only pieces) ── */
+.wiz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 12px; }
+.wiz-chip { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 6px 12px;
+  border: 1.5px solid var(--edge); border-radius: 14px; background: var(--panel); color: var(--ink);
+  font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; text-align: left; transition: transform 0.08s, border-color 0.12s; }
+.wiz-chip .e { font-size: 20px; line-height: 1; }
+.wiz-chip.on { border-color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent) inset; }
+.wiz-chip:active { transform: scale(0.97); }
+.wiz-tag { margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; opacity: 0.55; white-space: nowrap; }
+.wiz-tag.now { color: #2ec16b; opacity: 1; }
+.wiz-skip { display: block; margin: 14px auto 0; min-height: 44px; padding: 0 18px; border: none; background: none;
+  color: rgba(var(--ink-rgb), 0.55); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .daily-input { margin-top: auto; }
 .daily-opts { display: flex; flex-direction: column; gap: 11px; }
 .daily-btn { display: flex; align-items: center; gap: 15px; width: 100%; box-sizing: border-box; min-height: 66px;
