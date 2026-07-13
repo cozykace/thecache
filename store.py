@@ -115,6 +115,80 @@ def _write(path, obj):
         pass
 
 
+# ── daily check-in — shared across devices ───────────────────────────
+# Browser storage is only a fast cache; THESE files are the truth, so phone and desktop
+# converge on one log + one deck, and answers ride backups + the encrypted vault.
+# (Working Docs/3_ROADMAP.md · the north-star EF-energy data must never fork per-device.)
+CHECKIN_LOG = os.path.join(DATA, "checkin-log.jsonl")    # one answer per line, append-only
+CHECKIN_DECK = os.path.join(DATA, "checkin-deck.json")   # {"rev": ms-timestamp, "items": [...]}
+
+
+def checkin_log():
+    """Every check-in answer ever logged; corrupt lines are skipped, never fatal."""
+    out = []
+    try:
+        with open(CHECKIN_LOG, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                    if isinstance(e, dict):
+                        out.append(e)
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        pass
+    return out
+
+
+def checkin_append(entries):
+    """Append check-in answers (append-only, crash-durable, same rigor as the money
+    ledger). Dedupes by (at, itemId) against what's already on disk, so offline retries
+    and double-sends can never double-log an answer."""
+    if not isinstance(entries, list):
+        return {"ok": False, "error": "bad entries"}
+    have = set()
+    for e in checkin_log():
+        have.add((e.get("at"), e.get("itemId")))
+    added = 0
+    os.makedirs(DATA, exist_ok=True)
+    with open(CHECKIN_LOG, "a", encoding="utf-8") as f:
+        for e in entries[:200]:
+            if not isinstance(e, dict) or "at" not in e or "itemId" not in e:
+                continue
+            k = (e.get("at"), e.get("itemId"))
+            if k in have:
+                continue
+            have.add(k)
+            slim = {x: e.get(x) for x in ("ts", "at", "itemId", "prompt", "input", "value", "dest") if x in e}
+            f.write(json.dumps(slim) + "\n")
+            added += 1
+        f.flush()
+        os.fsync(f.fileno())
+    _fsync_dir(DATA)
+    return {"ok": True, "added": added, "total": len(have)}
+
+
+def checkin_deck_get():
+    return _read(CHECKIN_DECK, {"rev": 0, "items": []})
+
+
+def checkin_deck_set(data):
+    """Newest revision wins (rev = client ms-timestamp) — an older device can never
+    clobber a newer deck."""
+    rev = data.get("rev") or 0
+    items = data.get("items")
+    if not isinstance(items, list) or not isinstance(rev, (int, float)):
+        return {"ok": False, "error": "bad deck"}
+    cur = checkin_deck_get()
+    if cur.get("rev", 0) and rev <= cur.get("rev", 0):
+        return {"ok": True, "kept": True, "rev": cur.get("rev", 0)}
+    _write(CHECKIN_DECK, {"rev": rev, "items": items[:60]})
+    return {"ok": True, "rev": rev}
+
+
 # ── categories ─────────────────────────────────────────────
 def load_overrides():
     ov = _read(CATEGORIES, {})

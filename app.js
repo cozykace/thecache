@@ -5814,10 +5814,71 @@ function loadDeck() {
   } catch (e) {}
   return JSON.parse(JSON.stringify(DEFAULT_DECK));
 }
-function saveDeck(d) { try { localStorage.setItem(DECK_KEY, JSON.stringify(d)); } catch (e) {} }
+function saveDeck(d) { try { localStorage.setItem(DECK_KEY, JSON.stringify(d)); localStorage.setItem(DECKREV_KEY, String(Date.now())); } catch (e) {} ckPushDeckSoon(); }
 function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || []; } catch (e) { return []; } }
 function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); return true; } catch (e) { return false; } }
 function todayKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+
+// ── check-in sync — browser storage is the fast cache; the SERVER files are the shared
+//    truth (data/checkin-log.jsonl + checkin-deck.json), so phone and desktop converge on
+//    one log and one deck, and answers ride real backups + the encrypted vault. Answers
+//    that can't reach the server queue in money.logPending and retry on the next sync.
+//    Offline, the demo, and the hosted read-only app all degrade gracefully to local-only. ──
+const LOGPEND_KEY = "money.logPending", DECKREV_KEY = "money.deckRev";
+const ckKey = (e) => (e.at || 0) + "|" + (e.itemId || "");
+function ckPending() { try { return JSON.parse(localStorage.getItem(LOGPEND_KEY) || "[]") || []; } catch (e) { return []; } }
+function ckSetPending(l) { try { localStorage.setItem(LOGPEND_KEY, JSON.stringify(l.slice(-500))); } catch (e) {} }
+function ckPush(entries) {
+  if (!entries || !entries.length) return Promise.resolve(true);
+  return fetch("/api/checkin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entries }) })
+    .then((r) => { if (!r.ok) throw new Error("offline"); return r.json(); })
+    .then(() => true)
+    .catch(() => {   // couldn't reach the cache — keep the answers safe and retry later
+      const p = ckPending(), have = new Set(p.map(ckKey));
+      entries.forEach((e) => { if (!have.has(ckKey(e))) p.push(e); });
+      ckSetPending(p);
+      return false;
+    });
+}
+let _deckPushT = null;
+function ckPushDeckSoon() {
+  // debounced — the deck editor saves on every keystroke; the server needs one write, not fifty
+  clearTimeout(_deckPushT);
+  _deckPushT = setTimeout(() => {
+    let rev = 0; try { rev = parseInt(localStorage.getItem(DECKREV_KEY)) || 0; } catch (e) {}
+    fetch("/api/checkin-deck", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rev: rev, items: loadDeck() }) }).catch(() => {});
+  }, 1200);
+}
+let _ckSyncing = false;
+function ckSync() {
+  if (_ckSyncing) return; _ckSyncing = true;
+  const pend = ckPending();
+  (pend.length ? ckPush(pend).then((ok) => { if (ok) ckSetPending([]); }) : Promise.resolve())
+    .then(() => fetch("/api/checkin-log").then((r) => { if (!r.ok) throw new Error("offline"); return r.json(); }))
+    .then((d) => {
+      const server = (d && d.log) || [], local = loadLog();
+      const sHave = new Set(server.map(ckKey)), lHave = new Set(local.map(ckKey));
+      const toServer = local.filter((e) => !sHave.has(ckKey(e)));
+      const toLocal = server.filter((e) => !lHave.has(ckKey(e)));
+      if (toServer.length) ckPush(toServer);
+      if (toLocal.length) {
+        const merged = local.concat(toLocal);
+        merged.sort((a, b) => (a.at || 0) - (b.at || 0));
+        if (saveLog(merged)) try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {}
+      }
+    })
+    .catch(() => {})
+    .then(() => fetch("/api/checkin-deck").then((r) => { if (!r.ok) throw new Error("offline"); return r.json(); }))
+    .then((d) => {
+      const srv = (d && d.deck) || {};
+      let rev = 0; try { rev = parseInt(localStorage.getItem(DECKREV_KEY)) || 0; } catch (e) {}
+      if ((srv.rev || 0) > rev && Array.isArray(srv.items) && srv.items.length) {
+        try { localStorage.setItem(DECK_KEY, JSON.stringify(srv.items)); localStorage.setItem(DECKREV_KEY, String(srv.rev)); } catch (e) {}
+      } else if (rev > (srv.rev || 0)) { ckPushDeckSoon(); }
+    })
+    .catch(() => {})
+    .then(() => { _ckSyncing = false; }, () => { _ckSyncing = false; });
+}
 function dailyBurst(host, x, y) {
   if (reduceMotion()) return;
   const C = ["#ff3b30", "#ff9500", "#ffcc00", "#2ec16b", "#0a84ff", "#7d6cf0", "#ff6bd6"];
@@ -5896,8 +5957,8 @@ function openDaily() {
   }
   function finish() {
     done = true; dots();
-    const day = todayKey(), log = loadLog(), now = Date.now();
-    answers.forEach((a) => { if (a.value === undefined || a.value === null || a.value === "") return; log.push({ ts: day, at: now, itemId: a.item.id, prompt: a.item.prompt, input: a.item.input, value: a.value, dest: a.item.dest || null }); });
+    const day = todayKey(), log = loadLog(), now = Date.now(), fresh = [];
+    answers.forEach((a) => { if (a.value === undefined || a.value === null || a.value === "") return; const entry = { ts: day, at: now, itemId: a.item.id, prompt: a.item.prompt, input: a.item.input, value: a.value, dest: a.item.dest || null }; log.push(entry); fresh.push(entry); });
     const ok = saveLog(log);
     const b = document.createElement("div"); b.className = "daily-body daily-in daily-done";
     if (!ok) {   // storage full / write failed — DON'T claim success or award EXP
@@ -5912,6 +5973,7 @@ function openDaily() {
     if (gained) addExp(gained);
     if (typeof logChar === "function") try { logChar("log", "Daily check-in · +" + gained + " EXP"); } catch (e) {}
     try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {}   // live-refresh any widget reading the log (Energy pattern, etc.)
+    ckPush(fresh);   // answers flow to the cache itself — offline they queue and retry, never lost
     // energy-pattern receipt: show how many distinct days of health data exist, so the user
     // SEES the pattern building (the point of logging) instead of answers vanishing into a void.
     let hLine = "";
@@ -6006,7 +6068,11 @@ function openDeckEditor() {
   root.querySelector("#deckRun").addEventListener("click", () => { root.remove(); openDaily(); });
   render();
 }
-(function () { const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", openDaily); })();
+(function () {
+  const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", openDaily);
+  ckSync();   // converge with the cache on boot…
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) ckSync(); });   // …and every return to the tab (log on your phone, walk to the desk, it's there)
+})();
 
 // The visit unicorn goes psychedelic tie-dye and bursts into rainbow confetti, then we warp to the Ledger.
 function explodeUnicorn(btn, done) {

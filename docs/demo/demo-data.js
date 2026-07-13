@@ -261,6 +261,11 @@
     if (url.indexOf("web3forms.com") !== -1) return Promise.resolve(J({ success: true, message: "demo" }));
     // …and it shouldn't write to the real beta feedback inbox either (no spam vector)
     if (url.indexOf("/api/collections/feedback/") !== -1) return Promise.resolve(J({ ok: true, demo: true }));
+    // check-in sync: the demo has no backend — answer with an empty shared log/deck so the
+    // demo stays purely local (rev 0 can never overwrite a visitor's local deck)
+    if (url.indexOf("/api/checkin-deck") !== -1) return Promise.resolve(J({ ok: true, deck: { rev: 0, items: [] } }));
+    if (url.indexOf("/api/checkin-log") !== -1) return Promise.resolve(J({ ok: true, log: [] }));
+    if (url.indexOf("/api/checkin") !== -1) return Promise.resolve(J({ ok: true, added: 0 }));
     if (url.indexOf("/api/") !== -1 || url.indexOf("data/balances.json") !== -1 || url.indexOf("data/monthly.json") !== -1) {
       var method = (init && init.method) || (typeof input === "object" && input && input.method) || "GET";
       return Promise.resolve(route(url, method));

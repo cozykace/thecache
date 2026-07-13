@@ -163,6 +163,10 @@ class Handler(SimpleHTTPRequestHandler):
                                         "changes": subjects, "stat": stat, "files": len(files), "size_bytes": size})
             except Exception as e:
                 return self._json(200, {"ok": False, "error": str(e)})
+        if path == "/api/checkin-log":
+            return self._json(200, {"ok": True, "log": store.checkin_log()})
+        if path == "/api/checkin-deck":
+            return self._json(200, {"ok": True, "deck": store.checkin_deck_get()})
         if path == "/api/issues":
             return self._json(200, {"issues": store.find_issues()})
         if path == "/api/bugs":
@@ -275,6 +279,20 @@ class Handler(SimpleHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError):
                 return self._json(400, {"error": "bad request"})
             return self._json(200, store.webdav_push(data.get("filename"), data.get("data")))
+        if self.path == "/api/checkin":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            return self._json(200, store.checkin_append(data.get("entries", [])))
+        if self.path == "/api/checkin-deck":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            return self._json(200, store.checkin_deck_set(data))
         if self.path == "/api/categorize":
             try:
                 n = int(self.headers.get("Content-Length", 0))
