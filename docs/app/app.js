@@ -6516,8 +6516,14 @@ function openWizard() {
   // fakes connected:true, existing connected installs are connected — neither ever sees this.
   try { if (localStorage.getItem(WIZ_KEY)) return; } catch (e) { return; }
   fetch("/api/connect-status").then((r) => { if (!r.ok) throw new Error("no"); return r.json(); })
-    .then((d) => { if (!d || !d.connected) setTimeout(openWizard, 900); })
-    .catch(() => {});   // no backend (hosted app) → never auto-nag
+    .then((d) => {
+      // re-check AFTER the fetch: on the hosted app this request parks until login,
+      // and login restores money.wizardDone from the vault — without this second look
+      // every fresh device re-ran setup for people who already did it (found 2026-07-13)
+      try { if (localStorage.getItem(WIZ_KEY)) return; } catch (e) { return; }
+      if (!d || !d.connected) setTimeout(openWizard, 900);
+    })
+    .catch(() => {});   // no backend, no login → never auto-nag
 })();
 
 // The visit unicorn goes psychedelic tie-dye and bursts into rainbow confetti, then we warp to the Ledger.

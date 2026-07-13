@@ -4,20 +4,20 @@
 //  It trails with a little lag, stretches in its direction of
 //  motion, squishes when pressed, and dents buttons inward like
 //  jelly when it pushes on them.
+//  Mouse-only: on touch the ball would just haunt the last tap, so
+//  it exists only while a fine pointer (a real mouse/trackpad) does —
+//  and it comes and goes live as one connects or disconnects.
 // ============================================================
 (() => {
   const PRESSABLE = "button";
+  const fine = matchMedia("(hover: hover) and (pointer: fine)");
 
-  const ball = document.createElement("div");
-  ball.className = "cursor-ball";
-  document.body.appendChild(ball);
-
-  let px = innerWidth / 2, py = innerHeight / 2;   // raw pointer
-  let cx = px, cy = py, lastX = px, lastY = py;    // ball position (eased)
-  let sx = 1, sy = 1;                              // squish (eased)
+  let ball = null, raf = 0;
+  let px = 0, py = 0, cx = 0, cy = 0, lastX = 0, lastY = 0;
+  let sx = 1, sy = 1;
   let pressed = false, hoverEl = null, pressEl = null;
 
-  addEventListener("pointermove", (e) => {
+  const onMove = (e) => {
     px = e.clientX; py = e.clientY;
     const hov = e.target && e.target.closest ? e.target.closest(PRESSABLE) : null;
     if (hov !== hoverEl) {
@@ -25,9 +25,20 @@
       if (hov) hov.classList.add("jelly-hover");
       hoverEl = hov;
     }
-  }, { passive: true });
+  };
+  const onDown = (e) => {
+    pressed = true;
+    if (ball) ball.classList.add("press");
+    pressEl = e.target && e.target.closest ? e.target.closest(PRESSABLE) : null;
+    if (pressEl) pressEl.classList.add("jelly-down");
+  };
+  const release = () => {
+    pressed = false;
+    if (ball) ball.classList.remove("press");
+    if (pressEl) { pressEl.classList.remove("jelly-down"); pressEl = null; }
+  };
 
-  (function loop() {
+  function loop() {
     cx += (px - cx) * 0.8;
     cy += (py - cy) * 0.8;
     const dx = cx - lastX, dy = cy - lastY;
@@ -43,20 +54,35 @@
     ball.style.transform =
       "translate(" + cx + "px," + cy + "px) rotate(" + (pressed ? 0 : angle) +
       "deg) scale(" + sx.toFixed(3) + "," + sy.toFixed(3) + ")";
-    requestAnimationFrame(loop);
-  })();
+    raf = requestAnimationFrame(loop);
+  }
 
-  addEventListener("pointerdown", (e) => {
-    pressed = true;
-    ball.classList.add("press");
-    pressEl = e.target && e.target.closest ? e.target.closest(PRESSABLE) : null;
-    if (pressEl) pressEl.classList.add("jelly-down");
-  });
-  const release = () => {
-    pressed = false;
-    ball.classList.remove("press");
-    if (pressEl) { pressEl.classList.remove("jelly-down"); pressEl = null; }
-  };
-  addEventListener("pointerup", release);
-  addEventListener("pointercancel", release);
+  function start() {
+    if (ball) return;
+    ball = document.createElement("div");
+    ball.className = "cursor-ball";
+    document.body.appendChild(ball);
+    px = cx = lastX = innerWidth / 2;
+    py = cy = lastY = innerHeight / 2;
+    addEventListener("pointermove", onMove, { passive: true });
+    addEventListener("pointerdown", onDown);
+    addEventListener("pointerup", release);
+    addEventListener("pointercancel", release);
+    raf = requestAnimationFrame(loop);
+  }
+  function stop() {
+    if (!ball) return;
+    cancelAnimationFrame(raf);
+    removeEventListener("pointermove", onMove);
+    removeEventListener("pointerdown", onDown);
+    removeEventListener("pointerup", release);
+    removeEventListener("pointercancel", release);
+    release();
+    if (hoverEl) { hoverEl.classList.remove("jelly-hover"); hoverEl = null; }
+    ball.remove(); ball = null;
+  }
+
+  if (fine.matches) start();
+  try { fine.addEventListener("change", (e) => (e.matches ? start() : stop())); }
+  catch (e) { try { fine.addListener((m) => (m.matches ? start() : stop())); } catch (e2) {} }
 })();

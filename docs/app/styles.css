@@ -112,8 +112,12 @@ body {
   overflow: hidden;
 }
 
-/* hide the native cursor everywhere — our JS cursor is the only cursor */
-*, *::before, *::after { cursor: none !important; }
+/* hide the native cursor everywhere — our JS cursor is the only cursor.
+   Mouse-only: on touch there's no jelly ball (cursor.js gates on the same query),
+   so the native cursor must stay available for any pointer that shows up. */
+@media (hover: hover) and (pointer: fine) {
+  *, *::before, *::after { cursor: none !important; }
+}
 /* hold space to pan: native hand cursor (open → grabs closed), jelly cursor hidden */
 body.panning, body.panning * { cursor: grab !important; }
 body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
@@ -2555,10 +2559,20 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
   .king-bar { top: calc(34px + env(safe-area-inset-top)); padding-top: 0; }   /* cartridge tucks into the slot on phones too */
   .stats { max-width: 100%; }
   .dock-bar { padding: 0 8px calc(8px + env(safe-area-inset-bottom)); }
-  .dock { max-width: calc(100vw - 16px); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  /* the dock SHRINKS and scrolls beside the sync pill — together they always fit
+     the screen (before, the dock alone could take 100vw and push sync off-edge) */
+  .dock { flex: 0 1 auto; min-width: 0; max-width: none; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .dock::-webkit-scrollbar { display: none; }
-  .dock-bar > #syncHealth { position: static; }   /* fold sync into the dock row instead of pinning it */
+  .dock-bar > #syncHealth { position: static; flex: 0 0 auto; }   /* fold sync into the dock row instead of pinning it */
   .sidebar { width: min(92vw, 360px); }
+  /* the closed sidebar is transform-parked past the right edge; iOS Safari treats
+     that off-canvas chrome as zoomable dead space (the "loads zoomed in" bug) —
+     hide it fully when closed, flip visible the instant it opens */
+  .sidebar { visibility: hidden; transition: transform 0.34s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0.34s; }
+  body.sidebar-open .sidebar { visibility: visible; transition: transform 0.34s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s; }
+  /* width-based container sizing loses the height brake on cqmin type — cap the
+     hero numbers so a nowrap clock can't inflate past the widget edge */
+  .widget-body .big { font-size: clamp(20px, 9vw, 40px); }
 }
 
 /* touch devices of any size: reveal controls desktop only shows on hover */
