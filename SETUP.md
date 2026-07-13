@@ -25,6 +25,12 @@ Your setup token is *yours alone* — never share it. It's exchanged for a read-
 
 Toggl time-tracking is optional — drop your API token in a file named `.toggl` and run `python3 toggl_sync.py`.
 
+## 4. Use it on your phone (optional, 10 minutes)
+Your cache runs on your computer — your phone just needs a private road to it. [Tailscale](https://tailscale.com) (free) builds that road; nothing is ever exposed to the public internet.
+1. Install Tailscale on your Mac and on your phone, sign into both with the same account.
+2. On the Mac: `tailscale serve 5173` (leave the app running as usual).
+3. On your phone, open the address Tailscale gives you — that's your cache, live. Add it to your home screen and the daily check-in is one tap away.
+
 ## 5. Getting updates
 When the app gets new features, just open the in-app menu (☰) → **⟳ Update app**. It pulls the latest and reloads — no Terminal needed.
 

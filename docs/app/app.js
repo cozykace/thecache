@@ -4998,8 +4998,25 @@ function feedbackContext() {
   return "theme: " + theme + " · " + (window.innerWidth + "×" + window.innerHeight) +
     " · " + navigator.userAgent;
 }
+// Every report ALSO lands in the shared beta feedback inbox — a `feedback` collection on
+// the already-live PocketBase cloud — so Cozy's + Spencer's reports pool in ONE place the
+// founder (and the future roadmap wizard) can read, instead of dying in an email inbox.
+// Fire-and-forget: if the collection doesn't exist yet or the network is down, the email
+// path above still carries the report — this never blocks or breaks the button.
+function sendFeedbackToInbox(kind, text, email) {
+  try {
+    let from = "";
+    try { from = (JSON.parse(localStorage.getItem("money.profile") || "{}").name || ""); } catch (e) {}
+    fetch(cloudUrl() + "/api/collections/feedback/records", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: kind || "note", message: (text || "").slice(0, 4000), reply_to: email || "", from_name: from.slice(0, 80), context: feedbackContext().slice(0, 300) }),
+    }).catch(() => {});
+  } catch (e) {}
+}
 // Returns a promise<boolean> — true if it was sent (or the mail app was opened).
 function sendFeedback(kind, text, email) {
+  sendFeedbackToInbox(kind, text, email);
   const subject = "THE CACHE — " + kind + (email ? " — " + email : "");
   if (!FEEDBACK_KEY) {
     const body = text + "\n\n— kind: " + kind +

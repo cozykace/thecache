@@ -17,9 +17,10 @@ check-in is to cut through that and get Cozy back on task in under a minute of r
    - `FEATURES.md` — the shipped, product-facing list + **The promise** (the north-star in one paragraph).
    - `git log --oneline -15` — the real changelog (commit subjects = what actually shipped, newest first).
    - `CLAUDE.md` — conventions + "Where context lives" (north-star lives in agent memory: `money-vision`, plus BACKLOG items tagged north-star).
-2. **Optionally** scan `git log --since="7 days ago"` and the source for fresh `TODO/FIXME/NEXT` markers (mirrors the Dev Tree widget) if doing a deeper weekly pass.
-3. **Produce the briefing** in the exact shape below.
-4. **Never print real financial data** (counterparty names, dollar amounts, account numbers). This is a process doc — keep it placeholder-clean. Counts and feature names only.
+2. **Feedback triage (every check-in).** Read `data/bugs.json` for new/open entries (Cozy's own in-app reports — NEVER quote financial data) and ask Cozy for anything new in the beta feedback inbox (the `feedback` collection on PocketHost — he can paste, or a session with API access can fetch). Every new report becomes a BACKLOG item or an explicit "not doing, because" — nothing dies in an inbox.
+3. **Optionally** scan `git log --since="7 days ago"` and the source for fresh `TODO/FIXME/NEXT` markers (mirrors the Dev Tree widget) if doing a deeper weekly pass.
+4. **Produce the briefing** in the exact shape below.
+5. **Never print real financial data** (counterparty names, dollar amounts, account numbers). This is a process doc — keep it placeholder-clean. Counts and feature names only.
 
 ---
 
