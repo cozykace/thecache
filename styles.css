@@ -1812,6 +1812,22 @@ body.view-base #board { display: none; }               /* board hides while the 
 .daily-in { animation: dailyIn 0.28s ease; }
 @keyframes dailyIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 .daily-q { font-size: 26px; font-weight: 600; line-height: 1.22; margin: 18px 0 4px; }
+.daily-hint { font-size: 14px; line-height: 1.45; color: rgba(var(--ink-rgb), 0.62); margin: 0 0 12px; }
+.daily-health { margin-top: 10px; font-size: 14px; font-weight: 600; color: rgba(var(--ink-rgb), 0.72); }
+.deck-help { font-size: 13px; line-height: 1.5; color: rgba(var(--ink-rgb), 0.6); padding: 0 18px 10px; }
+
+/* ── Energy pattern widget (Health's first widget) ── */
+.is-energy .en-of { font-size: 15px; opacity: 0.55; font-weight: 600; }
+.is-energy .en-dim { opacity: 0.45; font-size: 22px; }
+.en-chart { display: flex; align-items: flex-end; gap: 4px; height: 72px; margin: 10px 0 6px; }
+.en-col { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; }
+.en-bar { width: 100%; min-height: 6px; border-radius: 4px 4px 2px 2px; background: var(--accent); opacity: 0.8; }
+.en-none { width: 100%; height: 3px; border-radius: 2px; background: rgba(var(--ink-rgb), 0.12); }
+.en-today .en-bar { opacity: 1; box-shadow: 0 0 0 1.5px rgba(var(--ink-rgb), 0.25); }
+.en-foot { margin-top: 2px; }
+.en-log { margin-top: 8px; min-height: 44px; width: 100%; border: 1.5px solid var(--accent); border-radius: 12px;
+  background: transparent; color: var(--ink); font-family: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
+.en-log:active { transform: scale(0.98); }
 .daily-input { margin-top: auto; }
 .daily-opts { display: flex; flex-direction: column; gap: 11px; }
 .daily-btn { display: flex; align-items: center; gap: 15px; width: 100%; box-sizing: border-box; min-height: 66px;

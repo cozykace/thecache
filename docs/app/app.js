@@ -930,6 +930,52 @@ const RENDERERS = {
     note.addEventListener("input", () => localStorage.setItem(NOTE_KEY, note.textContent));
     el.appendChild(note);
   },
+  energy(el) {
+    // Health's first widget: the EF-energy pattern — the first visible picture of your own
+    // variability (NOW lane, Working Docs/3_ROADMAP.md). Reads check-in answers routed to
+    // the 🩺 Health store; re-renders live when a check-in finishes (cache:logged event).
+    el.classList.add("is-energy");
+    const WORDS = { drained: 1, low: 2, ok: 3, good: 4, high: 4, charged: 5 };  // word answers (old decks / custom buttons) → numbers
+    const FACE = ["", "🪫", "😮‍💨", "🔋", "✨", "⚡"];
+    function dayVals() {
+      const by = {};
+      (typeof loadLog === "function" ? loadLog() : []).forEach((e) => {
+        if (!e || !e.dest || e.dest.kind !== "health") return;
+        if ((e.dest.target || "") !== "energy" && e.itemId !== "energy") return;
+        let v = typeof e.value === "number" ? e.value : (WORDS[String(e.value).toLowerCase()] || parseFloat(e.value));
+        if (!v || isNaN(v)) return;
+        v = Math.max(1, Math.min(5, v));
+        (by[e.ts] = by[e.ts] || []).push(v);
+      });
+      return by;
+    }
+    function render() {
+      if (!el.isConnected) { document.removeEventListener("cache:logged", render); return; }
+      const by = dayVals(), days = [], tk = todayKey();
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        const k = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        const vs = by[k]; days.push({ avg: vs ? vs.reduce((a, b) => a + b, 0) / vs.length : null, today: k === tk });
+      }
+      const logged = days.filter((d) => d.avg != null), t = days[days.length - 1];
+      const head = t.avg != null
+        ? '<div class="big">' + FACE[Math.round(t.avg)] + " " + Math.round(t.avg * 10) / 10 + '<span class="en-of">/5</span></div><div class="sub">today’s energy</div>'
+        : '<div class="big en-dim">not logged yet</div><div class="sub">today’s energy</div>';
+      const bars = '<div class="en-chart" role="img" aria-label="energy, one bar per day, last 14 days">' + days.map((d) =>
+        '<div class="en-col' + (d.today ? " en-today" : "") + '">' +
+          (d.avg != null ? '<div class="en-bar" style="height:' + Math.round((d.avg / 5) * 100) + '%"></div>' : '<div class="en-none"></div>') +
+        "</div>").join("") + "</div>";
+      const avg = logged.length ? Math.round(logged.reduce((a, d) => a + d.avg, 0) / logged.length * 10) / 10 : null;
+      const foot = logged.length
+        ? '<div class="sub en-foot">last 14 days · ' + logged.length + (logged.length === 1 ? " day" : " days") + " logged" + (avg ? " · avg " + avg : "") + "</div>"
+        : '<div class="sub en-foot">answer the ⚡ question in a Daily check-in and your pattern appears here — a missing bar is information, never a failure</div>';
+      const cta = t.avg == null ? '<button class="en-log" type="button">⚡ log now</button>' : "";
+      el.innerHTML = head + bars + foot + cta;
+      const b = el.querySelector(".en-log"); if (b) b.addEventListener("click", () => { if (typeof openDaily === "function") openDaily(); });
+    }
+    render();
+    document.addEventListener("cache:logged", render);
+  },
   safe(el) {
     // Safe-to-spend + a clean forecast: balance projected forward at your
     // average daily spend, with the date you hit your safety floor.
@@ -2689,7 +2735,8 @@ async function cloudSignup(url, email, password) {
 }
 function cloudLogout() { cloudSaveState({ url: cloudState().url || CLOUD_DEFAULT_URL }); }
 async function cloudFindVaultId(s) {
-  if (s.recordId) return s.recordId;
+  // always ask the server for the real current record (never trust a cached id — it can go stale
+  // if the record was cleared, and then a PATCH 404s with "resource wasn't found")
   const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
   const d = await r.json();
   if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault (is the 'vaults' collection created?)");
@@ -2729,6 +2776,7 @@ async function cloudPush(passphrase) {
   let id = await cloudFindVaultId(s), r;
   if (id) r = await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "PATCH", headers: hdr, body: JSON.stringify({ blob }) });
   else r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify({ owner: s.userId, blob }) });
+  if (r.status === 404) { id = null; r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify({ owner: s.userId, blob }) }); }  // record vanished → make a fresh one
   const d = await r.json();
   if (!r.ok) throw new Error(cloudErr(d) || "cloud backup failed (create the 'vaults' collection?)");
   cloudSaveState(Object.assign(cloudState(), { recordId: d.id || id, lastPush: new Date().toISOString(), lastPushCount: count, bytes: (blob || "").length }));
@@ -3624,6 +3672,7 @@ const LIBRARY = [
   { type: "averages", title: "Statistics", w: 330, h: 300 },
   { type: "devtree", title: "Dev Tree", w: 340, h: 380 },
   { type: "worklog", title: "Time worked", w: 300, h: 270 },
+  { type: "energy", title: "Energy", w: 300, h: 230 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
   { type: "months", title: "Months", w: 320, h: 340 },
@@ -3916,6 +3965,7 @@ const WIDGET_INFO = {
   clock: "<p>Your device's local time, formatted however you set it in the dock’s date/time popover.</p>",
   date: "<p>Today's date from your device. No financial data.</p>",
   note: "<p>A free-text note you type — saved locally in your browser. No financial data.</p>",
+  energy: "<p><b>Your energy pattern</b> — every ⚡ answer from the Daily check-in, one bar per day for the last 14 days (1–5).</p><p>The point: your executive-function energy <i>varies</i>, and that's not a flaw — seeing the pattern lets you plan around it instead of fighting it. A missing bar just means no log that day; that's information, never a failure.</p>",
 };
 
 function makeWidget(id, entry) {
@@ -5716,19 +5766,35 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ── Daily check-in — a customizable deck of "log items" you design. Each item asks a
-//    question (chunky input) and routes its answer into a cache store (money / tracker /
-//    day-log), so logging once feeds the whole base. This is the data-entry engine. ──
+//    question (chunky input) and routes its answer into a cache store (money / health /
+//    tracker / day-log), so logging once feeds the whole base. This is the data-entry engine.
+//    NORTH-STAR: dest.kind "health" entries are the raw feed for the EF-energy-variability
+//    metric (see Working Docs/3_ROADMAP.md) — recalculate_health() reads them later. ──
 const DECK_KEY = "money.deck", LOG_KEY = "money.log";
 const DEFAULT_DECK = [
   { id: "meals", emoji: "🍳", prompt: "How did you eat today?", input: "choice",
     options: [["🍳", "Cooked"], ["🍔", "Ate out"], ["🥡", "Both"]], dest: { kind: "dayflag", target: "meals" } },
   { id: "spend", emoji: "💸", prompt: "Spend anything today?", input: "amount", dest: { kind: "money", target: "" } },
-  { id: "energy", emoji: "⚡", prompt: "How's your energy?", input: "scale",
-    options: [["🪫", "Low"], ["🔋", "OK"], ["⚡", "High"]], dest: { kind: "tracker", target: "Energy" } },
+  { id: "energy", emoji: "⚡", prompt: "How's your energy right now?", input: "scale",
+    hint: "No wrong answer — Cache learns your pattern so you can plan around it.",
+    options: [["🪫", "Drained", 1], ["😮‍💨", "Low", 2], ["🔋", "OK", 3], ["✨", "Good", 4], ["⚡", "Charged", 5]],
+    dest: { kind: "health", target: "energy" } },
 ];
 const DAILY_FUNNIES = ["your cache thanks you 🙏", "skeletons: mildly less scary 💀", "another brick in the base 🧱",
   "the goat is proud of you 🐐", "data so fresh it squeaks ✨", "high-res life unlocked 📈", "fed and watered 🌱"];
-function loadDeck() { try { const d = JSON.parse(localStorage.getItem(DECK_KEY) || "null"); if (Array.isArray(d) && d.length) return d; } catch (e) {} return JSON.parse(JSON.stringify(DEFAULT_DECK)); }
+function loadDeck() {
+  try {
+    const d = JSON.parse(localStorage.getItem(DECK_KEY) || "null");
+    if (Array.isArray(d) && d.length) {
+      // one-time upgrade: an UNTOUCHED old energy default (3-point → tracker) becomes the
+      // 5-point → health version. A deck the user customized is left exactly as they made it.
+      const i = d.findIndex((q) => q && q.id === "energy" && q.dest && q.dest.kind === "tracker" && q.dest.target === "Energy" && (q.options || []).length === 3);
+      if (i !== -1) { d[i] = JSON.parse(JSON.stringify(DEFAULT_DECK.find((q) => q.id === "energy"))); saveDeck(d); }
+      return d;
+    }
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_DECK));
+}
 function saveDeck(d) { try { localStorage.setItem(DECK_KEY, JSON.stringify(d)); } catch (e) {} }
 function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || []; } catch (e) { return []; } }
 function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); return true; } catch (e) { return false; } }
@@ -5753,8 +5819,10 @@ function buildDailyInput(holder, it, onAnswer) {
   const focusIn = (sel) => { const inp = holder.querySelector(sel); if (inp) requestAnimationFrame(() => { try { inp.focus(); inp.scrollIntoView({ block: "center" }); } catch (e) {} }); };
   if (t === "choice" || t === "scale") {
     const list = opts || [["✅", "Yes"], ["🚫", "No"]];
-    holder.innerHTML = '<div class="daily-opts">' + list.map((o) => { const em = Array.isArray(o) ? o[0] : "", lb = Array.isArray(o) ? o[1] : o; return '<button class="daily-btn" data-v="' + escapeHtml(lb) + '">' + (em ? '<span class="e">' + em + "</span>" : "") + "<span>" + escapeHtml(lb) + "</span></button>"; }).join("") + "</div>";
-    holder.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => tap(b.dataset.v)));
+    // an option can be [emoji, label] or [emoji, label, value] — when a value exists (e.g. the
+    // 1–5 energy scale) THAT is what gets logged, so pattern math gets numbers, not words.
+    holder.innerHTML = '<div class="daily-opts">' + list.map((o, ix) => { const em = Array.isArray(o) ? o[0] : "", lb = Array.isArray(o) ? o[1] : o; return '<button class="daily-btn" data-i="' + ix + '">' + (em ? '<span class="e">' + em + "</span>" : "") + "<span>" + escapeHtml(lb) + "</span></button>"; }).join("") + "</div>";
+    holder.querySelectorAll("[data-i]").forEach((b) => b.addEventListener("click", () => { const o = list[parseInt(b.dataset.i, 10)]; const lb = Array.isArray(o) ? o[1] : o; tap(Array.isArray(o) && o[2] !== undefined ? o[2] : lb); }));
   } else if (t === "yesno") {
     holder.innerHTML = '<div class="daily-opts"><button class="daily-btn" data-v="yes"><span class="e">✅</span><span>Yes</span></button><button class="daily-btn" data-v="no"><span class="e">🚫</span><span>No</span></button></div>';
     holder.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => tap(b.dataset.v)));
@@ -5801,7 +5869,8 @@ function openDaily() {
     dots();
     const it = deck[i];
     const body = document.createElement("div"); body.className = "daily-body daily-in";
-    body.innerHTML = '<div class="daily-q">' + escapeHtml(it.prompt || "") + "</div>";
+    body.innerHTML = '<div class="daily-q">' + escapeHtml(it.prompt || "") + "</div>" +
+      (it.hint ? '<div class="daily-hint">' + escapeHtml(it.hint) + "</div>" : "");
     const holder = document.createElement("div"); holder.className = "daily-input"; body.appendChild(holder);
     buildDailyInput(holder, it, advance);
     stage.innerHTML = ""; stage.appendChild(body);
@@ -5823,8 +5892,13 @@ function openDaily() {
     const gained = answers.filter((a) => a.value !== undefined && a.value !== null && a.value !== "").length * 2;
     if (gained) addExp(gained);
     if (typeof logChar === "function") try { logChar("log", "Daily check-in · +" + gained + " EXP"); } catch (e) {}
+    try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {}   // live-refresh any widget reading the log (Energy pattern, etc.)
+    // energy-pattern receipt: show how many distinct days of health data exist, so the user
+    // SEES the pattern building (the point of logging) instead of answers vanishing into a void.
+    let hLine = "";
+    try { if (answers.some((a) => a.item && a.item.dest && a.item.dest.kind === "health")) { const s = new Set(); log.forEach((e) => { if (e && e.dest && e.dest.kind === "health") s.add(e.ts); }); if (s.size) hLine = '<div class="daily-health">⚡ energy pattern: ' + s.size + (s.size === 1 ? " day" : " days") + " logged</div>"; } } catch (e) {}
     b.innerHTML = '<div id="dailyGoat" class="daily-goat">🐐</div><div class="daily-big">Logged!</div>' +
-      '<div id="dailyExp" class="daily-exp">+0 EXP</div><div class="daily-funny">' + DAILY_FUNNIES[Math.floor(Math.random() * DAILY_FUNNIES.length)] + "</div>" +
+      '<div id="dailyExp" class="daily-exp">+0 EXP</div><div class="daily-funny">' + DAILY_FUNNIES[Math.floor(Math.random() * DAILY_FUNNIES.length)] + "</div>" + hLine +
       '<button class="daily-cta" id="dailyDone">Done</button>';
     stage.innerHTML = ""; stage.appendChild(b);
     const r = stage.getBoundingClientRect(); dailyBurst(stage, r.width / 2, r.height * 0.36);
@@ -5840,6 +5914,7 @@ function openDeckEditor() {
   const root = document.createElement("div"); root.id = "deckEditor"; root.className = "daily-space deck-editor";
   root.innerHTML =
     '<div class="daily-top"><div class="deck-title">Customize your daily deck</div><button class="daily-cta sm" id="deckClose">Done</button></div>' +
+    '<div class="deck-help">Every answer saves where you point it: 🩺 Health builds your energy pattern · 💰 Money lands on your money · 📈 Tracker counts anything · 📅 Day-log just remembers the day.</div>' +
     '<div class="deck-scroll" id="deckList"></div>' +
     '<div class="deck-foot"><button class="daily-cta ghost" id="deckAdd">＋ Add a question</button><button class="daily-cta" id="deckRun">▶ Run check-in</button></div>';
   document.body.appendChild(root);
@@ -5891,7 +5966,7 @@ function openDeckEditor() {
           '<button class="deck-del" aria-label="remove">✕</button></div>' +
         '<div class="deck-row-cfg">' +
           '<label>Answer<select class="deck-input">' + INPUTS.map((t) => "<option" + (t === it.input ? " selected" : "") + ">" + t + "</option>").join("") + "</select></label>" +
-          '<label>Store<select class="deck-kind">' + [["money", "💰 Money"], ["tracker", "📈 Tracker"], ["dayflag", "📅 Day-log"]].map((k) => '<option value="' + k[0] + '"' + ((it.dest && it.dest.kind) === k[0] ? " selected" : "") + ">" + k[1] + "</option>").join("") + "</select></label>" +
+          '<label>Store<select class="deck-kind">' + [["money", "💰 Money"], ["health", "🩺 Health"], ["tracker", "📈 Tracker"], ["dayflag", "📅 Day-log"]].map((k) => '<option value="' + k[0] + '"' + ((it.dest && it.dest.kind) === k[0] ? " selected" : "") + ">" + k[1] + "</option>").join("") + "</select></label>" +
           '<label class="deck-target">Where<input class="deck-tgt" value="' + escapeHtml((it.dest && it.dest.target) || "") + '" placeholder="name (e.g. Groceries)" list="deckBldNames"></label></div>' +
         ((it.input === "choice" || it.input === "scale") ? '<div class="deck-row-cfg"><label class="deck-optlbl">Buttons<input class="deck-opts" value="' + escapeHtml(optStr(it.options)) + '" placeholder="Cooked, Ate out, Both"></label></div>' : "");
       row.querySelector(".deck-emoji").addEventListener("input", (e) => { it.emoji = e.target.value; persist(); });
