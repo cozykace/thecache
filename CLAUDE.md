@@ -1,6 +1,8 @@
 # THE CACHE — working conventions
 
-A local, private finance cockpit. Plain HTML/CSS/JS served by a Python stdlib backend. No build step, no framework. Read this before touching the code.
+A calm, private **life OS** built for people with executive function challenges (ADHD, autism, TBI). Money is the first mature area, not the product. Plain HTML/CSS/JS served by a Python stdlib backend. No build step, no framework.
+
+**Read `Working Docs/1_PRINCIPLES.md` (the WHY) and `Working Docs/2_STRUCTURE.md` (the WHAT) first — then this doc for code conventions. Then check `Working Docs/Brain Bucket/` — anything in there is what Cozy is actively holding in his head right now; read every file in it and treat the contents as live context for the session.**
 
 ## Hard rules (do not break)
 
@@ -68,16 +70,16 @@ The board is desktop-first today (drag / zoom / pan), but build everything new s
 - *Character* — `cacheLevel()`/`renderCharacter()` (sidebar card), `logChar()`/`openCharLog()` (journey arcs `JOURNEY` + skills + activity ledger), `getCacheName()` (founder → "King Cozy Cache").
 - *Cache health* — `cacheHealth()`/`renderHealth()`/`openHealth()`; at 100% `_healthFull` → `body.blessed` (gold cursor + `expSpark(...,true)` + `playShing()` from `av assets/shing.wav`); gives +10% EXP in `addExp()`.
 - *Trust badge* — `renderTrust()` ← `/api/integrity` ← `store.verify_ledger()` (fsync + integrity checks).
-- *Settings tiers* — `menuTier()`/`applyTier()`: `data-tier="N"` hides below tier; `data-menutier` on `<html>` restyles Smooth(1)/Big(2)/Galaxy(3).
+- *Settings tiers* — `menuTier()`/`applyTier()`: `data-tier="N"` hides below tier; `data-menutier` on `<html>` restyles Minimalist(1)/Standard(2)/Legendary(3). (Renamed 2026-07-12; code + CSS + WIKI rename ships as one clean pass — see the rename item in BACKLOG.)
 - *Fonts* — `applyFont()`/`FONTS` → `--font-ui` (loads Google font on demand).
 - *Founder* — `isFounder()` (name = Cozy K Ace, or `money.founder`), `openKingCozy()` (retro console), `FOUNDER_COMPLIMENTS` vs public `PUBLIC_JOKES`.
 - *Favorites* — `favs()`/`toggleFav()`/`autoPinOn()` (star → pin to top of library/dock).
 
-**Where context lives** (so a reset is safe): `BACKLOG.md` = every ask (shipped `[x]`, in-progress `[~]`, open `[ ]`) + the public roadmap. `FEATURES.md` = shipped product list. Agent **memory** holds the north-star: `money-vision` (cache-as-character, Community Cache + wealth-redistribution, King Cozy = primary user), `money-cockpit-project`, `data-safety`, `user-profile`.
+**Where context lives** (so a reset is safe): `Working Docs/Brain Bucket/` = Cozy's actively-held working memory — he hand-drops ANY file he wants every session to hold in its head; read all of it at session start, gitignored, never commit it. When Cozy says **"clean out the brain bucket"**, walk each file with him one at a time — keep (still active) / file it where it belongs / toss — and since the device bridge can't delete, "toss" means move it into `Working Docs/Brain Bucket/_toss/` for him to empty. A monthly scheduled reminder (15th) nudges the cleanout so the bucket stays working memory, never a junk drawer. The five internal planning docs live in `Working Docs/` at the repo root, numerically prefixed by information hierarchy. `Working Docs/1_PRINCIPLES.md` = the WHY (evidence-based design rules for cognitive accessibility). `Working Docs/2_STRUCTURE.md` = the WHAT (12 life areas + 6 shared systems + area contract + main snapshot shape). `Working Docs/3_ROADMAP.md` = the WHEN (written 2026-07-12: the vision chain, the EF-energy north-star metric, Now/Next/Later lanes, decisions log — the check-in reads its NOW lane first). `Working Docs/4_CLOUD-PLAN.md` = cloud architecture specifics that support STRUCTURE. `Working Docs/5_BRAND.md` = private design references. `Working Docs/6_PROJECT-MANAGER.md` = operational standup protocol. At the repo root: `BACKLOG.md` = every ask (shipped `[x]`, in-progress `[~]`, open `[ ]`) + the public roadmap. `FEATURES.md` = shipped product list (currently frames Cache as a money app; scheduled for life-OS rewrite). Agent **memory** holds the earlier north-star: `money-vision` (cache-as-character, Community Cache + wealth-redistribution, King Cozy = primary user), `money-cockpit-project`, `data-safety`, `user-profile` — the life-OS reframe subsumes this.
 
 ## Workflow
 
-- **Cache check-in (project manager).** When Cozy says **"cache check-in"**, "standup", "where are we", or "get me back on task" — and when the scheduled `cache-standup` task runs — follow **`PROJECT-MANAGER.md`**: a fast status snapshot, the 1-3 next moves, dropped threads, a north-star gut-check, and always **one big baby-step action** to close. It's the antidote to a 150-item backlog. Edit `PROJECT-MANAGER.md` to change how it behaves.
+- **Cache check-in (project manager).** When Cozy says **"cache check-in"**, "standup", "where are we", or "get me back on task" — and when the scheduled `cache-standup` task runs — follow **`Working Docs/6_PROJECT-MANAGER.md`**: a fast status snapshot, the 1-3 next moves, dropped threads, a north-star gut-check, and always **one big baby-step action** to close. It's the antidote to a 150-item backlog. Edit `PROJECT-MANAGER.md` to change how it behaves.
 - **I can't see localhost** (sandbox can't reach the user's loopback). The user is the eyes — hand back and ask them to look; for risky visuals, preview with the visualize tool first. Don't ship intricate generative SVG blind.
 - **The backend doesn't hot-reload.** After editing `*.py`, the user must restart `python3 server.py`. Static files (`*.js/.css/.html`) just need a browser reload.
 - **Verify before handing back:** `node --check app.js`; `python3 -c "import store"` (and run a quick logic check that prints counts/placeholders, never real data).

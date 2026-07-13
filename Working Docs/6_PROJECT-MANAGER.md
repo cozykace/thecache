@@ -12,6 +12,7 @@ check-in is to cut through that and get Cozy back on task in under a minute of r
 ## How to run it
 
 1. **Read the live state** (always re-read; never answer from memory):
+   - `Working Docs/3_ROADMAP.md` — the lanes. The **NOW lane is the accountability spine**: the briefing's "What's next" MUST report progress against NOW before anything else.
    - `BACKLOG.md` — the source of truth for asks. `[x]` shipped · `[~]` in progress · `[ ]` open. Items tagged **BIG** / **north-star** / **FLAGSHIP** / **PRIORITY** matter most.
    - `FEATURES.md` — the shipped, product-facing list + **The promise** (the north-star in one paragraph).
    - `git log --oneline -15` — the real changelog (commit subjects = what actually shipped, newest first).

@@ -34,11 +34,20 @@ __pycache__/
 # Never commit: it's what keeps founder-only surfaces personal to you.
 .founder
 
-# Brand/design references — private, local only
-BRAND.md
+# Internal planning docs — private, local only (decided: PRINCIPLES public, the rest internal)
+Working Docs/2_STRUCTURE.md
+Working Docs/3_ROADMAP.md
+Working Docs/Meetings/
 
-# Cloud architecture plan — private security/strategy doc
-CLOUD-PLAN.md
+# Brain Bucket — Cozy's actively-held working memory for dev sessions. Arbitrary personal
+# files land here so every Claude session reads them; NEVER commit any of it.
+Working Docs/Brain Bucket/
+
+# Brand/design references — private, local only (in Working Docs/ with hierarchy prefix)
+Working Docs/5_BRAND.md
+
+# Cloud architecture plan — private security/strategy doc (in Working Docs/ with hierarchy prefix)
+Working Docs/4_CLOUD-PLAN.md
 
 # WebDAV backup target (url/user/pass) — local only, never commit
 .webdav

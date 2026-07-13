@@ -39,7 +39,7 @@ Make a skin by **copying `skins/default/` to `skins/<your-skin>/`** and replacin
 
 ## Naming convention
 
-- **Building ids are kebab-case and stable:** `home-base`, `larder`, `supply-line`. The current list lives in `skins/default/skin.json` — the app only ever loads ids listed there.
+- **Building ids are kebab-case and stable:** `home-base`, `pantry`, `supply-line`. The current list lives in `skins/default/skin.json` — the app only ever loads ids listed there.
 - **File names match their id** where possible (`home-base.svg`), lower-case, no spaces.
 - **Sound ids** name the event, not the sound: `place`, `build`, `coin`, `warn`.
 
