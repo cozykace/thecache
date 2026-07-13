@@ -3090,9 +3090,11 @@ function openA11y() {
   });
 }
 
-// ── Settings tiers: Smooth Brain (simple) → Big Brain (standard) → Galaxy Brain (everything) ──
+// ── Settings tiers: Minimalist (simple) → Standard (balanced) → Legendary (everything) ──
+//    Renamed 2026-07-13 from Smooth/Big/Galaxy Brain — plain, literal, respectful labels per
+//    Working Docs/1_PRINCIPLES.md. Stored tier VALUES (1/2/3) unchanged — nobody's settings move.
 const TIER_KEY = "money.menuTier";
-const TIERS = [{ n: 1, label: "Smooth Brain" }, { n: 2, label: "Big Brain" }, { n: 3, label: "Galaxy Brain" }];
+const TIERS = [{ n: 1, label: "Minimalist" }, { n: 2, label: "Standard" }, { n: 3, label: "Legendary" }];
 function menuTier() { const t = parseInt(localStorage.getItem(TIER_KEY)); return (t >= 1 && t <= 3) ? t : 2; }
 function applyTier() {
   const t = menuTier();
@@ -3113,7 +3115,7 @@ function openSettings() {
     '<div class="set-body">' +
       '<div class="set-sec">Mode</div>' +
       '<div class="set-tier" id="setTier"></div>' +
-      '<div class="set-hint">how much of the app you want to see — <b>Smooth Brain</b> keeps it simple, <b>Galaxy Brain</b> shows every button</div>' +
+      '<div class="set-hint">how much of the app you want to see — <b>Minimalist</b> keeps it simple, <b>Legendary</b> shows every button</div>' +
       '<div class="set-sec">Profile</div>' +
       '<label class="set-row"><span>Your name</span><input id="setName" type="text" value="' + escapeHtml(p.name || "") + '" placeholder="your name"></label>' +
       '<label class="set-row"><span>What you do</span><input id="setRole" type="text" value="' + escapeHtml(p.role || "") + '" placeholder="musician · gig work · freelance"></label>' +

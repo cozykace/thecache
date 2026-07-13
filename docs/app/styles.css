@@ -1548,14 +1548,14 @@ body.sidebar-open .sidebar { transform: none; }
 .gutter-slider { flex: 1; accent-color: var(--accent); cursor: pointer; height: 4px; margin: 0; position: relative; z-index: 1; background: transparent; }
 .gt-tick { position: absolute; top: 50%; width: 2px; height: 9px; margin: -4.5px 0 0 -1px; background: rgba(var(--ink-rgb), 0.25); border-radius: 1px; pointer-events: none; }
 .gutter-ctrl + .section-hint { margin-bottom: 14px; }   /* breathing room before the widget list */
-/* Smooth Brain = luxurious: roomy padding, airy letter-spacing, big calm targets */
+/* Minimalist = luxurious: roomy padding, airy letter-spacing, big calm targets */
 :root[data-menutier="1"] .menu-item { font-size: 15px; padding: 14px 16px; border-radius: 13px; letter-spacing: 0.04em; line-height: 1.3; }
 :root[data-menutier="1"] .lib-item { font-size: 14.5px; padding: 13px 14px; border-radius: 13px; letter-spacing: 0.02em; }
 :root[data-menutier="1"] .section-title { font-size: 12px; letter-spacing: 0.18em; margin-bottom: 4px; }
 :root[data-menutier="1"] .sidebar-section { margin-bottom: 12px; }
 :root[data-menutier="1"] .cache-char { padding: 15px; }
 :root[data-menutier="1"] .menu-item + .menu-item { margin-top: 3px; }
-/* Galaxy Brain = packed: tight padding, dense, efficient — more on screen, more buttons */
+/* Legendary = packed: tight padding, dense, efficient — more on screen, more buttons */
 :root[data-menutier="3"] .menu-item { font-size: 11.5px; padding: 5px 10px; letter-spacing: 0; }
 :root[data-menutier="3"] .lib-item { font-size: 11.5px; padding: 5px 9px; }
 :root[data-menutier="3"] .section-title { font-size: 9px; margin-bottom: 1px; }
