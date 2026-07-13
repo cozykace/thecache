@@ -976,6 +976,43 @@ const RENDERERS = {
     render();
     document.addEventListener("cache:logged", render);
   },
+  bucket(el) {
+    // Brain Bucket v1 — your actively-held working memory (NOW lane, Working Docs/3_ROADMAP.md).
+    // Notes + links you deliberately hold so your brain doesn't have to; server-backed from
+    // birth (data/bucket.json) so it syncs across devices and rides backups + the vault.
+    // Toss is one tap, zero shame. Monthly cleanout prompt + file-into-area: later bricks.
+    el.classList.add("is-bucket");
+    function render(items) {
+      const held = items || [];
+      el.innerHTML =
+        '<div class="bk-add"><input class="bk-in" placeholder="hold a thought, or paste a link…" maxlength="500" aria-label="add to brain bucket">' +
+        '<button class="bk-go" aria-label="add to bucket">＋</button></div>' +
+        (held.length
+          ? '<div class="bk-list">' + held.map((it) => '<div class="bk-item">' +
+              (it.kind === "link" && it.url ? '<a class="bk-txt" href="' + escapeHtml(it.url) + '" target="_blank" rel="noopener">🔗 ' + escapeHtml(it.text || it.url) + "</a>" : '<span class="bk-txt">' + escapeHtml(it.text || "") + "</span>") +
+              '<button class="bk-x" data-id="' + escapeHtml(it.id || "") + '" aria-label="toss from bucket">✕</button></div>').join("") + "</div>"
+          : '<div class="sub bk-empty">whatever’s live in your head — drop it here so your brain doesn’t have to hold it. toss things whenever; a gentle monthly cleanout is coming.</div>') +
+        '<div class="sub bk-count">' + held.length + (held.length === 1 ? " thing held" : " things held") + "</div>";
+      const inp = el.querySelector(".bk-in");
+      const add = () => {
+        const v = (inp.value || "").trim(); if (!v) return;
+        const isUrl = /^https?:\/\/\S+$/i.test(v);
+        fetch("/api/bucket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(isUrl ? { kind: "link", url: v, text: "" } : { kind: "note", text: v }) })
+          .then((r) => { if (!r.ok) throw new Error("no"); return r.json(); })
+          .then((d) => render((d && d.items) || []))
+          .catch(() => { try { flash("couldn’t reach your cache — the bucket lives on the server"); } catch (e) {} });
+      };
+      el.querySelector(".bk-go").addEventListener("click", add);
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+      el.querySelectorAll(".bk-x").forEach((b) => b.addEventListener("click", () => {
+        fetch("/api/bucket-remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: b.dataset.id }) })
+          .then((r) => { if (!r.ok) throw new Error("no"); return r.json(); })
+          .then((d) => render((d && d.items) || [])).catch(() => {});
+      }));
+    }
+    render([]);
+    fetch("/api/bucket").then((r) => { if (!r.ok) throw new Error("no"); return r.json(); }).then((d) => render((d && d.items) || [])).catch(() => {});
+  },
   safe(el) {
     // Safe-to-spend + a clean forecast: balance projected forward at your
     // average daily spend, with the date you hit your safety floor.
@@ -3675,6 +3712,7 @@ const LIBRARY = [
   { type: "devtree", title: "Dev Tree", w: 340, h: 380 },
   { type: "worklog", title: "Time worked", w: 300, h: 270 },
   { type: "energy", title: "Energy", w: 300, h: 230 },
+  { type: "bucket", title: "Brain Bucket", w: 300, h: 300 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
   { type: "months", title: "Months", w: 320, h: 340 },
@@ -3968,6 +4006,7 @@ const WIDGET_INFO = {
   date: "<p>Today's date from your device. No financial data.</p>",
   note: "<p>A free-text note you type — saved locally in your browser. No financial data.</p>",
   energy: "<p><b>Your energy pattern</b> — every ⚡ answer from the Daily check-in, one bar per day for the last 14 days (1–5).</p><p>The point: your executive-function energy <i>varies</i>, and that's not a flaw — seeing the pattern lets you plan around it instead of fighting it. A missing bar just means no log that day; that's information, never a failure.</p>",
+  bucket: "<p><b>Your actively-held working memory</b> — notes and links you deliberately drop here so your brain doesn't have to hold them. Lives in your cache, syncs across your devices, and rides your backups + encrypted vault.</p><p>Toss anything with one tap — no shame. A gentle monthly cleanout prompt is a coming brick.</p>",
 };
 
 function makeWidget(id, entry) {

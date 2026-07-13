@@ -266,6 +266,8 @@
     if (url.indexOf("/api/checkin-deck") !== -1) return Promise.resolve(J({ ok: true, deck: { rev: 0, items: [] } }));
     if (url.indexOf("/api/checkin-log") !== -1) return Promise.resolve(J({ ok: true, log: [] }));
     if (url.indexOf("/api/checkin") !== -1) return Promise.resolve(J({ ok: true, added: 0 }));
+    // Brain Bucket: demo answers with an empty bucket; adds/removes pretend to succeed
+    if (url.indexOf("/api/bucket") !== -1) return Promise.resolve(J({ ok: true, items: [] }));
     if (url.indexOf("/api/") !== -1 || url.indexOf("data/balances.json") !== -1 || url.indexOf("data/monthly.json") !== -1) {
       var method = (init && init.method) || (typeof input === "object" && input && input.method) || "GET";
       return Promise.resolve(route(url, method));

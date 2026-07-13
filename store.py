@@ -189,6 +189,39 @@ def checkin_deck_set(data):
     return {"ok": True, "rev": rev}
 
 
+# ── Brain Bucket — actively-held working memory (v1: notes + links) ────────────
+# A small deliberate holding space, NOT a ledger — a plain list with atomic writes.
+# Lives in data/ so it syncs across devices and rides backups + the encrypted vault.
+BUCKET = os.path.join(DATA, "bucket.json")
+
+
+def bucket_get():
+    b = _read(BUCKET, [])
+    return b if isinstance(b, list) else []
+
+
+def bucket_add(item):
+    if not isinstance(item, dict):
+        return {"ok": False, "error": "bad item"}
+    kind = item.get("kind") if item.get("kind") in ("note", "link") else "note"
+    text = str(item.get("text") or "")[:500]
+    url = str(item.get("url") or "")[:1000]
+    if not text and not url:
+        return {"ok": False, "error": "empty"}
+    items = bucket_get()
+    if len(items) >= 200:
+        return {"ok": False, "error": "bucket full — time for a cleanout"}
+    items.append({"id": "b%d" % int(time.time() * 1000), "at": int(time.time() * 1000), "kind": kind, "text": text, "url": url})
+    _write(BUCKET, items)
+    return {"ok": True, "items": items}
+
+
+def bucket_remove(bid):
+    items = [i for i in bucket_get() if i.get("id") != bid]
+    _write(BUCKET, items)
+    return {"ok": True, "items": items}
+
+
 # ── categories ─────────────────────────────────────────────
 def load_overrides():
     ov = _read(CATEGORIES, {})

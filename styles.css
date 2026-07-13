@@ -1841,6 +1841,24 @@ body.view-base #board { display: none; }               /* board hides while the 
 .wiz-tag.now { color: #2ec16b; opacity: 1; }
 .wiz-skip { display: block; margin: 14px auto 0; min-height: 44px; padding: 0 18px; border: none; background: none;
   color: rgba(var(--ink-rgb), 0.55); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── Brain Bucket widget ── */
+.is-bucket { display: flex; flex-direction: column; }
+.bk-add { display: flex; gap: 8px; margin-bottom: 10px; }
+.bk-in { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border: 1.5px solid var(--edge); border-radius: 12px;
+  background: var(--panel); color: var(--ink); font-family: inherit; font-size: 14px; box-sizing: border-box; }
+.bk-go { width: 44px; min-height: 44px; flex: 0 0 auto; border: 1.5px solid var(--accent); border-radius: 12px;
+  background: transparent; color: var(--ink); font-size: 18px; font-weight: 700; cursor: pointer; }
+.bk-go:active { transform: scale(0.94); }
+.bk-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.bk-item { display: flex; align-items: center; gap: 6px; padding: 7px 6px 7px 10px; border: 1px solid var(--edge); border-radius: 10px; background: var(--panel); }
+.bk-txt { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.35; color: var(--ink); word-break: break-word; text-decoration: none; }
+a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
+.bk-x { min-width: 44px; min-height: 40px; flex: 0 0 auto; border: none; background: none; color: rgba(var(--ink-rgb), 0.5);
+  font-family: inherit; font-size: 14px; cursor: pointer; border-radius: 8px; }
+.bk-x:active { transform: scale(0.9); }
+.bk-empty { line-height: 1.5; }
+.bk-count { margin-top: auto; }
 .daily-input { margin-top: auto; }
 .daily-opts { display: flex; flex-direction: column; gap: 11px; }
 .daily-btn { display: flex; align-items: center; gap: 15px; width: 100%; box-sizing: border-box; min-height: 66px;
