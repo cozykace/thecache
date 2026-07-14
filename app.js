@@ -3047,15 +3047,39 @@ async function cloudPush(passphrase) {
   // gather the payload BEFORE any key rotation — the web branch must open the
   // existing blob with the CURRENT key, and must never overwrite real financial
   // data with an empty bundle just because the open failed
-  let files = {}, api = {}, exported;
+  let files = {}, api = {}, exported, curLocal = null;
   if (window.__CACHE_WEB__) {
-    if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; }
+    if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; curLocal = cur.local || null; }
   } else {
     const data = await (await fetch("/api/export-data")).json();
     if (!data || !data.ok) throw new Error("couldn't read your data");
     files = data.files || {}; api = data.api || {}; exported = data.exported;
+    if (rec && rec.blob) { try { curLocal = (await cloudOpen(rec.blob, passphrase || "")).local || null; } catch (e) {} }   // v1/keyless blobs just skip the merge
   }
   const count = Object.keys(files).length;
+  // the vault's "local" layer is shared ground between devices — merge, never
+  // bulldoze: the character with the HIGHER EXP wins (an accidental fresh start
+  // can never eat the primary experience), check-in log + offline queue union,
+  // deck by newest revision. Everything else is this device's to write.
+  const localSnap = snapshotLocal();
+  if (curLocal) {
+    try {
+      const expOf = (str) => { try { const p = JSON.parse(str || "{}"); return (p.stats && p.stats.exp) || 0; } catch (e) { return 0; } };
+      if (expOf(curLocal["money.profile"]) > expOf(localSnap["money.profile"])) localSnap["money.profile"] = curLocal["money.profile"];
+      ["money.log", "money.logPending"].forEach((key) => {
+        try {
+          const rem = JSON.parse(curLocal[key] || "[]");
+          if (!Array.isArray(rem) || !rem.length) return;
+          const loc = JSON.parse(localSnap[key] || "[]");
+          const seen = new Set(loc.map((e) => (e.at || 0) + "|" + (e.itemId || "")));
+          const add = rem.filter((e) => e && !seen.has((e.at || 0) + "|" + (e.itemId || "")));
+          if (add.length) localSnap[key] = JSON.stringify(loc.concat(add));
+        } catch (e) {}
+      });
+      const remRev = parseInt(curLocal["money.deckRev"]) || 0, locRev = parseInt(localSnap["money.deckRev"]) || 0;
+      if (remRev > locRev && curLocal["money.deck"]) { localSnap["money.deck"] = curLocal["money.deck"]; localSnap["money.deckRev"] = curLocal["money.deckRev"]; }
+    } catch (e) {}
+  }
   // the keybox is only ever written when it doesn't exist yet, or when a manual
   // passphrase push upgrades escrow → zero-knowledge. Background pushes never
   // touch it. A zero-knowledge account (mode remembered locally) never accepts a
@@ -3075,7 +3099,7 @@ async function cloudPush(passphrase) {
     kb = await cloudGenKey(); cloudKeySet(kb); mintedKey = true;
     writeKeybox = true;
   }
-  const payloadCore = JSON.stringify({ files, api, local: snapshotLocal() });
+  const payloadCore = JSON.stringify({ files, api, local: localSnap });
   // content short-circuit: unchanged data never re-uploads (auto-push fires freely).
   // Hashes the real content only — exported is a timestamp and would defeat it.
   let h = 5381; for (let i = 0; i < payloadCore.length; i++) h = ((h << 5) + h + payloadCore.charCodeAt(i)) | 0;

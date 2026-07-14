@@ -116,24 +116,43 @@
     FILES = (obj && obj.files) || {};
     API = (obj && obj.api) || {};
     // restore the user's setup (deck, base, config) so it appears on this device too —
-    // EXCEPT the check-in log + offline queue, which merge by union so an answer
-    // logged on this phone before this pull can never be erased by it
+    // with merge rules so a fresh start can never eat the primary experience:
+    //   money.profile → HIGHER EXP wins (your real character beats an accidental Level 1)
+    //   money.log / money.logPending → union, deduped (no check-in answer ever lost)
+    //   everything else → the vault's copy (the point of signing in on a new device)
+    var changed = 0;
     try {
       const lo = obj && obj.local;
       if (lo && typeof lo === "object") {
-        Object.keys(lo).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused" && k !== "money.log" && k !== "money.logPending") { try { localStorage.setItem(k, lo[k]); } catch (e) {} } });
+        var expOf = function (str) { try { var p = JSON.parse(str || "{}"); return (p.stats && p.stats.exp) || 0; } catch (e) { return 0; } };
+        Object.keys(lo).forEach((k) => {
+          if (k.indexOf("money.") !== 0 || k === "money.cloud" || k === "money.cloudKey" || k === "money.cloudPaused" || k === "money.log" || k === "money.logPending") return;
+          if (k === "money.profile" && expOf(localStorage.getItem(k)) > expOf(lo[k])) return;   // this device's character is FURTHER — keep it
+          try { if (localStorage.getItem(k) !== lo[k]) { localStorage.setItem(k, lo[k]); changed++; } } catch (e) {}
+        });
         ["money.log", "money.logPending"].forEach(function (key) {
           try {
             var rem = JSON.parse(lo[key] || "[]"); if (!Array.isArray(rem) || !rem.length) return;
             var loc = JSON.parse(localStorage.getItem(key) || "[]");
             var seen = {}; loc.forEach(function (e) { seen[(e.at || 0) + "|" + (e.itemId || "")] = 1; });
             var add = rem.filter(function (e) { return e && !seen[(e.at || 0) + "|" + (e.itemId || "")]; });
-            if (add.length) localStorage.setItem(key, JSON.stringify(loc.concat(add)));
+            if (add.length) { localStorage.setItem(key, JSON.stringify(loc.concat(add))); changed++; }
           } catch (e) {}
         });
       }
     } catch (e) {}
     try { cloudSave(Object.assign(cloudState(), { lastSeenVault: rec.updated || "" })); } catch (e) {}
+    // the app booted from the OLD storage before this pull landed (its in-memory
+    // EXP/layout/theme would clobber the restore on the next save) — one clean
+    // reload boots it from the synced truth. Guarded so it can never loop.
+    if (changed) {
+      var last = 0; try { last = parseInt(sessionStorage.getItem("wcReloaded")) || 0; } catch (e) {}
+      if (Date.now() - last > 30000) {
+        try { sessionStorage.setItem("wcReloaded", String(Date.now())); } catch (e) {}
+        location.reload();
+        return { empty: false, reloading: true };
+      }
+    }
     return { empty: false, count: Object.keys(FILES).length };
   }
 
