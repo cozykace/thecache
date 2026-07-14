@@ -1,0 +1,14 @@
+{
+  "incidents": [
+    {
+      "date": "2026-07-13",
+      "title": "Cloud backups failed with “Failed to create record”",
+      "status": "fixed",
+      "updates": [
+        { "when": "2026-07-13", "text": "Reports of cloud backup failing even while Settings showed “logged in”." },
+        { "when": "2026-07-13", "text": "Cause found: cloud logins quietly expire after ~14 days, but the app kept showing the old session as alive — so syncs silently failed with a cryptic error." },
+        { "when": "2026-07-13", "text": "Fixed: every backup, restore, and cloud-panel open now refreshes the session first. Regular use never logs you out, and a truly dead session now says plainly “your login expired — log in again.”" }
+      ]
+    }
+  ]
+}

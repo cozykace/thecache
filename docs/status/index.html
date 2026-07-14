@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>THE CACHE — Status</title>
+<link rel="icon" type="image/png" href="../av assets/goat-pixel.png" />
+<style>
+  /* Status page — live health checks run in YOUR browser (no tracker, no third
+     party), incident history comes from incidents.json in the repo, and the
+     report box posts straight to the founder-readable feedback inbox. Same
+     design family as /roadmap: mono, thin lines, gold accent, light/dark. */
+  :root {
+    --fg: #1d1a12; --dim: rgba(29,26,18,0.55); --line: rgba(29,26,18,0.14);
+    --accent: #FFD409; --ok: #3f8f4e; --bad: #c0392b; --warn: #b8860b;
+    --card: rgba(0,0,0,0.03); --on-accent: #14130e; --paper: #ffffff;
+  }
+  html[data-theme="dark"] {
+    --fg: #efe7d6; --dim: rgba(239,231,214,0.55); --line: rgba(239,231,214,0.16);
+    --accent: #FFD409; --ok: #6fbf7e; --bad: #e07060; --warn: #d9a93f;
+    --card: rgba(255,255,255,0.04); --on-accent: #14130e; --paper: #14130e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--fg); padding: 22px 16px calc(40px + env(safe-area-inset-bottom));
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 4px; }
+  h1 { font-size: 19px; letter-spacing: 0.14em; text-transform: uppercase; margin: 0; font-weight: 700; }
+  .live { font-size: 11px; color: var(--ok); display: inline-flex; align-items: center; gap: 5px; }
+  .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+    box-shadow: 0 0 0 0 var(--ok); animation: pulse 2.4s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(63,143,78,.5)} 70%{box-shadow:0 0 0 6px rgba(63,143,78,0)} 100%{box-shadow:0 0 0 0 rgba(63,143,78,0)} }
+  @media (prefers-reduced-motion: reduce) { .live::before, .dot.checking { animation: none; } }
+  .checked { font-size: 11px; color: var(--dim); margin-left: auto; }
+  .intro { font-size: 13px; color: var(--dim); line-height: 1.6; margin: 4px 0 18px; }
+  .sec { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
+    margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 10px; }
+  .sec .re { margin-left: auto; font: inherit; letter-spacing: 0.06em; cursor: pointer; border: 1px solid var(--line);
+    background: none; color: var(--dim); padding: 8px 14px; border-radius: 999px; min-height: 34px; }
+  .svc { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border: 1px solid var(--line);
+    border-radius: 12px; margin-bottom: 8px; background: var(--card); font-size: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--dim); }
+  .dot.up { background: var(--ok); } .dot.down { background: var(--bad); }
+  .dot.checking { animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: 0.3; } }
+  .svc .name { font-weight: 700; }
+  .svc .what { color: var(--dim); font-size: 12px; }
+  .svc .state { margin-left: auto; font-size: 12px; color: var(--dim); text-align: right; }
+  .svc .state.up { color: var(--ok); } .svc .state.down { color: var(--bad); font-weight: 700; }
+  .inc { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 10px; background: var(--card); }
+  .inc-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .inc-title { font-weight: 700; font-size: 14px; }
+  .inc-date { color: var(--dim); font-size: 12px; }
+  .badge { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; }
+  .badge.fixed { background: var(--ok); color: #fff; }
+  .badge.investigating { background: var(--bad); color: #fff; }
+  .badge.monitoring { background: var(--warn); color: #fff; }
+  .inc-updates { margin: 10px 0 0; padding: 0; list-style: none; }
+  .inc-updates li { font-size: 13px; line-height: 1.55; color: var(--dim); padding: 4px 0 4px 14px; position: relative; }
+  .inc-updates li::before { content: ""; position: absolute; left: 0; top: 12px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+  .inc-updates .when { color: var(--fg); font-weight: 700; margin-right: 6px; }
+  .empty { font-size: 13px; color: var(--dim); padding: 8px 0 2px; }
+  textarea, input[type="email"] { width: 100%; font: inherit; font-size: 14px; color: var(--fg);
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  textarea { min-height: 96px; resize: vertical; }
+  input[type="email"] { margin-top: 8px; min-height: 44px; }
+  .send { margin-top: 10px; font: inherit; font-size: 13px; font-weight: 700; letter-spacing: 0.06em;
+    background: var(--accent); color: var(--on-accent); border: none; border-radius: 999px;
+    padding: 12px 22px; min-height: 44px; cursor: pointer; }
+  .send:disabled { opacity: 0.5; cursor: default; }
+  .msg { font-size: 13px; margin-top: 10px; line-height: 1.5; }
+  .msg.ok { color: var(--ok); } .msg.err { color: var(--bad); }
+  .msg a { color: inherit; }
+  .hint { font-size: 12px; color: var(--dim); line-height: 1.6; margin-top: 8px; }
+  .foot { margin-top: 30px; font-size: 12px; color: var(--dim); display: flex; gap: 8px; flex-wrap: wrap; }
+  .foot a { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Status</h1>
+    <span class="live">live</span>
+    <span class="checked" id="checked"></span>
+  </header>
+  <p class="intro">The health of THE CACHE, checked right now from your own browser — plus the honest history of what's broken and what got fixed. If something looks wrong on your end, tell us below.</p>
+
+  <div class="sec"><span>Right now</span><button class="re" id="recheck">re-check</button></div>
+  <div id="services"></div>
+
+  <div class="sec"><span>Incident history</span></div>
+  <div id="incidents"><div class="empty">loading…</div></div>
+
+  <div class="sec"><span>Report a problem</span></div>
+  <textarea id="repText" maxlength="4000" placeholder="what happened? (what you tapped, what you expected, what you saw)"></textarea>
+  <input id="repEmail" type="email" autocomplete="email" placeholder="your email (optional — only if you want a reply)" />
+  <button class="send" id="repSend">send report</button>
+  <div class="msg" id="repMsg"></div>
+  <p class="hint">Reports go straight to the maker's inbox. Never include passwords or bank details — we will never ask for them.</p>
+
+  <div class="foot">
+    <a href="/">open the app</a><span>·</span>
+    <a href="/roadmap/">roadmap</a><span>·</span>
+    <a href="/demo/">demo</a><span>·</span>
+    <a href="https://cozyace.com/the-cache-app" target="_blank" rel="noreferrer">about the artist</a>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  var CLOUD = "https://thecache.pockethost.io";
+
+  // theme: follow the system, or force via ?theme=dark / ?theme=light (embed-friendly)
+  try {
+    var q = new URLSearchParams(location.search).get("theme");
+    var dark = q ? q === "dark" : window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
+    if (dark) document.documentElement.setAttribute("data-theme", "dark");
+  } catch (e) {}
+
+  // ── live checks — run from the visitor's browser, so they answer the question
+  //    that matters: "can I reach it from here, right now?"
+  var SERVICES = [
+    { id: "site",  name: "thecache.app", what: "the app + this site",
+      check: function () { return fetch("/index.html", { method: "HEAD", cache: "no-store" }).then(function (r) { return r.ok; }); } },
+    { id: "cloud", name: "Cache cloud", what: "sign-in + encrypted sync",
+      check: function () { return fetch(CLOUD + "/api/health", { cache: "no-store" }).then(function (r) { return r.ok; }); } },
+    { id: "demo",  name: "Public demo", what: "the try-it playground",
+      check: function () { return fetch("/demo/", { method: "HEAD", cache: "no-store" }).then(function (r) { return r.ok; }); } }
+  ];
+  var host = document.getElementById("services");
+  SERVICES.forEach(function (s) {
+    var el = document.createElement("div");
+    el.className = "svc"; el.id = "svc-" + s.id;
+    el.innerHTML = '<span class="dot checking"></span><span><span class="name">' + s.name +
+      '</span><br><span class="what">' + s.what + '</span></span><span class="state">checking…</span>';
+    host.appendChild(el);
+  });
+  function runChecks() {
+    document.getElementById("checked").textContent = "checked " + new Date().toLocaleTimeString();
+    SERVICES.forEach(function (s) {
+      var el = document.getElementById("svc-" + s.id);
+      var dot = el.querySelector(".dot"), state = el.querySelector(".state");
+      dot.className = "dot checking"; state.className = "state"; state.textContent = "checking…";
+      var done = false;
+      var to = setTimeout(function () { if (!done) { done = true; dot.className = "dot down"; state.className = "state down"; state.textContent = "not responding"; } }, 8000);
+      s.check().then(function (ok) {
+        if (done) return; done = true; clearTimeout(to);
+        dot.className = "dot " + (ok ? "up" : "down");
+        state.className = "state " + (ok ? "up" : "down");
+        state.textContent = ok ? "operational" : "having trouble";
+      }).catch(function () {
+        if (done) return; done = true; clearTimeout(to);
+        dot.className = "dot down"; state.className = "state down"; state.textContent = "unreachable";
+      });
+    });
+  }
+  runChecks();
+  setInterval(runChecks, 60000);
+  document.getElementById("recheck").addEventListener("click", runChecks);
+
+  // ── incident history — plain JSON in the repo; pushing an update = it's live
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  fetch("incidents.json?t=" + Date.now(), { cache: "no-store" })
+    .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+    .then(function (d) {
+      var list = (d && d.incidents) || [];
+      var out = document.getElementById("incidents");
+      if (!list.length) { out.innerHTML = '<div class="empty">No incidents yet — smooth sailing.</div>'; return; }
+      out.innerHTML = list.map(function (inc) {
+        var ups = (inc.updates || []).map(function (u) {
+          return '<li><span class="when">' + esc(u.when) + "</span>" + esc(u.text) + "</li>";
+        }).join("");
+        return '<div class="inc"><div class="inc-head">' +
+          '<span class="badge ' + esc(inc.status || "monitoring") + '">' + esc(inc.status || "monitoring") + "</span>" +
+          '<span class="inc-title">' + esc(inc.title) + '</span>' +
+          '<span class="inc-date">' + esc(inc.date) + "</span></div>" +
+          (ups ? '<ul class="inc-updates">' + ups + "</ul>" : "") + "</div>";
+      }).join("");
+    })
+    .catch(function () { document.getElementById("incidents").innerHTML = '<div class="empty">Couldn’t load the history right now.</div>'; });
+
+  // ── report a problem → the shared feedback inbox (works even logged-out);
+  //    if the cloud itself is down (likely why you're here), fall back to email
+  var btn = document.getElementById("repSend"), msg = document.getElementById("repMsg");
+  btn.addEventListener("click", function () {
+    var text = document.getElementById("repText").value.trim();
+    var email = document.getElementById("repEmail").value.trim();
+    if (!text) { msg.className = "msg err"; msg.textContent = "tell us what happened first — even one sentence helps"; return; }
+    btn.disabled = true; msg.className = "msg"; msg.textContent = "sending…";
+    fetch(CLOUD + "/api/collections/feedback/records", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "outage",
+        message: text.slice(0, 4000),
+        reply_to: email.slice(0, 200),
+        from_name: "status page",
+        context: ("status page · " + (navigator.userAgent || "")).slice(0, 300)
+      })
+    }).then(function (r) {
+      if (!r.ok) throw new Error();
+      btn.disabled = false;
+      msg.className = "msg ok"; msg.textContent = "✓ report received — thank you. It goes straight to the maker.";
+      document.getElementById("repText").value = ""; document.getElementById("repEmail").value = "";
+    }).catch(function () {
+      btn.disabled = false;
+      var mail = "mailto:cozy@cozyace.com?subject=" + encodeURIComponent("THE CACHE — outage report") +
+        "&body=" + encodeURIComponent(text + (email ? "\n\nreply to: " + email : ""));
+      msg.className = "msg err";
+      msg.innerHTML = 'Couldn’t reach the inbox (the cloud may be what’s down) — <a href="' + mail + '">send it by email instead</a>.';
+    });
+  });
+})();
+</script>
+</body>
+</html>

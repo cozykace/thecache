@@ -295,6 +295,7 @@
       '<div class="wc-paths">' +
         '<a href="/demo/">try the demo</a><span>·</span>' +
         '<a href="/roadmap/">roadmap</a><span>·</span>' +
+        '<a href="/status/">status</a><span>·</span>' +
         '<a href="https://cozyace.com/the-cache-app" target="_blank" rel="noreferrer">about the artist</a>' +
       '</div>' +
       '</div>';

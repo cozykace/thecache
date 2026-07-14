@@ -55,6 +55,7 @@ _Last updated: 2026-07-13_
 - **Your cache is a character** — it levels up as you do the real work: EXP, merit badges, and a journey earned by living, never bought.
 - **Roadmap in the app** — see what's shipped and what's next, right from the dock.
 - **Report a bug or request** — a built-in feedback button; your note goes straight to the maker and into the beta feedback inbox, no email app required.
+- **A public status page** — thecache.app/status checks the app, the cloud, and the demo live from your own browser, shows the honest history of incidents and fixes, and gives you a report box that works even signed-out (with an email fallback if the cloud itself is down).
 
 ## Your data, owned
 - **Permanent ledger** — nothing is lost once it's synced; every number provably derives from it.
