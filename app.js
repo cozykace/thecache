@@ -3188,10 +3188,10 @@ async function cloudFindVaultId(s) {
 //   GENERIC  — everything else (layout, look, config, note, forecast, cats…);
 //              per-key newest-wins by an mtime stamp so a stale device can't revert
 //              a fresher edit and the web app can't blind-adopt on every unlock.
-const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta"];
+const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
 const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun"];
-const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.deckRev", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
+const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
 // bundle is engine-computed and travels whole-file. catmeta.json (your category
@@ -3283,6 +3283,10 @@ function _authoredProject(k, str) {
       Object.keys(s.expBy || {}).sort().forEach((d) => { by[d] = +s.expBy[d] || 0; });
       return { exp: +s.exp || 0, clicks: +s.clicks || 0, expBy: by };
     }
+    // the deck is now a per-item MERGE, not an ordered document — hash it by id so two
+    // devices that converged on the same items can't read as forever "ahead" of each
+    // other over array order (the livelock class this codebase keeps rediscovering)
+    if (k === "money.deck" && Array.isArray(v)) return _sortBy(v.filter((q) => q && q.id), (q) => q.id).map(_canonVal);
   } catch (e) {}
   return _canonStr(str);
 }
@@ -3677,8 +3681,17 @@ function mergeRemoteLocal(lo, meta) {
     } catch (e) {}
   });
   try {
-    const remRev = parseInt(lo["money.deckRev"]) || 0, locRev = parseInt(localStorage.getItem("money.deckRev")) || 0;
-    if (remRev > locRev && lo["money.deck"]) { localStorage.setItem("money.deck", lo["money.deck"]); localStorage.setItem("money.deckRev", String(remRev)); changed = true; }
+    if (lo["money.deck"] != null) {
+      const rem = JSON.parse(lo["money.deck"] || "[]");
+      if (Array.isArray(rem)) {
+        const cur = localStorage.getItem("money.deck") || "[]";
+        let loc = []; try { loc = JSON.parse(cur) || []; } catch (e) {}
+        // per-item merge, written VERBATIM — an adoption must never restamp what it
+        // adopts, or two devices bump each other's stamps forever
+        const merged = JSON.stringify(deckCap(mergeDecks(loc, rem.some((q) => q && q.updated == null) ? deckMigrate(rem) : rem)));
+        if (merged !== cur) { localStorage.setItem("money.deck", merged); changed = true; try { document.dispatchEvent(new CustomEvent("cache:deck")); } catch (e) {} }
+      }
+    }
   } catch (e) {}
   try {
     if (lo["money.charLog"] != null) {
@@ -7135,20 +7148,132 @@ const DEFAULT_DECK = [
 ];
 const DAILY_FUNNIES = ["your cache thanks you 🙏", "skeletons: mildly less scary 💀", "another brick in the base 🧱",
   "the goat is proud of you 🐐", "data so fresh it squeaks ✨", "high-res life unlocked 📈", "fed and watered 🌱"];
-function loadDeck() {
-  try {
-    const d = JSON.parse(localStorage.getItem(DECK_KEY) || "null");
-    if (Array.isArray(d) && d.length) {
-      // one-time upgrade: an UNTOUCHED old energy default (3-point → tracker) becomes the
-      // 5-point → health version. A deck the user customized is left exactly as they made it.
-      const i = d.findIndex((q) => q && q.id === "energy" && q.dest && q.dest.kind === "tracker" && q.dest.target === "Energy" && (q.options || []).length === 3);
-      if (i !== -1) { d[i] = JSON.parse(JSON.stringify(DEFAULT_DECK.find((q) => q.id === "energy"))); saveDeck(d); }
-      return d;
-    }
-  } catch (e) {}
-  return JSON.parse(JSON.stringify(DEFAULT_DECK));
+// ── Deck sync: PER-ITEM merge, not whole-document last-writer-wins ──────────
+// The deck used to be one blob stamped with a client Date.now(): whoever saved last
+// won the WHOLE deck. That meant an open editor could persist its stale copy over a
+// question another device had just added, a fresh device's default deck could
+// steamroll a customized one, and a fast clock won forever.
+//
+// Now each item carries its own stamps and merges independently:
+//   updated — the CONTENT stamp (excludes ord). Set at the point of edit, never
+//             re-derived, so a stale in-memory item keeps its OLD stamp and loses.
+//   ordAt   — the POSITION stamp, merged separately, so a reorder can never
+//             outrank someone else's text edit.
+//   deleted — a TOMBSTONE. Deleting keeps the item (hidden) so the delete survives a
+//             union with a device that still has it, instead of being resurrected.
+// Anything equal to a shipped default stamps updated:0 — shipping code must never
+// win a merge (the same rule the rest of the sync engine follows).
+const DECK_LIVE_CAP = 60, DECK_TOMB_CAP = 60;
+function deckNow() { return Date.now(); }
+// canonical CONTENT form — excludes the stamps, sorted keys, so JS and Python agree
+// byte-for-byte. Compared as a STRING (never hashed): a djb2 would have to match
+// across three runtimes with int32 wraparound, which is a mismatch waiting to happen.
+function deckCanon(it) {
+  const skip = { updated: 1, ord: 1, ordAt: 1 };
+  const walk = (v) => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") { const o = {}; Object.keys(v).sort().forEach((k) => { if (!skip[k]) o[k] = walk(v[k]); }); return o; }
+    return v;
+  };
+  try { return JSON.stringify(walk(it || {})); } catch (e) { return ""; }
 }
-function saveDeck(d) { try { localStorage.setItem(DECK_KEY, JSON.stringify(d)); localStorage.setItem(DECKREV_KEY, String(Date.now())); } catch (e) {} ckPushDeckSoon(); }
+function deckIsDefault(it) {
+  if (!it || !it.id) return false;
+  const d = DEFAULT_DECK.find((q) => q.id === it.id);
+  return !!d && deckCanon(d) === deckCanon(it);
+}
+// Merge two decks per item. Winner per id: newer `updated`; on an EXACT tie a
+// tombstone wins (a card you killed coming back is the trust break — a card you have
+// to re-add is a shrug); still tied → canonical-content compare, so every runtime
+// picks the same side. Position merges on its own clock.
+function mergeDecks(a, b) {
+  const out = {};
+  const take = (arr) => (Array.isArray(arr) ? arr : []).forEach((raw) => {
+    if (!raw || !raw.id) return;
+    const it = Object.assign({}, raw);
+    const cur = out[it.id];
+    if (!cur) { out[it.id] = it; return; }
+    const cu = +cur.updated || 0, iu = +it.updated || 0;
+    let win = cur;
+    if (iu > cu) win = it;
+    else if (iu === cu) {
+      const cd = !!cur.deleted, id_ = !!it.deleted;
+      if (id_ !== cd) win = id_ ? it : cur;                      // tombstone wins an exact tie
+      else if (deckCanon(it) > deckCanon(cur)) win = it;          // deterministic on every runtime
+    }
+    const lose = win === cur ? it : cur;
+    const merged = Object.assign({}, win);
+    // position is its OWN field with its OWN clock — a reorder must never revert a text edit
+    if ((+lose.ordAt || 0) > (+win.ordAt || 0)) { merged.ord = lose.ord; merged.ordAt = lose.ordAt; }
+    out[it.id] = merged;
+  });
+  take(a); take(b);
+  const items = Object.keys(out).map((k) => out[k]);
+  items.sort((x, y) => {
+    const dx = +x.ord || 0, dy = +y.ord || 0;
+    return dx !== dy ? dx - dy : (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+  });
+  return deckCap(items);
+}
+// Cap LIVE items and tombstones SEPARATELY. A single slice over a mixed array would
+// silently drop real questions off the end, or drop tombstones (so deletes resurrect).
+function deckCap(items) {
+  const live = items.filter((i) => !i.deleted).slice(0, DECK_LIVE_CAP);
+  const tomb = items.filter((i) => i.deleted).sort((a, b) => (+b.updated || 0) - (+a.updated || 0)).slice(0, DECK_TOMB_CAP);
+  return live.concat(tomb);
+}
+function deckLive(items) { return (items || []).filter((i) => i && !i.deleted); }
+// One-time migration off the old whole-document format.
+function deckMigrate(items) {
+  const out = (items || []).filter((i) => i && i.id).map((raw, idx) => {
+    const it = Object.assign({}, raw);
+    if (it.updated == null) it.updated = deckIsDefault(it) ? 0 : 1;   // a customization must beat an untouched default
+    if (it.ord == null) it.ord = idx;
+    if (it.ordAt == null) it.ordAt = 0;
+    return it;
+  });
+  // Deletion used to be expressed by ABSENCE. Without this, the first merge with a
+  // peer that still holds the card would resurrect every default the user ever killed.
+  const have = {}; out.forEach((i) => { have[i.id] = 1; });
+  DEFAULT_DECK.forEach((d, i) => {
+    if (!have[d.id]) out.push({ id: d.id, deleted: 1, updated: 1, ord: 900 + i, ordAt: 0 });
+  });
+  return out;
+}
+function putDeck(items) {   // write VERBATIM — preserves every stamp. Adoption paths use this and NEVER stamp.
+  try { localStorage.setItem(DECK_KEY, JSON.stringify(deckCap(items || []))); } catch (e) {}
+  try { document.dispatchEvent(new CustomEvent("cache:deck")); } catch (e) {}   // an open editor re-reads
+}
+function loadDeck() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(DECK_KEY) || "null"); } catch (e) {}
+  if (Array.isArray(d) && d.length) {
+    const needsMigrate = d.some((q) => q && q.updated == null);
+    if (needsMigrate) { d = deckMigrate(d); putDeck(d); try { localStorage.removeItem(DECKREV_KEY); } catch (e) {} }
+    // one-time upgrade: an UNTOUCHED old energy default (3-point → tracker) becomes the
+    // 5-point → health version. A deck the user customized is left exactly as they made it.
+    const i = d.findIndex((q) => q && q.id === "energy" && q.dest && q.dest.kind === "tracker" && q.dest.target === "Energy" && (q.options || []).length === 3);
+    if (i !== -1) {
+      const fresh = JSON.parse(JSON.stringify(DEFAULT_DECK.find((q) => q.id === "energy")));
+      d[i] = Object.assign(fresh, { ord: d[i].ord, ordAt: d[i].ordAt || 0, updated: 0 });   // a DEFAULT — stamp 0, never Date.now(), or a mere page load would steamroll the account
+      putDeck(d);
+    }
+    return d;
+  }
+  // fresh device: materialize the defaults at updated:0 so they can be ADDED where
+  // absent but can never outrank another device's customization or tombstone
+  return DEFAULT_DECK.map((q, i) => Object.assign(JSON.parse(JSON.stringify(q)), { ord: i, ordAt: 0, updated: 0 }));
+}
+// The USER-EDIT path. Merges into what is stored (so a question another device added
+// while this array was held survives) but NEVER stamps — the editor stamps the item it
+// actually touched. Re-deriving "what changed" here is what let a stale editor revert
+// a remote edit and resurrect a remote delete.
+function saveDeck(d) {
+  let stored = [];
+  try { stored = JSON.parse(localStorage.getItem(DECK_KEY) || "[]") || []; } catch (e) {}
+  putDeck(mergeDecks(stored, d));
+  ckPushDeckSoon();
+}
 function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || []; } catch (e) { return []; } }
 function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); return true; } catch (e) { return false; } }
 function todayKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -7179,8 +7304,9 @@ function ckPushDeckSoon() {
   // debounced — the deck editor saves on every keystroke; the server needs one write, not fifty
   clearTimeout(_deckPushT);
   _deckPushT = setTimeout(() => {
-    let rev = 0; try { rev = parseInt(localStorage.getItem(DECKREV_KEY)) || 0; } catch (e) {}
-    fetch("/api/checkin-deck", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rev: rev, items: loadDeck() }) }).catch(() => {});
+    // v:2 — per-item merge on the server. No whole-document rev: each item carries its
+    // own `updated`, so an older device can no longer replace the entire deck.
+    fetch("/api/checkin-deck", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ v: 2, items: loadDeck() }) }).catch(() => {});
     autoPushSoon();
   }, 1200);
 }
@@ -7206,10 +7332,13 @@ function ckSync() {
     .then(() => fetch("/api/checkin-deck").then((r) => { if (!r.ok) throw new Error("offline"); return r.json(); }))
     .then((d) => {
       const srv = (d && d.deck) || {};
-      let rev = 0; try { rev = parseInt(localStorage.getItem(DECKREV_KEY)) || 0; } catch (e) {}
-      if ((srv.rev || 0) > rev && Array.isArray(srv.items) && srv.items.length) {
-        try { localStorage.setItem(DECK_KEY, JSON.stringify(srv.items)); localStorage.setItem(DECKREV_KEY, String(srv.rev)); } catch (e) {}
-      } else if (rev > (srv.rev || 0)) { ckPushDeckSoon(); }
+      if (Array.isArray(srv.items)) {
+        let loc = []; try { loc = JSON.parse(localStorage.getItem(DECK_KEY) || "[]") || []; } catch (e) {}
+        const merged = mergeDecks(loc, srv.items);
+        const before = JSON.stringify(loc), after = JSON.stringify(merged);
+        if (after !== before) putDeck(merged);                  // adopt VERBATIM — never restamp what we adopt
+        if (after !== JSON.stringify(srv.items)) ckPushDeckSoon();   // we hold something the server lacks
+      }
     })
     .catch(() => {})
     .then(() => { _ckSyncing = false; }, () => { _ckSyncing = false; });
@@ -7262,7 +7391,7 @@ function buildDailyInput(holder, it, onAnswer) {
 }
 function openDaily() {
   if (document.getElementById("dailySpace")) return;
-  const deck = loadDeck();
+  const deck = deckLive(loadDeck());
   const root = document.createElement("div"); root.id = "dailySpace"; root.className = "daily-space";
   root.innerHTML =
     '<div class="daily-top"><button class="daily-icn" id="dailyClose" aria-label="close">✕</button>' +
@@ -7362,8 +7491,26 @@ function openDeckEditor() {
         grip.removeEventListener("pointermove", move);
         grip.removeEventListener("pointerup", up);
         row.classList.remove("dragging");
-        const order = [...listEl.querySelectorAll(".deck-row")].map((r) => r.__item).filter(Boolean);
-        deck.length = 0; order.forEach((x) => deck.push(x));
+        // Only the DRAGGED item moves: give it a fractional ord midway between its new
+        // neighbours and stamp ordAt. Renumbering every item (the old way) would mark
+        // the whole deck as edited and steamroll anyone else's concurrent text edit —
+        // whole-document last-writer-wins sneaking back in through position.
+        const rows = [...listEl.querySelectorAll(".deck-row")];
+        const at = rows.indexOf(row);
+        const prev = at > 0 ? rows[at - 1].__item : null;
+        const next = at < rows.length - 1 ? rows[at + 1].__item : null;
+        const po = prev ? (+prev.ord || 0) : null, no = next ? (+next.ord || 0) : null;
+        let nord;
+        if (po == null && no == null) nord = 0;
+        else if (po == null) nord = no - 1;
+        else if (no == null) nord = po + 1;
+        else nord = (po + no) / 2;
+        const item = row.__item;
+        if (item) { item.ord = nord; item.ordAt = deckNow(); }
+        // float gaps eventually underflow — renormalise (positions only, no content stamps)
+        if (prev && next && Math.abs(no - po) < 1e-6) {
+          deckLive(deck).sort((a, b) => (+a.ord || 0) - (+b.ord || 0)).forEach((x, i) => { x.ord = i; x.ordAt = deckNow(); });
+        }
         persist(); render();
       };
       grip.addEventListener("pointermove", move);
@@ -7373,7 +7520,7 @@ function openDeckEditor() {
   }
   function render() {
     listEl.innerHTML = "";
-    deck.forEach((it, idx) => {
+    deckLive(deck).forEach((it, idx) => {   // tombstones stay in the array, hidden
       const row = document.createElement("div"); row.className = "deck-row";
       row.innerHTML =
         '<div class="deck-row-top"><button class="deck-grip" aria-label="drag to reorder">⠿</button>' +
@@ -7385,22 +7532,50 @@ function openDeckEditor() {
           '<label>Store<select class="deck-kind">' + [["money", "💰 Money"], ["health", "🩺 Health"], ["tracker", "📈 Tracker"], ["dayflag", "📅 Day-log"]].map((k) => '<option value="' + k[0] + '"' + ((it.dest && it.dest.kind) === k[0] ? " selected" : "") + ">" + k[1] + "</option>").join("") + "</select></label>" +
           '<label class="deck-target">Where<input class="deck-tgt" value="' + escapeHtml((it.dest && it.dest.target) || "") + '" placeholder="name (e.g. Groceries)" list="deckBldNames"></label></div>' +
         ((it.input === "choice" || it.input === "scale") ? '<div class="deck-row-cfg"><label class="deck-optlbl">Buttons<input class="deck-opts" value="' + escapeHtml(optStr(it.options)) + '" placeholder="Cooked, Ate out, Both"></label></div>' : "");
-      row.querySelector(".deck-emoji").addEventListener("input", (e) => { it.emoji = e.target.value; persist(); });
-      row.querySelector(".deck-prompt").addEventListener("input", (e) => { it.prompt = e.target.value; persist(); });
-      row.querySelector(".deck-input").addEventListener("change", (e) => { it.input = e.target.value; persist(); render(); });
-      row.querySelector(".deck-kind").addEventListener("change", (e) => { it.dest = it.dest || {}; it.dest.kind = e.target.value; persist(); });
-      row.querySelector(".deck-tgt").addEventListener("input", (e) => { it.dest = it.dest || {}; it.dest.target = e.target.value; persist(); });
-      const oi = row.querySelector(".deck-opts"); if (oi) oi.addEventListener("input", (e) => { it.options = parseOpts(e.target.value); persist(); });
+      // stamp AT THE POINT OF EDIT — the item the user actually touched. Deriving
+      // "what changed" inside the save would make this stale array authoritative for
+      // every item another device changed underneath it (reverting their edit, and
+      // resurrecting their delete). Only the touched item gets a fresh stamp.
+      const touch = () => { it.updated = deckNow(); persist(); };
+      row.querySelector(".deck-emoji").addEventListener("input", (e) => { it.emoji = e.target.value; touch(); });
+      row.querySelector(".deck-prompt").addEventListener("input", (e) => { it.prompt = e.target.value; touch(); });
+      row.querySelector(".deck-input").addEventListener("change", (e) => { it.input = e.target.value; touch(); render(); });
+      row.querySelector(".deck-kind").addEventListener("change", (e) => { it.dest = it.dest || {}; it.dest.kind = e.target.value; touch(); });
+      row.querySelector(".deck-tgt").addEventListener("input", (e) => { it.dest = it.dest || {}; it.dest.target = e.target.value; touch(); });
+      const oi = row.querySelector(".deck-opts"); if (oi) oi.addEventListener("input", (e) => { it.options = parseOpts(e.target.value); touch(); });
       row.__item = it;
-      row.querySelector(".deck-del").addEventListener("click", () => { deck.splice(idx, 1); persist(); render(); });
+      // delete leaves a TOMBSTONE. Removing the item outright would let any device
+      // that still holds it re-add it on the next union — "the question I killed
+      // keeps coming back" is the trust break we're here to prevent.
+      row.querySelector(".deck-del").addEventListener("click", () => {
+        it.deleted = 1; it.updated = deckNow(); persist(); render();
+      });
       attachRowDrag(row);
       listEl.appendChild(row);
     });
     if (!document.getElementById("deckBldNames")) { const dl = document.createElement("datalist"); dl.id = "deckBldNames"; dl.innerHTML = bldNames.map((n) => '<option value="' + escapeHtml(n) + '">').join(""); root.appendChild(dl); }
   }
-  root.querySelector("#deckAdd").addEventListener("click", () => { deck.push({ id: "q" + Date.now() + Math.floor(Math.random() * 1000), emoji: "📝", prompt: "New question", input: "choice", options: [["👍", "Yes"], ["👎", "No"]], dest: { kind: "dayflag", target: "" } }); persist(); render(); });
-  root.querySelector("#deckClose").addEventListener("click", () => root.remove());
-  root.querySelector("#deckRun").addEventListener("click", () => { root.remove(); openDaily(); });
+  root.querySelector("#deckAdd").addEventListener("click", () => {
+    // the id must be unique ACROSS DEVICES: under a per-item union, two devices minting
+    // the same id in the same millisecond would silently fuse two different questions
+    const id = "q" + Date.now().toString(36) + "-" + String(devId()).slice(0, 4) + "-" + Math.random().toString(36).slice(2, 8);
+    const last = deckLive(deck).slice(-1)[0];
+    deck.push({ id: id, emoji: "📝", prompt: "New question", input: "choice", options: [["👍", "Yes"], ["👎", "No"]],
+      dest: { kind: "dayflag", target: "" }, ord: (last ? (+last.ord || 0) : 0) + 1, ordAt: deckNow(), updated: deckNow() });
+    persist(); render();
+  });
+  root.querySelector("#deckClose").addEventListener("click", () => { document.removeEventListener("cache:deck", onDeckChange); root.remove(); });
+  root.querySelector("#deckRun").addEventListener("click", () => { document.removeEventListener("cache:deck", onDeckChange); root.remove(); openDaily(); });
+  // another device's edit landed while this editor is open — re-read and repaint, so
+  // the user is never typing over text they can't see (and can't overwrite it blind)
+  function onDeckChange() {
+    if (!root.isConnected) { document.removeEventListener("cache:deck", onDeckChange); return; }
+    if (root.contains(document.activeElement)) return;   // don't yank the field they're typing in
+    const fresh = loadDeck();
+    deck.length = 0; fresh.forEach((x) => deck.push(x));
+    render();
+  }
+  document.addEventListener("cache:deck", onDeckChange);
   render();
 }
 // ── The deck coach: a one-time card that installs the habit (when you open
@@ -7475,7 +7650,17 @@ const WIZ_SEEDS = {   // picking an area seeds a matching check-in question (onl
 function wizSeedDeck(picks) {
   try {
     const deck = loadDeck(); let changed = false;
-    picks.forEach((p) => { const s = WIZ_SEEDS[p]; if (s && !deck.some((q) => q && q.id === s.id)) { deck.push(JSON.parse(JSON.stringify(s))); changed = true; } });
+    // check the UNFILTERED deck: a tombstone counts as PRESENT, so the wizard (which
+    // auto-runs on a fresh device) can never silently resurrect a card the user deleted.
+    // Seeds stamp updated:0 — shipping content must never outrank a real customization.
+    picks.forEach((p) => {
+      const sd = WIZ_SEEDS[p];
+      if (sd && !deck.some((q) => q && q.id === sd.id)) {
+        const last = deckLive(deck).slice(-1)[0];
+        deck.push(Object.assign(JSON.parse(JSON.stringify(sd)), { ord: (last ? (+last.ord || 0) : 0) + 1, ordAt: 0, updated: 0 }));
+        changed = true;
+      }
+    });
     if (changed) saveDeck(deck);
   } catch (e) {}
 }
@@ -7563,7 +7748,7 @@ function openWizard() {
     b.querySelectorAll("[data-door]").forEach((d) => d.addEventListener("click", () => { door = d.dataset.door; next(); }));
   }
   function wEnergy(b) {
-    const it = (loadDeck().find((q) => q && q.id === "energy")) || DEFAULT_DECK.find((q) => q.id === "energy");
+    const it = (deckLive(loadDeck()).find((q) => q && q.id === "energy")) || DEFAULT_DECK.find((q) => q.id === "energy");
     b.innerHTML = '<div class="daily-q">' + escapeHtml(it.prompt) + '</div>' +
       '<div class="daily-hint">This is a card from <b>the deck</b> — the heart of Cache. Your energy varies; that’s not a flaw. One tap a day builds a pattern you can plan around.</div>';
     const holder = document.createElement("div"); holder.className = "daily-input"; b.appendChild(holder);

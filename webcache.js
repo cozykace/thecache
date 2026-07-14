@@ -129,8 +129,56 @@
   function wLmetaSet(m) { try { localStorage.setItem("money.__lmeta", JSON.stringify(m)); } catch (e) {} }
   // cloud/identity internals + device-ergonomic geometry (never synced — keeps the
   // phone from snapping to desktop-pixel zoom / sidebar / modal layout on unlock)
-  var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun"];
-  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.deckRev", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
+  var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckRev"];   // deckRev RETIRED — must match app.js or it'd sync as a generic key and churn
+  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
+  // ── deck per-item merge — MUST stay byte-identical to app.js mergeDecks/deckCanon/
+  //    deckCap, or the phone and desktop settle on different decks. Same rules:
+  //    newer `updated` wins · exact tie → tombstone wins · still tied → canonical
+  //    content compare (a STRING compare, never a hash — a djb2 would have to agree
+  //    across three runtimes' integer math) · position merges on its own `ordAt` clock.
+  var W_DECK_LIVE_CAP = 60, W_DECK_TOMB_CAP = 60;
+  function wDeckCanon(it) {
+    var skip = { updated: 1, ord: 1, ordAt: 1 };
+    var walk = function (v) {
+      if (Array.isArray(v)) return v.map(walk);
+      if (v && typeof v === "object") { var o = {}; Object.keys(v).sort().forEach(function (k) { if (!skip[k]) o[k] = walk(v[k]); }); return o; }
+      return v;
+    };
+    try { return JSON.stringify(walk(it || {})); } catch (e) { return ""; }
+  }
+  function wDeckCap(items) {
+    var live = items.filter(function (i) { return !i.deleted; }).slice(0, W_DECK_LIVE_CAP);
+    var tomb = items.filter(function (i) { return i.deleted; })
+      .sort(function (a, b) { return (+b.updated || 0) - (+a.updated || 0); }).slice(0, W_DECK_TOMB_CAP);
+    return live.concat(tomb);
+  }
+  function wMergeDecks(a, b) {
+    var out = {};
+    var take = function (arr) {
+      (Array.isArray(arr) ? arr : []).forEach(function (raw) {
+        if (!raw || !raw.id) return;
+        var it = Object.assign({}, raw), cur = out[it.id];
+        if (!cur) { out[it.id] = it; return; }
+        var cu = +cur.updated || 0, iu = +it.updated || 0, win = cur;
+        if (iu > cu) win = it;
+        else if (iu === cu) {
+          var cd = !!cur.deleted, idl = !!it.deleted;
+          if (idl !== cd) win = idl ? it : cur;
+          else if (wDeckCanon(it) > wDeckCanon(cur)) win = it;
+        }
+        var lose = win === cur ? it : cur, merged = Object.assign({}, win);
+        if ((+lose.ordAt || 0) > (+win.ordAt || 0)) { merged.ord = lose.ord; merged.ordAt = lose.ordAt; }
+        out[it.id] = merged;
+      });
+    };
+    take(a); take(b);
+    var items = Object.keys(out).map(function (k) { return out[k]; });
+    items.sort(function (x, y) {
+      var dx = +x.ord || 0, dy = +y.ord || 0;
+      return dx !== dy ? dx - dy : (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+    });
+    return wDeckCap(items);
+  }
   function wIsGeneric(k) { return k.indexOf("money.") === 0 && W_INTERNAL.indexOf(k) === -1 && W_SPECIAL.indexOf(k) === -1; }
   function wStampGeneric(lm) {
     lm = lm || wLmetaGet();
@@ -219,11 +267,20 @@
       const lo = obj && obj.local;
       const meta = (obj && obj.localMeta) || {};
       if (lo && typeof lo === "object") {
-        // deck by revision — mirror app.js mergeRemoteLocal (the web used to setItem
-        // the vault's deck blindly, reverting a phone edit that held a HIGHER rev)
+        // deck: PER-ITEM merge — must be byte-identical to app.js's mergeDecks or the
+        // phone and desktop converge on different decks. Written verbatim (an adoption
+        // never restamps what it adopts).
         try {
-          var remRev = parseInt(lo["money.deckRev"]) || 0, locRev = parseInt(localStorage.getItem("money.deckRev")) || 0;
-          if (remRev > locRev && lo["money.deck"]) { localStorage.setItem("money.deck", lo["money.deck"]); localStorage.setItem("money.deckRev", String(remRev)); changed++; }
+          if (lo["money.deck"] != null) {
+            var rem = JSON.parse(lo["money.deck"] || "[]");
+            if (Array.isArray(rem)) {
+              var curRaw = localStorage.getItem("money.deck") || "[]";
+              var loc = []; try { loc = JSON.parse(curRaw) || []; } catch (e) {}
+              var mg = JSON.stringify(wMergeDecks(loc, rem));
+              if (mg !== curRaw) { localStorage.setItem("money.deck", mg); changed++; }
+            }
+          }
+          localStorage.removeItem("money.deckRev");   // retired — per-item `updated` replaced it
         } catch (e) {}
         try {
           if (lo["money.profile"] != null) {

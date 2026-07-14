@@ -228,19 +228,98 @@ def checkin_deck_get():
     return _read(CHECKIN_DECK, {"rev": 0, "items": []})
 
 
+DECK_LIVE_CAP = 60
+DECK_TOMB_CAP = 60
+
+
+def _deck_canon(it):
+    """Canonical CONTENT form — stamps excluded, keys sorted. MUST match app.js
+    deckCanon / webcache wDeckCanon byte-for-byte: it is compared as a STRING (never
+    hashed) precisely so three runtimes can't disagree about integer wraparound."""
+    skip = ("updated", "ord", "ordAt")
+
+    def walk(v):
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        if isinstance(v, dict):
+            return {k: walk(v[k]) for k in sorted(v) if k not in skip}
+        return v
+    try:
+        return json.dumps(walk(it or {}), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    except Exception:
+        return ""
+
+
+def _deck_cap(items):
+    live = [i for i in items if not i.get("deleted")][:DECK_LIVE_CAP]
+    tomb = sorted([i for i in items if i.get("deleted")],
+                  key=lambda i: -(i.get("updated") or 0))[:DECK_TOMB_CAP]
+    return live + tomb
+
+
+def merge_decks(a, b):
+    """Per-item merge — the same rules as app.js mergeDecks. Newer `updated` wins; on an
+    EXACT tie a tombstone wins (a card you killed reappearing is the trust break);
+    still tied → canonical-content compare. Position carries its own `ordAt` clock, so a
+    reorder can never revert someone's text edit."""
+    out = {}
+    for arr in (a, b):
+        for raw in (arr if isinstance(arr, list) else []):
+            if not isinstance(raw, dict) or not raw.get("id"):
+                continue
+            it = dict(raw)
+            cur = out.get(it["id"])
+            if cur is None:
+                out[it["id"]] = it
+                continue
+            cu, iu = cur.get("updated") or 0, it.get("updated") or 0
+            if iu > cu:
+                win, lose = it, cur
+            elif iu < cu:
+                win, lose = cur, it
+            else:
+                cd, idl = bool(cur.get("deleted")), bool(it.get("deleted"))
+                if idl != cd:
+                    win, lose = (it, cur) if idl else (cur, it)
+                elif _deck_canon(it) > _deck_canon(cur):
+                    win, lose = it, cur
+                else:
+                    win, lose = cur, it
+            merged = dict(win)
+            if (lose.get("ordAt") or 0) > (win.get("ordAt") or 0):
+                merged["ord"] = lose.get("ord")
+                merged["ordAt"] = lose.get("ordAt")
+            out[it["id"]] = merged
+    items = sorted(out.values(), key=lambda i: ((i.get("ord") or 0), str(i.get("id"))))
+    return _deck_cap(items)
+
+
 @_locked
 def checkin_deck_set(data):
-    """Newest revision wins (rev = client ms-timestamp) — an older device can never
-    clobber a newer deck."""
-    rev = data.get("rev") or 0
+    """Per-item merge (v2): each item carries its own `updated`, so an older device can
+    no longer replace the WHOLE deck — it can only lose the items it is actually stale on.
+
+    OLD CLIENTS (payload carries `rev`, items have no `updated`) still speak whole-document
+    last-writer-wins. Their array is the only self-consistent thing they can tell us, so
+    honour the old rev rule for that write rather than per-item merging a payload whose
+    stamps don't exist."""
     items = data.get("items")
-    if not isinstance(items, list) or not isinstance(rev, (int, float)):
+    if not isinstance(items, list):
         return {"ok": False, "error": "bad deck"}
     cur = checkin_deck_get()
-    if cur.get("rev", 0) and rev <= cur.get("rev", 0):
-        return {"ok": True, "kept": True, "rev": cur.get("rev", 0)}
-    _write(CHECKIN_DECK, {"rev": rev, "items": items[:60]})
-    return {"ok": True, "rev": rev}
+    cur_items = cur.get("items") if isinstance(cur.get("items"), list) else []
+    legacy = data.get("v") != 2 and not any(isinstance(i, dict) and i.get("updated") is not None for i in items)
+    if legacy:
+        rev = data.get("rev") or 0
+        if not isinstance(rev, (int, float)):
+            return {"ok": False, "error": "bad deck"}
+        if cur.get("rev", 0) and rev <= cur.get("rev", 0):
+            return {"ok": True, "kept": True, "rev": cur.get("rev", 0)}
+        _write(CHECKIN_DECK, {"rev": rev, "items": items[:DECK_LIVE_CAP]})
+        return {"ok": True, "rev": rev}
+    merged = merge_decks(cur_items, items)
+    _write(CHECKIN_DECK, {"v": 2, "items": merged})
+    return {"ok": True, "v": 2, "count": len(merged)}
 
 
 # ── Brain Bucket — actively-held working memory (v1: notes + links) ────────────
