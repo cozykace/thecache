@@ -313,10 +313,61 @@ def load_catmeta():
 
 @_locked
 def save_catmeta(m):
+    """Persist the category registry + stamp WHICH entries changed, so the same
+    newest-per-key merge that syncs your tag maps also syncs your renames, your
+    fold-ins, and your custom categories across devices. `custom` is kept SORTED:
+    it's a union-merged list, and two devices holding the same set in a different
+    order would look permanently 'ahead' of each other and re-push forever."""
     global _CATMETA_CACHE
+    if not isinstance(m, dict):
+        return load_catmeta()
+    # read `before` from DISK, never load_catmeta(): the callers (rename_category et al)
+    # mutate the cached dict IN PLACE and hand it straight back here, so the cache is
+    # already the NEW value and diffing against it would stamp nothing.
+    before = _read(CATMETA, {})
+    if not isinstance(before, dict):
+        before = {}
+    m.setdefault("labels", {})
+    m.setdefault("remap", {})
+    m.setdefault("custom", [])
+    if isinstance(m.get("custom"), list):
+        m["custom"] = sorted({str(c) for c in m["custom"]})
     _write(CATMETA, m)
     _CATMETA_CACHE = m
+    _stamp_catmeta(before, m)
     return m
+
+
+def _catmeta_pairs(m):
+    """Flatten the registry's per-key entries into one stampable namespace."""
+    out = {}
+    for sub in ("labels", "remap"):
+        d = (m or {}).get(sub) or {}
+        if isinstance(d, dict):
+            for k, v in d.items():
+                out[sub + ":" + str(k)] = v
+    return out
+
+
+def _stamp_catmeta(before, after):
+    """Record now() for every registry entry whose value changed (caller holds the lock)."""
+    meta = load_mapmeta()
+    fm = meta.get("catmeta.json")
+    if not isinstance(fm, dict):
+        fm = {}
+    b, a = _catmeta_pairs(before), _catmeta_pairs(after)
+    now, changed = _now_ms(), False
+    for k in set(b) | set(a):
+        if k not in a:
+            if k in fm:
+                del fm[k]
+                changed = True
+        elif b.get(k) != a.get(k):
+            fm[k] = now
+            changed = True
+    if changed:
+        meta["catmeta.json"] = fm
+        _write(MAPMETA, meta)
 
 
 def _resolve_remap(cat, remap):
@@ -666,6 +717,51 @@ def merge_maps(remote_files, remote_meta):
             changed = True
         out_files[name] = json.dumps(merged)
         out_meta[name] = merged_meta
+    # the category registry (renames / fold-ins / custom categories) is user-authored
+    # too — merge it the same way so a rename on one machine reaches the others
+    global _CATMETA_CACHE
+    local_cm = load_catmeta()
+    lcm = meta.get("catmeta.json") if isinstance(meta.get("catmeta.json"), dict) else {}
+    try:
+        rcm_raw = json.loads(remote_files.get("catmeta.json") or "{}")
+    except Exception:
+        rcm_raw = {}
+    if not isinstance(rcm_raw, dict):
+        rcm_raw = {}
+    rcm_meta = remote_meta.get("catmeta.json") if isinstance(remote_meta.get("catmeta.json"), dict) else {}
+    raw_custom = list(local_cm.get("custom") or [])
+    norm_custom = sorted({str(c) for c in raw_custom})   # always land on identical bytes across devices
+    merged_cm = {"labels": dict(local_cm.get("labels") or {}),
+                 "remap": dict(local_cm.get("remap") or {}),
+                 "custom": norm_custom}
+    merged_cm_meta, cm_changed = dict(lcm), (norm_custom != raw_custom)
+    for sub in ("labels", "remap"):
+        rd = rcm_raw.get(sub) or {}
+        if not isinstance(rd, dict):
+            continue
+        for k, rval in rd.items():
+            stamp_k = sub + ":" + str(k)
+            has = k in (local_cm.get(sub) or {})
+            local_m = lcm.get(stamp_k, 0) if has else -1
+            remote_m = rcm_meta.get(stamp_k, 0)
+            if remote_m > local_m or (remote_m == local_m and has and merged_cm[sub].get(k) != rval and _map_val_wins(rval, merged_cm[sub].get(k))):
+                if merged_cm[sub].get(k) != rval:
+                    merged_cm[sub][k] = rval
+                    cm_changed = True
+                merged_cm_meta[stamp_k] = remote_m
+    rc = rcm_raw.get("custom")
+    if isinstance(rc, list):   # custom categories UNION — sorted so both devices land on identical bytes
+        union = sorted({str(c) for c in merged_cm["custom"]} | {str(c) for c in rc})
+        if union != merged_cm["custom"]:
+            merged_cm["custom"] = union
+            cm_changed = True
+    if cm_changed:
+        _write(CATMETA, merged_cm)
+        _CATMETA_CACHE = merged_cm
+        meta["catmeta.json"] = merged_cm_meta
+        changed = True
+    out_files["catmeta.json"] = json.dumps(merged_cm)
+    out_meta["catmeta.json"] = merged_cm_meta
     if changed:
         _write(MAPMETA, meta)
     return {"ok": True, "changed": changed, "files": out_files, "filesMeta": out_meta}
@@ -2195,8 +2291,8 @@ def import_data(files, files_meta=None, local=None):
             except Exception:
                 pass
             continue
-        if name in MERGE_MAPS:
-            map_files[name] = content   # merged after the loop, newest-per-key
+        if name in MERGE_MAPS or name == "catmeta.json":
+            map_files[name] = content   # merged after the loop, newest-per-key (never replaced)
             continue
         try:
             tmp = os.path.join(DATA, name + ".tmp")

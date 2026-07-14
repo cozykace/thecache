@@ -3192,10 +3192,12 @@ const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused
 // device-ergonomic geometry — pinned to the device that set it, never synced
 const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki"];
 const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.deckRev", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
-// the four user-authored data/ maps that merge key-wise across devices (via the
-// backend's /api/merge-maps + the vault's filesMeta sidecar) — everything else in
-// the files bundle is engine-computed and travels whole-file
-const MAP_FILE_NAMES = ["categories.json", "income.json", "subs.json", "income_links.json"];
+// the user-authored data/ files that merge key-wise across devices (via the backend's
+// /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
+// bundle is engine-computed and travels whole-file. catmeta.json (your category
+// renames, fold-ins and custom categories) is user-authored too, so it merges here
+// rather than being stranded per-device.
+const MAP_FILE_NAMES = ["categories.json", "income.json", "subs.json", "income_links.json", "catmeta.json"];
 function isInternalKey(k) { return CLOUD_INTERNAL_KEYS.indexOf(k) !== -1 || DEVICE_LOCAL_KEYS.indexOf(k) !== -1; }
 function isSpecialKey(k) { return SPECIAL_MERGE_KEYS.indexOf(k) !== -1; }
 function isGenericKey(k) { return k.indexOf("money.") === 0 && !isInternalKey(k) && !isSpecialKey(k); }
@@ -3284,12 +3286,28 @@ function _authoredProject(k, str) {
   } catch (e) {}
   return _canonStr(str);
 }
+// catmeta's `custom` is a UNION-merged list — two devices holding the same custom
+// categories in a different order would read as permanently "ahead" of each other and
+// re-push forever. The backend writes it sorted; project it here too so even a copy
+// written by an older build can't start that churn.
+function _mapProject(name, str) {
+  if (name === "catmeta.json") {
+    try {
+      const v = JSON.parse(str);
+      if (v && typeof v === "object") {
+        const c = Array.isArray(v.custom) ? v.custom.map(String).sort() : [];
+        return _canonVal(Object.assign({}, v, { custom: c }));
+      }
+    } catch (e) {}
+  }
+  return _canonStr(str);
+}
 function authoredHash(local, maps) {
   // filter to the keys snapshotLocal actually seals — an OLD vault blob can still
   // carry since-reclassified device-local keys (zoom, sidebar…) in its local layer,
   // and hashing them would make the witness "ahead" of a vault we can never equal
   const L = {}; Object.keys(local || {}).sort().forEach((k) => { if (isInternalKey(k)) return; L[k] = _authoredProject(k, local[k]); });
-  const M = {}; MAP_FILE_NAMES.forEach((n) => { if (maps && maps[n] != null) M[n] = _canonStr(maps[n]); });
+  const M = {}; MAP_FILE_NAMES.forEach((n) => { if (maps && maps[n] != null) M[n] = _mapProject(n, maps[n]); });
   const str = JSON.stringify({ local: L, maps: M });
   let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
   return str.length + ":" + h;
