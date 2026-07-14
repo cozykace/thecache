@@ -15,6 +15,8 @@ import re
 import json
 import time
 import shutil
+import threading
+import functools
 from datetime import datetime, timezone, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -115,6 +117,44 @@ def _write(path, obj):
         pass
 
 
+# ── write serialization ──────────────────────────────────────────────
+# server.py is a ThreadingHTTPServer, so two requests can run at once. A store
+# mutator that does read-modify-write on a shared file (categories, income,
+# subs, the check-in log, balances, the ledger) would otherwise let one thread's
+# edit silently clobber another's. One re-entrant lock serializes every mutator;
+# re-entrant so a mutator that calls another (delete_txn → rebuild → recompute)
+# doesn't deadlock on the same thread.
+_WRITE_LOCK = threading.RLock()
+
+
+def _locked(fn):
+    @functools.wraps(fn)
+    def wrap(*a, **k):
+        with _WRITE_LOCK:
+            return fn(*a, **k)
+    return wrap
+
+
+def _append_lines(path, lines):
+    """Append newline-terminated lines, self-healing a torn tail. If a prior
+    append crashed mid-line (no trailing newline), a naive append would fuse
+    the partial onto the next good record and corrupt it; instead we terminate
+    the torn line first so it stands alone as one skippable bad line (the .jsonl
+    parsers skip bad lines individually) and the new records stay intact."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a+", encoding="utf-8") as f:
+        f.seek(0, os.SEEK_END)
+        if f.tell():
+            f.seek(f.tell() - 1)
+            if f.read(1) != "\n":
+                f.write("\n")   # cap the torn line so it can't merge with our data
+        for ln in lines:
+            f.write(ln + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    _fsync_dir(os.path.dirname(path))
+
+
 # ── daily check-in — shared across devices ───────────────────────────
 # Browser storage is only a fast cache; THESE files are the truth, so phone and desktop
 # converge on one log + one deck, and answers ride backups + the encrypted vault.
@@ -143,38 +183,37 @@ def checkin_log():
     return out
 
 
+@_locked
 def checkin_append(entries):
     """Append check-in answers (append-only, crash-durable, same rigor as the money
     ledger). Dedupes by (at, itemId) against what's already on disk, so offline retries
-    and double-sends can never double-log an answer."""
+    and double-sends can never double-log an answer. Locked so two concurrent pushes
+    can't both read-then-append the same answer and double-log it."""
     if not isinstance(entries, list):
         return {"ok": False, "error": "bad entries"}
     have = set()
     for e in checkin_log():
         have.add((e.get("at"), e.get("itemId")))
-    added = 0
-    os.makedirs(DATA, exist_ok=True)
-    with open(CHECKIN_LOG, "a", encoding="utf-8") as f:
-        for e in entries[:200]:
-            if not isinstance(e, dict) or "at" not in e or "itemId" not in e:
-                continue
-            k = (e.get("at"), e.get("itemId"))
-            if k in have:
-                continue
-            have.add(k)
-            slim = {x: e.get(x) for x in ("ts", "at", "itemId", "prompt", "input", "value", "dest") if x in e}
-            f.write(json.dumps(slim) + "\n")
-            added += 1
-        f.flush()
-        os.fsync(f.fileno())
-    _fsync_dir(DATA)
-    return {"ok": True, "added": added, "total": len(have)}
+    new_lines = []
+    for e in entries[:200]:
+        if not isinstance(e, dict) or "at" not in e or "itemId" not in e:
+            continue
+        k = (e.get("at"), e.get("itemId"))
+        if k in have:
+            continue
+        have.add(k)
+        slim = {x: e.get(x) for x in ("ts", "at", "itemId", "prompt", "input", "value", "dest") if x in e}
+        new_lines.append(json.dumps(slim))
+    if new_lines:
+        _append_lines(CHECKIN_LOG, new_lines)   # torn-tail-safe append
+    return {"ok": True, "added": len(new_lines), "total": len(have)}
 
 
 def checkin_deck_get():
     return _read(CHECKIN_DECK, {"rev": 0, "items": []})
 
 
+@_locked
 def checkin_deck_set(data):
     """Newest revision wins (rev = client ms-timestamp) — an older device can never
     clobber a newer deck."""
@@ -200,6 +239,7 @@ def bucket_get():
     return b if isinstance(b, list) else []
 
 
+@_locked
 def bucket_add(item):
     if not isinstance(item, dict):
         return {"ok": False, "error": "bad item"}
@@ -216,6 +256,7 @@ def bucket_add(item):
     return {"ok": True, "items": items}
 
 
+@_locked
 def bucket_remove(bid):
     items = [i for i in bucket_get() if i.get("id") != bid]
     _write(BUCKET, items)
@@ -228,6 +269,7 @@ def load_overrides():
     return ov if isinstance(ov, dict) else {}
 
 
+@_locked
 def save_override(substring, category):
     ov = load_overrides()
     key = (substring or "").strip().lower()
@@ -254,6 +296,7 @@ def load_catmeta():
     return _CATMETA_CACHE
 
 
+@_locked
 def save_catmeta(m):
     global _CATMETA_CACHE
     _write(CATMETA, m)
@@ -474,6 +517,7 @@ def load_subs():
     return d if isinstance(d, dict) else {}
 
 
+@_locked
 def save_subs(data):
     if isinstance(data, dict):
         _write(SUBS, data)
@@ -486,12 +530,14 @@ def load_income_links():
     return d if isinstance(d, dict) else {}
 
 
+@_locked
 def save_income_links(data):
     if isinstance(data, dict):
         _write(INCOME_LINKS, data)
     return load_income_links()
 
 
+@_locked
 def save_income_override(key, status):
     """status: 'income' | 'ignore' to pin it, or 'auto'/None to clear the tag."""
     ov = load_income_overrides()
@@ -552,6 +598,7 @@ def load_transactions():
     return _read(TRANSACTIONS, {}).get("transactions", [])
 
 
+@_locked
 def save_transactions(txns, window_days=30):
     _write(TRANSACTIONS, {
         "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -820,7 +867,10 @@ def _migrate_json_to_jsonl():
     with open(tmp, "w") as f:
         for t in old.values():
             f.write(json.dumps(t) + "\n")
+        f.flush()
+        os.fsync(f.fileno())   # durable before the rename, like _rewrite_ledger
     os.replace(tmp, LEDGER)
+    _fsync_dir(os.path.dirname(LEDGER))
     _chmod600(LEDGER)
     try:
         os.replace(LEDGER_OLD, LEDGER_OLD + ".pre-jsonl.bak")
@@ -891,6 +941,7 @@ def load_ledger():
         "write so your transaction history is not lost. Restore from backups/ first.")
 
 
+@_locked
 def merge_ledger(txns):
     """Accumulate transactions permanently, deduped by key. APPEND-ONLY: new or
     changed transactions are appended as lines (O(1), never rewrites history);
@@ -915,11 +966,7 @@ def merge_ledger(txns):
     if changed:
         _rewrite_ledger(led)  # compact away the superseded lines
     else:
-        with open(LEDGER, "a") as f:  # pure append — history is never rewritten
-            for ln in new_lines:
-                f.write(ln + "\n")
-            f.flush()
-            os.fsync(f.fileno())  # the append is durably on disk before we report success
+        _append_lines(LEDGER, new_lines)  # pure append, torn-tail-safe + durable
         _chmod600(LEDGER)
     return len(led)
 
@@ -1003,6 +1050,7 @@ def backup(keep=45, force=False):
     return dest
 
 
+@_locked
 def recompute_spending():
     """Recompute category totals from stored transactions + overrides, and
     rewrite balances.json. Used after a category edit (no bank call needed)."""
@@ -1022,6 +1070,7 @@ def recompute_spending():
     return sp
 
 
+@_locked
 def recompute_income():
     """Recompute the income block from stored transactions + your tags, and
     rewrite balances.json. Used after an income tag edit (no bank call)."""
@@ -1306,6 +1355,7 @@ def data_coverage():
     return {"accounts": rows, "live_first": live_first, "live_last": live_last, "total": len(txns)}
 
 
+@_locked
 def recompute_coverage():
     cov = data_coverage()
     cov["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -1671,14 +1721,18 @@ def find_issues():
     return issues
 
 
+@_locked
 def delete_txn(txn_id):
     """Remove a transaction from the ledger by id (for confirmed duplicates).
-    Rewrites the .jsonl without that line, then refreshes the dashboard."""
+    Rewrites the .jsonl without that line, then rebuilds the 30-day window from
+    the ledger so the deletion actually disappears from spending / categories /
+    drill-ins (recompute_spending alone reads the stale transactions.json, which
+    still held the deleted row)."""
     led = load_ledger()
     if txn_id in led:
         del led[txn_id]
         _rewrite_ledger(led)
-        recompute_spending()
+        rebuild_from_ledger()
     return len(led)
 
 
@@ -1688,6 +1742,7 @@ def load_bugs():
     return b if isinstance(b, list) else []
 
 
+@_locked
 def add_bug(text):
     text = (text or "").strip()
     if not text:
@@ -1702,6 +1757,7 @@ def add_bug(text):
     return bugs
 
 
+@_locked
 def set_bug_status(bug_id, status):
     try:
         bug_id = int(bug_id)
@@ -1723,6 +1779,7 @@ def set_bug_status(bug_id, status):
     return bugs
 
 
+@_locked
 def recompute_monthly():
     rows = monthly_history()
     _write(MONTHLY, {"updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1730,6 +1787,7 @@ def recompute_monthly():
     return rows
 
 
+@_locked
 def rebuild_from_ledger(window_days=30, now=None):
     """Rebuild the summary window (transactions.json) from the full permanent
     ledger, then recompute spending + income. Used after importing statements
@@ -1896,10 +1954,12 @@ def export_data():
     return {"ok": True, "files": files, "api": api_snapshot(), "exported": int(time.time()), "count": len(files)}
 
 
+@_locked
 def import_data(files):
     """Restore data files from a decrypted backup bundle. SNAPSHOTS the current data/
     first (a bad restore is recoverable), then atomically writes each file. Path-guarded:
     plain .json/.jsonl names only, no traversal."""
+    global _CATMETA_CACHE
     if not isinstance(files, dict) or not files:
         return {"ok": False, "error": "no files in backup"}
     snap = os.path.join(DATA, "_restore_backup_" + time.strftime("%Y%m%d-%H%M%S"))
@@ -1926,11 +1986,16 @@ def import_data(files):
             tmp = os.path.join(DATA, name + ".tmp")
             with open(tmp, "w", encoding="utf-8") as f:
                 f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp, os.path.join(DATA, name))
             _chmod600(os.path.join(DATA, name))
             written.append(name)
         except Exception:
             pass
+    _fsync_dir(DATA)
+    _CATMETA_CACHE = None   # drop the pre-restore category registry so the next
+    # edit reloads the restored one instead of writing the old map back over it
     return {"ok": True, "written": len(written), "files": written, "snapshot": os.path.basename(snap)}
 
 
