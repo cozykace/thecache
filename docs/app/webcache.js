@@ -146,7 +146,10 @@
     if (url.indexOf("/api/") !== -1) {
       var key = url.split("/api/")[1].split("?")[0].replace(/\/+$/, "");
       if (key === "ping") return J({ ok: true, founder: false, web: true });
-      if (key === "connect-status") return J({ connected: false, web: true });
+      // "connected" tells the truth: this cache HAS bank data (synced by the
+      // desktop engine) — this device just reads it. An empty vault reads false,
+      // which correctly lets the setup wizard greet a brand-new account.
+      if (key === "connect-status") return J({ connected: Object.keys(FILES).length > 0, web: true, readonly: true });
       if (key === "update-check") return J({ ok: true, available: false, current: "web" });
       if (key === "export-data") return J({ ok: true, files: FILES, api: API, exported: 0, count: Object.keys(FILES).length });
       if (key === "webdav-config") return J({ ok: true, configured: false, url: "", user: "" });

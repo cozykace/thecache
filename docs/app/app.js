@@ -5226,6 +5226,16 @@ function updateSyncHealth() {
 syncHealth.addEventListener("click", () => {
   syncHealth.classList.add("syncing");
   syncText.textContent = "syncing…";
+  if (window.__CACHE_WEB__) {
+    // no bank engine on this device — here, sync means CLOUD sync: pull what's
+    // new, push what's ours, and say so plainly
+    Promise.resolve(cloudAutoPull()).then(() => autoPushNow()).then(() => {
+      syncText.textContent = "cloud synced ✓";
+      syncHealth.classList.remove("syncing");
+      setTimeout(updateSyncHealth, 2500);
+    });
+    return;
+  }
   fetch("/api/sync", { method: "POST" })
     .then((r) => r.json())
     .then((d) => {
