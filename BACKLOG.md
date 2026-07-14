@@ -145,6 +145,7 @@ The insight Cache exists to produce: your executive-function energy varies day t
 
 ## Install & reach
 - [ ] **Easy cross-platform install (PC + Mac), browser-run, in-app updates** — today it's Mac-centric (`start.command`, LaunchAgents, `~/thecache`). Add: a Windows launcher (`start.bat`) + Windows auto-start (Task Scheduler/startup shortcut), a dead-simple installer for non-tech users, keep the browser UX + the existing in-app **Update** button. (Spencer mentioned **DFOS** / dfos.com — clarify what it does + whether it fits.) Requested 2026-06-26.
+- [ ] **🧹 Squarespace decision + embed cleanup** — since thecache.app now points straight at the site, the old Squarespace pages (which embedded the roadmap/demo) are unreachable. Decide: retire the Squarespace site (keep just the domain registration), or re-home it on a subdomain — and if kept, update its embeds (the old github.io roadmap URL now lands on the app's login gate; the roadmap lives at /roadmap). Noted 2026-07-13.
 - [ ] **Headless-AI-home-server positioning** (Brent's insight) — local-stored + browser-accessed is *ideal* for someone running a headless home AI server: the AI can manage a person's real life through THE CACHE locally, private by default. Frame/build toward this (clean local API surface, AI-operable, no cloud dependency). Long-term but informs architecture. Requested 2026-06-26.
 
 ## Community (opt-in; lone-wolf stays 100% local)
