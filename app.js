@@ -3073,7 +3073,7 @@ async function restoreEncryptedBackup(file, pass) {
   let obj;
   try { obj = await decryptJSON(await file.text(), pass); }
   catch (e) { throw new Error("wrong passphrase or not a Cache backup file"); }
-  const res = await (await fetch("/api/import-data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: (obj && obj.files) || {} }) })).json();
+  const res = await (await fetch("/api/import-data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: (obj && obj.files) || {}, filesMeta: (obj && obj.filesMeta) || {}, local: snapshotLocal() }) })).json();
   if (!res || !res.ok) throw new Error((res && res.error) || "restore failed");
   return res;
 }
@@ -3460,36 +3460,48 @@ function cloudAgo(iso) {
   const d = Math.round(h / 24); return d + (d === 1 ? " day ago" : " days ago");
 }
 async function cloudPull(passphrase) {
-  if (!cloudState().token) throw new Error("log in first");
-  if (cloudPaused()) throw new Error("cloud sync is off — flip “Sync to cloud” on first");
-  if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again in Step 1 (your data is safe)");
-  const s = cloudState();  // fresh token after the refresh
-  const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
-  const d = await r.json();
-  if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault");
-  const rec = d.items && d.items[0];
-  if (!rec || !rec.blob) throw new Error("no cloud backup yet — push one first");
-  // v2 vaults: adopt the data key from the keybox if this device doesn't hold it yet
-  if (rec.keybox) {
-    const box = JSON.parse(rec.keybox);
-    keyboxGuard(box);
-    if (!cloudKeyGet()) { try { cloudKeySet(await keyboxOpen(rec.keybox, passphrase || "")); } catch (e) { throw new Error(e.message || "couldn't unlock the vault key"); } }
-    cloudSaveState(Object.assign(cloudState(), { mode: box.m === "zk" ? "zk" : "esc" }));   // remember the seal mode
-  }
-  let obj;
-  try { obj = await cloudOpen(rec.blob, passphrase); } catch (e) { throw new Error(e.message === "this device doesn't hold the cloud key yet" ? "open this vault from a device that has it, or enter your passphrase" : "wrong passphrase or corrupt backup"); }
-  const res = await (await fetch("/api/import-data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: (obj && obj.files) || {} }) })).json();
-  if (!res || !res.ok) throw new Error((res && res.error) || "restore failed");
-  if (obj && obj.local) res.localRestored = restoreLocal(obj.local, obj.localMeta);   // bring your deck / base / config back too (merged, never clobbered)
-  cloudSaveState(Object.assign(cloudState(), { recordId: rec.id, lastSeenVault: rec.updated || "" }));
-  return res;
+  // gate the auto-push engine for the WHOLE restore, set BEFORE the first await:
+  // a push armed before the user clicked Restore (the confirm() blocks JS while the
+  // 9s debounce elapses, so the timer fires the instant OK is clicked) must not slip
+  // through the cloudAuthCheck await and seal a half-applied file set to the vault
+  clearTimeout(_apT); _apT = null; _restoreBusy = true;
+  try {
+    if (!cloudState().token) throw new Error("log in first");
+    if (cloudPaused()) throw new Error("cloud sync is off — flip “Sync to cloud” on first");
+    if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again in Step 1 (your data is safe)");
+    const s = cloudState();  // fresh token after the refresh
+    const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
+    const d = await r.json();
+    if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault");
+    const rec = d.items && d.items[0];
+    if (!rec || !rec.blob) throw new Error("no cloud backup yet — push one first");
+    // v2 vaults: adopt the data key from the keybox if this device doesn't hold it yet
+    if (rec.keybox) {
+      const box = JSON.parse(rec.keybox);
+      keyboxGuard(box);
+      if (!cloudKeyGet()) { try { cloudKeySet(await keyboxOpen(rec.keybox, passphrase || "")); } catch (e) { throw new Error(e.message || "couldn't unlock the vault key"); } }
+      cloudSaveState(Object.assign(cloudState(), { mode: box.m === "zk" ? "zk" : "esc" }));   // remember the seal mode
+    }
+    let obj;
+    try { obj = await cloudOpen(rec.blob, passphrase); } catch (e) { throw new Error(e.message === "this device doesn't hold the cloud key yet" ? "open this vault from a device that has it, or enter your passphrase" : "wrong passphrase or corrupt backup"); }
+    // filesMeta rides along so the backend merges the four user-edit maps newest-per-key;
+    // the localStorage layer rides along so the pre-restore snapshot covers it too
+    const res = await (await fetch("/api/import-data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: (obj && obj.files) || {}, filesMeta: (obj && obj.filesMeta) || {}, local: snapshotLocal() }) })).json();
+    if (!res || !res.ok) throw new Error((res && res.error) || "restore failed");
+    if (obj && obj.local) res.localRestored = restoreLocal(obj.local, obj.localMeta);   // bring your deck / base / config back too (merged, never clobbered)
+    // the restored subs.json is now the truth on disk — drop the in-memory copy's
+    // authority so a pending debounce/pagehide flush can't write pre-restore SUBS back
+    try { clearTimeout(_subsSaveTimer); _subsSaveTimer = null; _subsDirty = false; _subsLoaded = false; } catch (e) {}
+    cloudSaveState(Object.assign(cloudState(), { recordId: rec.id, lastSeenVault: rec.updated || "" }));
+    return res;
+  } finally { _restoreBusy = false; }
 }
 // ── Cloud auto-sync ─────────────────────────────────────────
 // Logged in = same data everywhere, without thinking about it. Meaningful changes
 // arm a debounced push; boot + every return to the tab adopt the freshest "local"
 // layer other devices left behind. The #cloudHealth chip narrates every state.
 // Runs only once this device holds the data key (first backup/unlock plants it).
-let _apT = null, _apBusy = false;
+let _apT = null, _apBusy = false, _restoreBusy = false;   // _restoreBusy: a manual Restore is applying — pushes requeue behind it
 // local-only by choice: the toggle pauses the whole engine — no pushes, no pulls,
 // and the chip says so plainly. The cloud copy stays sealed until removed.
 function cloudPaused() { try { return localStorage.getItem("money.cloudPaused") === "1"; } catch (e) { return false; } }
@@ -3517,6 +3529,7 @@ function autoPushSoon() {
 async function autoPushNow() {
   clearTimeout(_apT); _apT = null;
   if (!cloudReady()) return;
+  if (_restoreBusy) { autoPushSoon(); return; }   // a Restore is applying — never seal a half-restored state
   if (_apBusy) { autoPushSoon(); return; }   // single-flight; re-queue behind the current push
   _apBusy = true;
   cloudChip("syncing");
@@ -3636,6 +3649,9 @@ function mergeRemoteLocal(lo, meta) {
   } catch (e) {}
   try {
     if (lo["money.profile"] != null) {
+      // flush a pending debounced saveStats first — an EXP click inside the 700ms
+      // window would otherwise be invisible to the merge and dropped by rehydration
+      try { if (_statsTimer) { clearTimeout(_statsTimer); _statsTimer = null; saveStats(); } } catch (e) {}
       const cur = localStorage.getItem("money.profile") || "";
       const merged = mergeProfileStrings(cur, lo["money.profile"]);
       if (merged !== cur) {
@@ -3673,7 +3689,14 @@ function mergeRemoteLocal(lo, meta) {
       const adopt = vm > localM || (vm === localM && has && cur !== lo[k] && _valWins(lo[k], cur));
       if (adopt) {
         try {
-          if (cur !== lo[k]) { localStorage.setItem(k, lo[k]); changed = true; }
+          if (cur !== lo[k]) {
+            localStorage.setItem(k, lo[k]);
+            changed = true;
+            // the timer engine keeps live in-memory state — re-seat it like the
+            // cross-tab storage handler does, or its next tick writes the stale
+            // copy back with a fresh mtime that then outranks the vault everywhere
+            if (k === "money.timer") { try { timerAdopt(lo[k]); timerEmit(); } catch (e) {} }
+          }
           lm[k] = { m: vm, h: lhash(lo[k]) };
         } catch (e) {}
       }
@@ -3939,6 +3962,17 @@ document.addEventListener("pointerdown", (e) => {
 }, true);
 window.addEventListener("pagehide", saveStats);
 window.addEventListener("beforeunload", saveStats);
+// The web runtime (webcache.js pullVault) calls this after merging a pulled vault
+// into localStorage when its once-per-30s reload guard suppresses the reload —
+// re-seat the live stats so the next saveStats can't write the stale in-memory
+// copy over the merge. Reads from localStorage, so it's idempotent + ordering-safe.
+window.__cacheRehydrateStats = function () {
+  try {
+    const p = getProfile();
+    if (typeof PROFILE_STATS === "object" && p.stats) { Object.assign(PROFILE_STATS, p.stats); PROFILE_STATS.dev = devId(); if (typeof updateXp === "function") updateXp(); }
+    document.dispatchEvent(new CustomEvent("cache:logged"));   // energy & friends repaint with the merged truth
+  } catch (e) {}
+};
 function applyPrivacy() {
   document.body.classList.toggle("privacy-on", localStorage.getItem("money.privacy") === "1");
 }
@@ -4471,11 +4505,18 @@ function openSettings() {
     catch (e) { clSay("Cloud backup failed: " + (e.message || e), "err"); }
   });
   clPull.addEventListener("click", async () => {
+    if (window.__CACHE_WEB__) { clSay("Restoring runs from the desktop app — this device reads the synced result.", "err"); return; }
     if (!cloudState().token) { clSay("Do Step 1 first — log into your account.", "err"); return; }
     if (phrase() && phrase().length < 6) { clSay("A zero-knowledge passphrase needs 6+ characters (or clear the field for the simple default).", "err"); return; }
-    if (!confirm("Restore from cloud will OVERWRITE your current data (snapshotted first). Continue?")) return;
+    if (!confirm("Restore from cloud replaces this device's money data files with your cloud copy (the current files are backed up first, so this is recoverable). Your check-ins, ledger history, character and settings are MERGED in — nothing local is erased. Continue?")) return;
     clSay("Pulling + decrypting…", "work");
-    try { const res = await cloudPull(phrase()); clSay("✓ Restored " + res.written + " files from cloud. Reloading…", "ok"); setTimeout(() => location.reload(), 1500); }
+    try {
+      const res = await cloudPull(phrase());
+      const mg = res.merged || {};
+      const extra = (mg.checkins || mg.ledger) ? " (merged " + (mg.checkins || 0) + " check-ins, " + (mg.ledger || 0) + " ledger rows)" : "";
+      clSay("✓ Restored " + res.written + " files from cloud" + extra + ". Reloading…", "ok");
+      setTimeout(() => location.reload(), 1500);
+    }
     catch (e) { clSay("Cloud restore failed: " + (e.message || e), "err"); }
   });
   }  // end cloud (hidden in demo)

@@ -284,6 +284,10 @@
         location.reload();
         return { empty: false, reloading: true };
       }
+      // reload suppressed — re-seat app.js's live stats so its next save can't
+      // stomp the just-merged profile (the hook may not exist yet on the very
+      // first unlock, in which case the app boots from merged storage anyway)
+      try { if (window.__cacheRehydrateStats) window.__cacheRehydrateStats(); } catch (e) {}
     }
     return { empty: false, count: Object.keys(FILES).length };
   }

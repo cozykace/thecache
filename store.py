@@ -187,19 +187,15 @@ def checkin_log():
     return out
 
 
-@_locked
-def checkin_append(entries):
-    """Append check-in answers (append-only, crash-durable, same rigor as the money
-    ledger). Dedupes by (at, itemId) against what's already on disk, so offline retries
-    and double-sends can never double-log an answer. Locked so two concurrent pushes
-    can't both read-then-append the same answer and double-log it."""
-    if not isinstance(entries, list):
-        return {"ok": False, "error": "bad entries"}
+def _checkin_union(entries):
+    """Union check-in entries into the log, deduped by (at, itemId) — the shared core
+    of checkin_append and import_data's merged restore. Caller holds _WRITE_LOCK.
+    Returns (added_count, total_after)."""
     have = set()
     for e in checkin_log():
         have.add((e.get("at"), e.get("itemId")))
     new_lines = []
-    for e in entries[:200]:
+    for e in entries:
         if not isinstance(e, dict) or "at" not in e or "itemId" not in e:
             continue
         k = (e.get("at"), e.get("itemId"))
@@ -210,7 +206,20 @@ def checkin_append(entries):
         new_lines.append(json.dumps(slim))
     if new_lines:
         _append_lines(CHECKIN_LOG, new_lines)   # torn-tail-safe append
-    return {"ok": True, "added": len(new_lines), "total": len(have)}
+        _chmod600(CHECKIN_LOG)
+    return len(new_lines), len(have)
+
+
+@_locked
+def checkin_append(entries):
+    """Append check-in answers (append-only, crash-durable, same rigor as the money
+    ledger). Dedupes by (at, itemId) against what's already on disk, so offline retries
+    and double-sends can never double-log an answer. Locked so two concurrent pushes
+    can't both read-then-append the same answer and double-log it."""
+    if not isinstance(entries, list):
+        return {"ok": False, "error": "bad entries"}
+    added, total = _checkin_union(entries[:200])
+    return {"ok": True, "added": added, "total": total}
 
 
 def checkin_deck_get():
@@ -942,6 +951,23 @@ def _chmod600(path):
         os.chmod(path, 0o600)
     except OSError:
         pass
+
+
+def _parse_jsonl_str(content):
+    """Parse .jsonl CONTENT (a string, e.g. a restored bundle entry) into {key: txn},
+    same tolerance as _parse_jsonl: a bad line is skipped, never fatal."""
+    led = {}
+    for line in (content or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            t = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(t, dict):
+            led[_ledger_key(t)] = t
+    return led
 
 
 def _parse_jsonl(path):
@@ -2042,10 +2068,12 @@ def api_snapshot():
     return out
 
 
+@_locked
 def export_data():
     """Bundle the user's data files (.json/.jsonl) into one object so the client can
     encrypt + download it (E2E backup) OR sync it to the cloud for the web app to read.
-    Read-only — touches nothing. `api` carries the precomputed dashboard views."""
+    Read-only — touches nothing. Locked (re-entrant) so a concurrent import_data can
+    never hand a push a HALF-restored file set. `api` carries the dashboard views."""
     files = {}
     try:
         for name in sorted(os.listdir(DATA)):
@@ -2067,10 +2095,22 @@ def export_data():
 
 
 @_locked
-def import_data(files):
+def import_data(files, files_meta=None, local=None):
     """Restore data files from a decrypted backup bundle. SNAPSHOTS the current data/
-    first (a bad restore is recoverable), then atomically writes each file. Path-guarded:
-    plain .json/.jsonl names only, no traversal."""
+    first (a bad restore is recoverable), then applies each file — a MERGING restore
+    for anything append-only or user-edited, a replace for engine snapshots:
+      · checkin-log.jsonl → UNION by (at, itemId) — a restore can never destroy
+        check-ins answered since the vault's last push
+      · ledger.jsonl (+ legacy ledger.json) → UNION, add-only (local row wins on a
+        key conflict: on restore the incoming copy is the OLDER one) — a restore
+        from an older vault can never shrink the permanent ledger
+      · the four MERGE_MAPS (categories/income/subs/income_links) → merge_maps
+        newest-per-key using the bundle's files_meta (absent → additive union),
+        which also keeps _mapmeta.json truthful
+      · everything else (balances, transactions, monthly, …) → atomic replace,
+        then a rebuild reconciles those snapshots with the merged ledger
+    Path-guarded: plain .json/.jsonl names only, no traversal. `local` (the client's
+    localStorage layer) is only written into the snapshot dir so the backup covers it."""
     global _CATMETA_CACHE
     if not isinstance(files, dict) or not files:
         return {"ok": False, "error": "no files in backup"}
@@ -2084,15 +2124,61 @@ def import_data(files):
                     shutil.copy2(p, os.path.join(snap, name))
                 except Exception:
                     pass
+        if isinstance(local, dict):   # the merged layer is recoverable too, not just files
+            try:
+                with open(os.path.join(snap, "_localStorage.json"), "w", encoding="utf-8") as f:
+                    json.dump(local, f)
+            except Exception:
+                pass
     except Exception:
         return {"ok": False, "error": "couldn't snapshot current data — aborting restore"}
-    written = []
+    written, merged_checkins, merged_ledger, needs_rebuild = [], 0, 0, False
+    map_files = {}
     for name, content in files.items():
         if not isinstance(name, str) or not isinstance(content, str):
             continue
         if "/" in name or "\\" in name or name.startswith(".") or name.startswith("_"):
             continue
         if not (name.endswith(".json") or name.endswith(".jsonl")):
+            continue
+        if name == "checkin-log.jsonl":
+            try:
+                parsed = []
+                for line in content.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(e, dict):
+                        parsed.append(e)
+                added, _total = _checkin_union(parsed)
+                merged_checkins += added
+                written.append(name)
+            except Exception:
+                pass
+            continue
+        if name in ("ledger.jsonl", "ledger.json"):
+            try:
+                if name == "ledger.jsonl":
+                    incoming = _parse_jsonl_str(content)
+                else:   # legacy dict bundle — union its rows, never write the file itself
+                    d = json.loads(content)
+                    incoming = d if isinstance(d, dict) else {}
+                led = load_ledger()
+                add = [t for k, t in incoming.items() if k not in led and isinstance(t, dict)]
+                if add:
+                    merge_ledger(add)   # pure append (only missing keys) — shrink guard trivially holds
+                    merged_ledger += len(add)
+                    needs_rebuild = True
+                written.append(name)
+            except Exception:
+                pass
+            continue
+        if name in MERGE_MAPS:
+            map_files[name] = content   # merged after the loop, newest-per-key
             continue
         try:
             tmp = os.path.join(DATA, name + ".tmp")
@@ -2105,10 +2191,33 @@ def import_data(files):
             written.append(name)
         except Exception:
             pass
+    maps_changed = False
+    if map_files:
+        try:
+            mm = merge_maps(map_files, files_meta if isinstance(files_meta, dict) else {})
+            maps_changed = bool(mm.get("changed"))
+            written.extend(map_files.keys())
+        except Exception:
+            pass
     _fsync_dir(DATA)
+    # reconcile the replaced engine snapshots with the merged ledger/maps
+    try:
+        if needs_rebuild:
+            wd = 30
+            try:
+                wd = int(_read(TRANSACTIONS, {}).get("window_days") or 30)
+            except Exception:
+                pass
+            rebuild_from_ledger(window_days=wd)
+        elif maps_changed:
+            recompute_spending()
+            recompute_income()
+    except Exception:
+        pass
     _CATMETA_CACHE = None   # drop the pre-restore category registry so the next
     # edit reloads the restored one instead of writing the old map back over it
-    return {"ok": True, "written": len(written), "files": written, "snapshot": os.path.basename(snap)}
+    return {"ok": True, "written": len(written), "files": written, "snapshot": os.path.basename(snap),
+            "merged": {"checkins": merged_checkins, "ledger": merged_ledger}}
 
 
 def dev_tree():

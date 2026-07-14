@@ -266,7 +266,7 @@ class Handler(SimpleHTTPRequestHandler):
                 data = json.loads(self.rfile.read(n) or b"{}")
             except (ValueError, json.JSONDecodeError):
                 return self._json(400, {"error": "bad request"})
-            return self._json(200, store.import_data(data.get("files") or {}))
+            return self._json(200, store.import_data(data.get("files") or {}, data.get("filesMeta") or {}, data.get("local")))
         if self.path == "/api/merge-maps":
             try:
                 n = int(self.headers.get("Content-Length", 0))
