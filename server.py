@@ -267,6 +267,20 @@ class Handler(SimpleHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError):
                 return self._json(400, {"error": "bad request"})
             return self._json(200, store.import_data(data.get("files") or {}))
+        if self.path == "/api/merge-maps":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            res = store.merge_maps(data.get("files") or {}, data.get("filesMeta") or {})
+            if res.get("changed"):   # adopted another device's tags → refresh the derived numbers
+                try:
+                    store.recompute_spending()
+                    store.recompute_income()
+                except Exception:
+                    pass
+            return self._json(200, res)
         if self.path == "/api/webdav-config":
             try:
                 n = int(self.headers.get("Content-Length", 0))

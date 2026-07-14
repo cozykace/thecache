@@ -3032,6 +3032,10 @@ const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused
 // device-ergonomic geometry — pinned to the device that set it, never synced
 const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki"];
 const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.deckRev", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
+// the four user-authored data/ maps that merge key-wise across devices (via the
+// backend's /api/merge-maps + the vault's filesMeta sidecar) — everything else in
+// the files bundle is engine-computed and travels whole-file
+const MAP_FILE_NAMES = ["categories.json", "income.json", "subs.json", "income_links.json"];
 function isInternalKey(k) { return CLOUD_INTERNAL_KEYS.indexOf(k) !== -1 || DEVICE_LOCAL_KEYS.indexOf(k) !== -1; }
 function isSpecialKey(k) { return SPECIAL_MERGE_KEYS.indexOf(k) !== -1; }
 function isGenericKey(k) { return k.indexOf("money.") === 0 && !isInternalKey(k) && !isSpecialKey(k); }
@@ -3122,14 +3126,29 @@ async function cloudPush(passphrase) {
   // gather the payload BEFORE any key rotation — the web branch must open the
   // existing blob with the CURRENT key, and must never overwrite real financial
   // data with an empty bundle just because the open failed
-  let files = {}, api = {}, exported, curLocal = null, curLocalMeta = null;
+  let files = {}, api = {}, exported, filesMeta = {}, curLocal = null, curLocalMeta = null;
   if (window.__CACHE_WEB__) {
-    if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; curLocal = cur.local || null; curLocalMeta = cur.localMeta || null; }
+    if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; filesMeta = cur.filesMeta || {}; curLocal = cur.local || null; curLocalMeta = cur.localMeta || null; }
   } else {
+    // open the vault FIRST so we can merge another device's user-edit maps
+    // (categories/income/subs/income-links) into our local backend before exporting —
+    // then the exported snapshot is the converged truth, not this device's stale copy.
+    if (rec && rec.blob) {
+      try {
+        const cur = await cloudOpen(rec.blob, passphrase || "");
+        curLocal = cur.local || null; curLocalMeta = cur.localMeta || null;
+        if (cur.files) {
+          const rf = {}; MAP_FILE_NAMES.forEach((n) => { if (cur.files[n] != null) rf[n] = cur.files[n]; });
+          try {
+            const mm = await (await fetch("/api/merge-maps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: rf, filesMeta: cur.filesMeta || {} }) })).json();
+            if (mm && mm.changed) { try { if (typeof Store !== "undefined" && Store.refresh) Store.refresh(); } catch (e) {} }   // adopted another device's tags → repaint
+          } catch (e) {}   // best-effort — a failed merge just means this push carries our own maps
+        }
+      } catch (e) {}   // v1/keyless blobs just skip the merge
+    }
     const data = await (await fetch("/api/export-data")).json();
     if (!data || !data.ok) throw new Error("couldn't read your data");
-    files = data.files || {}; api = data.api || {}; exported = data.exported;
-    if (rec && rec.blob) { try { const cur = await cloudOpen(rec.blob, passphrase || ""); curLocal = cur.local || null; curLocalMeta = cur.localMeta || null; } catch (e) {} }   // v1/keyless blobs just skip the merge
+    files = data.files || {}; api = data.api || {}; exported = data.exported; filesMeta = data.filesMeta || {};
   }
   const count = Object.keys(files).length;
   // converge BOTH ways on every push: ADOPT the vault's shared "local" layer into
@@ -3167,7 +3186,7 @@ async function cloudPush(passphrase) {
     kb = await cloudGenKey(); cloudKeySet(kb); mintedKey = true;
     writeKeybox = true;
   }
-  const payloadCore = JSON.stringify({ files, api, local: localSnap, localMeta: buildLocalMeta(localSnap) });
+  const payloadCore = JSON.stringify({ files, api, filesMeta, local: localSnap, localMeta: buildLocalMeta(localSnap) });
   // content short-circuit: unchanged data never re-uploads (auto-push fires freely).
   // Hashes the real content only — exported is a timestamp and would defeat it.
   let h = 5381; for (let i = 0; i < payloadCore.length; i++) h = ((h << 5) + h + payloadCore.charCodeAt(i)) | 0;
@@ -3459,6 +3478,16 @@ async function cloudAutoPull() {
         if (obj && obj.local && mergeRemoteLocal(obj.local, obj.localMeta)) {
           try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {}   // energy & friends repaint
           try { ckSync(); } catch (e) {}   // route merged check-ins into the server ledger
+        }
+        // adopt another device's category/income/subs/income-link edits into our
+        // local backend, newest-per-key (desktop only — the web reads maps straight
+        // from the vault's files and has no backend to merge into)
+        if (!window.__CACHE_WEB__ && obj && obj.files) {
+          try {
+            const rf = {}; MAP_FILE_NAMES.forEach((n) => { if (obj.files[n] != null) rf[n] = obj.files[n]; });
+            const mm = await (await fetch("/api/merge-maps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: rf, filesMeta: obj.filesMeta || {} }) })).json();
+            if (mm && mm.changed) { try { if (typeof Store !== "undefined" && Store.refresh) Store.refresh(); } catch (e) {} }   // merged tags → repaint money widgets
+          } catch (e) {}
         }
         cloudSaveState(Object.assign(cloudState(), { lastSeenVault: rec.updated || rec0.updated }));
         cloudChip("ok");

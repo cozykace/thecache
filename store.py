@@ -36,6 +36,10 @@ LEDGER_OLD = os.path.join(DATA, "ledger.json")  # the old single-object format (
 CATMETA = os.path.join(DATA, "catmeta.json")    # category registry: renamed labels + delete/remap rules
 SUBS = os.path.join(DATA, "subs.json")          # YOUR decisions about recurring money: {key: {mustpay, cadence, paused, name}}
 INCOME_LINKS = os.path.join(DATA, "income_links.json")  # income source key -> Toggl project name
+MAPMETA = os.path.join(DATA, "_mapmeta.json")   # per-key edit times for the merge maps → cross-device newest-wins (leading _ keeps it out of the export files bundle; it rides the vault as filesMeta instead)
+# the user-authored flat maps that merge key-wise across devices (everything else in
+# data/ is computed by the sync engine and travels whole-file)
+MERGE_MAPS = {"categories.json": CATEGORIES, "income.json": INCOME, "subs.json": SUBS, "income_links.json": INCOME_LINKS}
 
 # the built-in category keys (mirror of the frontend CAT_META) — so the manager
 # can list them even when they currently hold zero transactions
@@ -274,8 +278,10 @@ def save_override(substring, category):
     ov = load_overrides()
     key = (substring or "").strip().lower()
     if key:
+        before = dict(ov)
         ov[key] = category
         _write(CATEGORIES, ov)
+        _stamp_map("categories.json", before, ov)
     return ov
 
 
@@ -520,7 +526,9 @@ def load_subs():
 @_locked
 def save_subs(data):
     if isinstance(data, dict):
+        before = load_subs()
         _write(SUBS, data)
+        _stamp_map("subs.json", before, data)
     return load_subs()
 
 
@@ -533,7 +541,9 @@ def load_income_links():
 @_locked
 def save_income_links(data):
     if isinstance(data, dict):
+        before = load_income_links()
         _write(INCOME_LINKS, data)
+        _stamp_map("income_links.json", before, data)
     return load_income_links()
 
 
@@ -543,12 +553,98 @@ def save_income_override(key, status):
     ov = load_income_overrides()
     k = (key or "").strip().lower()
     if k:
+        before = dict(ov)
         if status in ("income", "ignore"):
             ov[k] = status
         else:
             ov.pop(k, None)  # back to automatic
         _write(INCOME, ov)
+        _stamp_map("income.json", before, ov)
     return ov
+
+
+# ── merge-map edit times (cross-device newest-wins) ──────────────────
+# The four user-authored maps (categories, income, subs, income_links) are edited on
+# more than one device. To let a desktop pull adopt another device's edits WITHOUT a
+# stale copy clobbering a fresh one, each changed key is stamped with an edit time,
+# and merge_maps() keeps the newest value per key. Mirrors the client's per-key
+# localStorage merge, one layer down. No tombstones (deletions are rare in these
+# maps), so a cleared key can resurrect from a device that still holds it — the same
+# honest limitation as the local merge.
+def _now_ms():
+    return int(time.time() * 1000)
+
+
+def load_mapmeta():
+    m = _read(MAPMETA, {})
+    return m if isinstance(m, dict) else {}
+
+
+def _stamp_map(filename, old_map, new_map):
+    """Record now() for every key whose value changed between old_map and new_map;
+    forget keys that were removed. Called under the store lock by each map save."""
+    old_map = old_map if isinstance(old_map, dict) else {}
+    new_map = new_map if isinstance(new_map, dict) else {}
+    meta = load_mapmeta()
+    fm = meta.get(filename)
+    if not isinstance(fm, dict):
+        fm = {}
+    now, changed = _now_ms(), False
+    for k in set(old_map) | set(new_map):
+        if k not in new_map:
+            if k in fm:
+                del fm[k]
+                changed = True
+        elif old_map.get(k) != new_map.get(k):
+            fm[k] = now
+            changed = True
+    if changed:
+        meta[filename] = fm
+        _write(MAPMETA, meta)
+
+
+@_locked
+def merge_maps(remote_files, remote_meta):
+    """Merge another device's copy of the four user-edit maps into the local ones,
+    newest-per-key. remote_files: {filename: json-string}; remote_meta: {filename:
+    {key: mtime}}. A key the local map lacks is always adopted (additive union across
+    devices); a key both hold takes whichever side stamped it more recently. Returns
+    the merged maps + metas (so the caller can seal the converged truth back to the
+    vault) and whether anything changed locally."""
+    remote_files = remote_files if isinstance(remote_files, dict) else {}
+    remote_meta = remote_meta if isinstance(remote_meta, dict) else {}
+    meta = load_mapmeta()
+    out_files, out_meta, changed = {}, {}, False
+    for name, path in MERGE_MAPS.items():
+        local = _read(path, {})
+        if not isinstance(local, dict):
+            local = {}
+        lm = meta.get(name) if isinstance(meta.get(name), dict) else {}
+        try:
+            rem = json.loads(remote_files.get(name) or "{}")
+        except Exception:
+            rem = {}
+        if not isinstance(rem, dict):
+            rem = {}
+        rm = remote_meta.get(name) if isinstance(remote_meta.get(name), dict) else {}
+        merged, merged_meta, this_changed = dict(local), dict(lm), False
+        for k, rval in rem.items():
+            local_m = lm.get(k, 0) if k in local else -1   # never had it → adopt even an unstamped remote value
+            remote_m = rm.get(k, 0)
+            if remote_m > local_m:
+                if merged.get(k) != rval:
+                    merged[k] = rval
+                    this_changed = True
+                merged_meta[k] = remote_m
+        if this_changed:
+            _write(path, merged)
+            meta[name] = merged_meta
+            changed = True
+        out_files[name] = json.dumps(merged)
+        out_meta[name] = merged_meta
+    if changed:
+        _write(MAPMETA, meta)
+    return {"ok": True, "changed": changed, "files": out_files, "filesMeta": out_meta}
 
 
 # INCOME DECISION PRECEDENCE (highest wins) — the one place this is defined:
@@ -1951,7 +2047,7 @@ def export_data():
                 pass
     except Exception:
         pass
-    return {"ok": True, "files": files, "api": api_snapshot(), "exported": int(time.time()), "count": len(files)}
+    return {"ok": True, "files": files, "filesMeta": load_mapmeta(), "api": api_snapshot(), "exported": int(time.time()), "count": len(files)}
 
 
 @_locked
