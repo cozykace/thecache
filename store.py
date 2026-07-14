@@ -918,7 +918,21 @@ def build_snapshot(accounts, window_days=30, now=None, fetch_days=None):
     return snapshot, txns
 
 
+def _next_rev(bal):
+    """The snapshot's revision counter — bumped by EVERY change to derived data
+    (a category edit, an income tag, a delete, an import, a bank sync). Widgets key
+    their re-pulls on it. Deliberately separate from `updated`, which is the bank-sync
+    timestamp feeding "synced X ago" and the cloud auto-push trigger — reusing that
+    would make a local tag edit look like a fresh bank sync."""
+    try:
+        return int((bal or {}).get("rev") or 0) + 1
+    except Exception:
+        return 1
+
+
+@_locked
 def save_balances(snapshot):
+    snapshot["rev"] = _next_rev(_read(BALANCES, {}))   # a bank sync is a change too
     _write(BALANCES, snapshot)
 
 
@@ -1202,6 +1216,7 @@ def recompute_spending():
     wd = sp.get("window_days") or 30
     bal["subscriptions"] = {"window_days": wd, "total": subs_total,
                             "per_month": round(subs_total / wd * 30, 2), "items": subs_items}
+    bal["rev"] = _next_rev(bal)   # derived data moved → widgets re-pull
     _write(BALANCES, bal)
     recompute_monthly()
     return sp
@@ -1237,6 +1252,7 @@ def recompute_income():
               "per_month": round(total / window_days * 30, 2), "sources": sources,
               "untagged": len(untagged_inc)}
     bal["income"] = income
+    bal["rev"] = _next_rev(bal)   # derived data moved → widgets re-pull
     _write(BALANCES, bal)
     recompute_monthly()
     return income
@@ -1339,6 +1355,8 @@ def period_summary(kind="mtd", ym=None, now=None, start_d=None, end_d=None):
                    "days": days, "label": label, "count": len(win)},
         "catmeta": {"labels": load_catmeta()["labels"]},  # renamed category labels → ripple to all widgets
         "updated": bal.get("updated"),
+        "rev": bal.get("rev", 0),   # bumps on ANY derived-data change (tag, delete, import, sync) — widgets key re-pulls on it
+
         "total": bal.get("total"), "cash": bal.get("cash"),
         "accounts": bal.get("accounts", []),
         "burn_per_day": round(outflow / days, 2),

@@ -592,17 +592,18 @@ const RENDERERS = {
         wrap.appendChild(n);
       });
     }
-    // transfers re-pull when the snapshot stamp moves (bank sync — NOTE: recompute-only
-    // edits like categorize/delete-txn don't bump d.updated today; a bal.rev stamp is a
-    // future brick). Keyed so local ripples stay fetch-free; a failed fetch resets the
-    // marker so the next ripple retries instead of leaving bubbles absent forever
+    // transfers re-pull whenever server data moves (CSV import, delete-txn, categorize,
+    // bank sync) — keyed on the snapshot stamp so local ripples stay fetch-free; a
+    // failed fetch resets the marker so the next ripple retries instead of leaving the
+    // bubbles absent forever
     function fetchTransfers() {
       fetch("/api/transfers?t=" + Date.now()).then((r) => r.json())
         .then((t) => { transfers = t.transfers || []; if (Store.data) render(Store.data); })
         .catch(() => { transfersSeen = null; });
     }
     Store.subscribe(el, (d) => {
-      if (d && d.updated !== transfersSeen) { transfersSeen = d.updated; fetchTransfers(); }
+      const s = dataStamp(d);
+      if (d && s !== transfersSeen) { transfersSeen = s; fetchTransfers(); }
       render(d);
     });
     if (window.ResizeObserver) new ResizeObserver(() => { if (Store.data) requestAnimationFrame(() => redraw(Store.data)); }).observe(el);
@@ -646,7 +647,7 @@ const RENDERERS = {
         .catch(() => {});
     }
     let workMonthly = null;   // { "YYYY-MM": hours }
-    let dataSeen = null;      // d.updated behind the cached history — re-fetch when server data moves
+    let dataSeen = null;      // snapshot stamp behind the cached history — re-fetch when server data moves
     function fetchWork() {
       fetch("/api/work-monthly?t=" + Date.now())
         .then((r) => (r.ok ? r.json() : null))
@@ -925,10 +926,11 @@ const RENDERERS = {
     }));
     Store.subscribe(el, (d) => {
       if (!d || !d.spending) { big.textContent = "…"; return; }
-      if (d.updated !== dataSeen) {
+      const s = dataStamp(d);
+      if (s !== dataSeen) {
         const had = dataSeen !== null;
-        dataSeen = d.updated;
-        if (had) { fetchHist(); fetchWork(); }  // snapshot stamp moved (bank sync; recompute-only edits don't bump it — bal.rev is a future brick) → refresh history; old chart stays up until fresh lands
+        dataSeen = s;
+        if (had) { fetchHist(); fetchWork(); }  // server data moved (income re-tag, sync, import, delete) → refresh the history bands; the old chart stays up until fresh data lands
       }
       ensureSources(d); paint(d);
     });
@@ -2023,7 +2025,7 @@ const RENDERERS = {
     const inEl = el.querySelector(".mm-in");
     const list = el.querySelector(".cf-list");
     let detected = [], deposits = [], projects = [], incomeLinks = {};
-    let offline = false, seenUpdated;   // seenUpdated: the summary stamp the four feeds were last pulled for
+    let offline = false, seenStamp;   // the snapshot stamp (updated|rev) the four feeds were last pulled for
     function loadData() {
       const t = Date.now();
       // all four hit the same backend — fail together so a down backend reads as
@@ -2182,9 +2184,14 @@ const RENDERERS = {
         openSubDetail(detected.find((x) => x.key === b.dataset.key), () => Store.emit())));
     }
     Store.subscribe(el, (d) => {
-      const u = (d && d.updated) || null;
-      if (seenUpdated === undefined && !offline) { seenUpdated = u; render(); return; }  // boot ripple — creation loadData already pulled
-      if (offline || u !== seenUpdated) { seenUpdated = u; loadData(); }  // snapshot stamp moved (bank sync) or recovering from offline → re-pull the four feeds (own edits re-pull directly in their handlers)
+      const s = dataStamp(d);
+      if (seenStamp === undefined && !offline) { seenStamp = s; render(); return; }  // boot ripple — creation loadData already pulled
+      // rev moved → server data changed (a tag from ANY widget or another device, a
+      // delete, an import, a sync) → re-pull the four feeds. Our own controls also
+      // loadData() directly, so one redundant re-pull after our own edit is the price
+      // of staying correct even when the summary refresh itself fails. No loop: a
+      // re-pull is read-only and never bumps rev.
+      if (offline || s !== seenStamp) { seenStamp = s; loadData(); }
       else render();  // local-only ripple (pin / pause / must-pay / cadence) → cheap repaint
     });
     el.querySelector(".bd-fix").addEventListener("click", () => openCategorizer(() => Store.refresh()));
@@ -8086,6 +8093,12 @@ function updatePeriodUI() {
   if (txt) txt.textContent = lab;
   document.querySelectorAll(".w-period").forEach((e) => { e.textContent = lab; });
 }
+// The snapshot's identity: `updated` moves only on a bank sync, `rev` bumps on ANY
+// derived-data change (category edit, income tag, delete, CSV import, a merged tag
+// from another device). Widgets that cache their own side-feeds key their re-pull on
+// this stamp, so a tag change in one widget ripples to every other — and a purely
+// local ripple (pin, must-pay, core/flex) leaves it unchanged and stays fetch-free.
+function dataStamp(d) { return d ? (d.updated || "") + "|" + (d.rev || 0) : null; }
 // ── Store: the single source of truth ──────────────────────────────────────
 //   ONE fetch of /api/summary?<period>. Every money widget subscribes and
 //   renders from the same object, so they can never disagree. Any edit calls
@@ -8115,9 +8128,13 @@ const Store = {
     ])
       .then(([d, rec]) => {
         if (d.catmeta && d.catmeta.labels) CAT_LABELS = d.catmeta.labels;  // renames ripple to every widget
-        // server data moved (categorize, tag, sync, delete…) → arm a cloud auto-push.
+        // server data moved (categorize, tag, delete, import, sync…) → arm a cloud
+        // auto-push. Keyed on the STAMP, not `updated`: a tag edit bumps only rev, and
+        // keying on updated alone meant a categorization never armed a push at all —
+        // it reached the cloud only if some unrelated change happened to trigger one.
         // The push's own content hash makes repeats free, so boot is harmless here.
-        if (d && d.updated && d.updated !== this._cloudSeen) { this._cloudSeen = d.updated; autoPushSoon(); }
+        const st = dataStamp(d);
+        if (st && st !== this._cloudSeen) { this._cloudSeen = st; autoPushSoon(); }
         this.data = d; this.recurring = (rec && rec.recurring) || []; this.ready = true; this.emit(); return d;
       })
       .catch(() => {});  // keep the last good data on the screen if a pull fails

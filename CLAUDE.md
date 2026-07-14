@@ -47,7 +47,8 @@ The board is desktop-first today (drag / zoom / pan), but build everything new s
 ## Data contract
 
 **`data/balances.json`** (the snapshot every widget reads):
-- top: `updated`, `total`, `cash`, `burn_per_day`, `spend_window_days`
+- top: `updated`, `rev`, `total`, `cash`, `burn_per_day`, `spend_window_days`
+- **`updated` vs `rev` — keep these distinct.** `updated` is the BANK-SYNC timestamp (feeds "synced X ago"). `rev` is a counter bumped by EVERY derived-data change — `_next_rev()` in `recompute_spending`/`recompute_income`/`save_balances`, so a categorize, income tag, delete-txn, CSV import, or a tag merged from another device all move it. `period_summary` surfaces both. The client's `dataStamp(d)` = `updated|rev` is what widgets key their side-feed re-pulls on (Money Map, income-forecast history, money-flow transfers) AND what arms the cloud auto-push. **Never bump `updated` on a recompute** — a local tag edit would masquerade as a fresh bank sync.
 - `spending`: `{ window_days, total, per_month, per_day, trend_pct, categories:[{key, amount}] }`
 - `income`: `{ window_days, total, per_month, sources:[{source, key, amount, tagged}], untagged }`
 - `subscriptions`: `{ window_days, total, per_month, items:[{name, key, amount, count, descriptions[], accounts[]}] }`
