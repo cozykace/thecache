@@ -3190,7 +3190,7 @@ async function cloudFindVaultId(s) {
 //              a fresher edit and the web app can't blind-adopt on every unlock.
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta"];
 // device-ergonomic geometry — pinned to the device that set it, never synced
-const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki"];
+const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun"];
 const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.deckRev", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
@@ -3732,9 +3732,10 @@ function mergeRemoteLocal(lo, meta) {
           if (cur !== lo[k]) {
             localStorage.setItem(k, lo[k]);
             changed = true;
-            // the timer engine keeps live in-memory state — re-seat it like the
-            // cross-tab storage handler does, or its next tick writes the stale
-            // copy back with a fresh mtime that then outranks the vault everywhere
+            // the timer engine keeps live in-memory state — re-seat the adopted PRESETS
+            // like the cross-tab storage handler does, or its next tick writes the stale
+            // copy back with a fresh mtime that then outranks the vault everywhere.
+            // (timerAdopt takes presets only, so a peer's countdown can never land here.)
             if (k === "money.timer") { try { timerAdopt(lo[k]); timerEmit(); } catch (e) {} }
           }
           lm[k] = { m: vm, h: lhash(lo[k]) };
@@ -3911,22 +3912,51 @@ function primeChime() {
 // The engine outlives any widget instance: phase turns, chimes, and EXP keep
 // firing while you're on another page or the widget is closed. The widget is
 // just a window onto this state — it repaints on the "cache:timer" event.
-const TIMER_KEY = "money.timer";
+// The timer is TWO things and they must not travel together:
+//   money.timer    — your PRESETS (block lengths, sound). Config: syncs across devices.
+//   money.timerRun — the RUNNING state (phase, cycle, endsAt, pausedLeft). A countdown
+//                    anchored to this machine's clock; device-local, never synced —
+//                    otherwise a block running on the desktop would hijack the phone.
+// One in-memory object still backs the widget; only the persistence is split.
+const TIMER_KEY = "money.timer", TIMERRUN_KEY = "money.timerRun";
+const TIMER_PRESETS = ["work", "rest", "longRest", "longEvery", "sound"];
+const TIMER_RUNTIME = ["phase", "cycle", "endsAt", "pausedLeft"];
 const timerSt = { work: 25, rest: 5, longRest: 15, longEvery: 4, phase: "work", cycle: 1, endsAt: null, pausedLeft: null, sound: true };
-// merge a stored snapshot, coercing anything corrupt — a bad value (wrong type,
-// hand-edited storage) must never wedge the timer
-function timerAdopt(raw) {
+function _timerTake(raw, fields) {
   let s = {};
   try { s = JSON.parse(raw) || {}; } catch (e) {}
-  Object.assign(timerSt, s);
+  if (!s || typeof s !== "object") return;
+  fields.forEach((f) => { if (f in s) timerSt[f] = s[f]; });
+}
+// coerce anything corrupt — a bad value (wrong type, hand-edited storage) must never wedge the timer
+function timerNormalize() {
   if (timerSt.phase !== "rest" && timerSt.phase !== "long") timerSt.phase = "work";
   timerSt.cycle = parseInt(timerSt.cycle) >= 1 ? parseInt(timerSt.cycle) : 1;
   timerSt.endsAt = parseInt(timerSt.endsAt) > 0 ? parseInt(timerSt.endsAt) : null;
   timerSt.pausedLeft = parseInt(timerSt.pausedLeft) > 0 ? parseInt(timerSt.pausedLeft) : null;
   timerSt.sound = timerSt.sound !== false;
 }
-try { timerAdopt(localStorage.getItem(TIMER_KEY)); } catch (e) {}
-function timerSave() { try { localStorage.setItem(TIMER_KEY, JSON.stringify(timerSt)); } catch (e) {} }
+// adopting the SYNCED key takes presets only — a legacy blob (or an older device's
+// push) still carries runtime fields, and they must never move a countdown here
+function timerAdopt(raw) { _timerTake(raw, TIMER_PRESETS); timerNormalize(); }
+function timerAdoptRun(raw) { _timerTake(raw, TIMER_RUNTIME); timerNormalize(); }
+function timerLoad() {
+  const legacy = localStorage.getItem(TIMER_KEY);   // pre-split blobs held both halves
+  _timerTake(legacy, TIMER_PRESETS);
+  const run = localStorage.getItem(TIMERRUN_KEY);
+  _timerTake(run != null ? run : legacy, TIMER_RUNTIME);   // one-time migration out of the old combined key
+  timerNormalize();
+}
+try { timerLoad(); } catch (e) {}
+function timerSave() {
+  try {
+    const pre = {}, run = {};
+    TIMER_PRESETS.forEach((f) => { pre[f] = timerSt[f]; });
+    TIMER_RUNTIME.forEach((f) => { run[f] = timerSt[f]; });
+    localStorage.setItem(TIMER_KEY, JSON.stringify(pre));
+    localStorage.setItem(TIMERRUN_KEY, JSON.stringify(run));
+  } catch (e) {}
+}
 // presets clamp to their bounds instead of reverting to defaults — what the
 // user typed (or the nearest allowed value) is what runs
 function timerPreset(k, d) { const n = parseFloat(timerSt[k]); return n >= 1 ? Math.min(180, Math.round(n)) : d; }
@@ -3968,9 +3998,10 @@ function timerTick() {
 }
 setInterval(timerTick, 1000); // idles at one no-op compare per second when nothing runs
 window.addEventListener("storage", (e) => {
-  if (e.key !== TIMER_KEY) return;
-  timerAdopt(e.newValue); // another tab moved the timer — adopt it, don't fight it
-  timerEmit();
+  // another TAB on this device moved the timer — adopt it, don't fight it. Both halves
+  // are shared between tabs (same machine); only the cloud never sees the runtime.
+  if (e.key === TIMER_KEY) { timerAdopt(e.newValue); timerEmit(); }
+  else if (e.key === TIMERRUN_KEY) { timerAdoptRun(e.newValue); timerEmit(); }
 });
 let _sparkAlive = 0;
 function expSpark(x, y, n, blessed) {

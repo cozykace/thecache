@@ -129,7 +129,7 @@
   function wLmetaSet(m) { try { localStorage.setItem("money.__lmeta", JSON.stringify(m)); } catch (e) {} }
   // cloud/identity internals + device-ergonomic geometry (never synced — keeps the
   // phone from snapping to desktop-pixel zoom / sidebar / modal layout on unlock)
-  var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki"];
+  var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun"];
   var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.deckRev", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
   function wIsGeneric(k) { return k.indexOf("money.") === 0 && W_INTERNAL.indexOf(k) === -1 && W_SPECIAL.indexOf(k) === -1; }
   function wStampGeneric(lm) {
