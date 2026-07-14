@@ -65,6 +65,7 @@ The board is desktop-first today (drag / zoom / pan), but build everything new s
 - *subs/categories*: `subcore` `subnames` `subpaused` `subcadence` `subsMigrated` `cats` `catMgr` `catModal` `flowCards`
 - *income forecast*: `forecastSources` `forecastGoal` `forecastMode`
 - *misc/ui*: `favorites` `autoPinFavorites` `soundtrack` `clock24` `clockSecs` `dateFmt` `tz` `note` `timer` `skipUpdate` `settings` `connect` `badges`
+- *cloud*: `cloud` (account/session state) `cloudKey` (the device's vault data key — never rides in the encrypted bundle; excluded by snapshotLocal/restoreLocal)
 
 **Systems map** (added since the original CLAUDE.md — where the new stuff lives in `app.js`):
 - *Character* — `cacheLevel()`/`renderCharacter()` (sidebar card), `logChar()`/`openCharLog()` (journey arcs `JOURNEY` + skills + activity ledger), `getCacheName()` (founder → "King Cozy Cache").

@@ -231,6 +231,7 @@ function saveSubs() {
   _subsSaveTimer = setTimeout(() => {
     fetch("/api/subs", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ subs: SUBS }) }).catch(() => {});
+    autoPushSoon();
   }, 350);
 }
 function setSubField(key, field, value) {
@@ -2449,6 +2450,7 @@ function saveStats() {
   const p = getProfile();
   p.stats = PROFILE_STATS;
   try { localStorage.setItem("money.profile", JSON.stringify(p)); } catch (e) {}
+  autoPushSoon();
 }
 // ── Your cache: it's named (yours), and it levels up as you do the work ──
 // (one cache character for now; multi-cache + a combined profile character are
@@ -2833,6 +2835,58 @@ async function decryptJSON(envStr, pass) {
   const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(env.iv) }, key, _unb64(env.ct));
   return JSON.parse(new TextDecoder().decode(pt));
 }
+// ── Cloud data key (v2 vaults) ──────────────────────────────
+// The cloud vault is sealed with a random 256-bit data key K, not the passphrase
+// directly. K rides on the vault record in a "keybox":
+//   escrow mode (default, no passphrase): keybox holds K as-is — the account is
+//     the key, forgot-password never loses data, and we CAN technically open it;
+//   zero-knowledge mode (passphrase set): keybox holds K wrapped by the
+//     passphrase — the server holds only ciphertext it can never open.
+// Either way K is cached on this device (money.cloudKey) so background auto-push
+// can seal without prompting. File/WebDAV backups stay on the v1 passphrase
+// envelope — a .cache file must open anywhere with just the passphrase.
+const CLOUDKEY_KEY = "money.cloudKey";
+function cloudKeyGet() { try { return localStorage.getItem(CLOUDKEY_KEY) || ""; } catch (e) { return ""; } }
+function cloudKeySet(b64) { try { if (b64) localStorage.setItem(CLOUDKEY_KEY, b64); else localStorage.removeItem(CLOUDKEY_KEY); } catch (e) {} }
+async function cloudGenKey() {
+  const k = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  return _b64(await crypto.subtle.exportKey("raw", k));
+}
+function _importK(b64) { return crypto.subtle.importKey("raw", _unb64(b64), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]); }
+async function cloudSeal(obj) {
+  const kb = cloudKeyGet();
+  if (!kb) throw new Error("no cloud key on this device yet");
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await _importK(kb), new TextEncoder().encode(JSON.stringify(obj)));
+  return JSON.stringify({ app: "thecache", v: 2, iv: _b64(iv), ct: _b64(ct) });
+}
+async function cloudOpen(envStr, pass) {
+  const env = JSON.parse(envStr);
+  if ((env.v || 1) >= 2) {
+    const kb = cloudKeyGet();
+    if (!kb) throw new Error("this device doesn't hold the cloud key yet");
+    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(env.iv) }, await _importK(kb), _unb64(env.ct));
+    return JSON.parse(new TextDecoder().decode(pt));
+  }
+  return decryptJSON(envStr, pass);   // v1 legacy vault — passphrase path, kept forever
+}
+async function keyboxMake(kb64, pass) {
+  if (pass) {   // zero-knowledge: K wrapped by the passphrase, server sees only ciphertext
+    const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+    const kek = await _deriveKey(pass, salt);
+    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, kek, _unb64(kb64));
+    return JSON.stringify({ m: "zk", kdf: "PBKDF2-SHA256", iter: 210000, salt: _b64(salt), iv: _b64(iv), ct: _b64(ct) });
+  }
+  return JSON.stringify({ m: "esc", k: kb64 });   // escrow: the account is the key
+}
+async function keyboxOpen(boxStr, pass) {
+  const box = JSON.parse(boxStr);
+  if (box.m === "esc") return box.k;
+  if (!pass) throw new Error("zero-knowledge vault — enter your passphrase once on this device");
+  const kek = await _deriveKey(pass, _unb64(box.salt));
+  const raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(box.iv) }, kek, _unb64(box.ct));
+  return _b64(raw);
+}
 async function downloadEncryptedBackup(pass) {
   const d = await (await fetch("/api/export-data")).json();
   if (!d || !d.ok) throw new Error("couldn't read your data");
@@ -2883,7 +2937,14 @@ async function cloudLogin(url, email, password) {
     body: JSON.stringify({ identity: email, password }) });
   const d = await r.json();
   if (!r.ok || !d.token) throw new Error(cloudErr(d) || "login failed");
-  cloudSaveState({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: cloudState().recordId });
+  const prev = cloudState();
+  // a DIFFERENT account is signing in on this browser → drop the old account's
+  // device key, seal-mode memory, and record pointer, or the vaults would entangle
+  if (prev.userId && d.record && d.record.id !== prev.userId) { cloudKeySet(""); prev.recordId = null; prev.lastPush = null; prev.lastHash = null; prev.lastSeenVault = null; prev.mode = null; }
+  // same account → mode RIDES ALONG: the zero-knowledge downgrade guard reads it,
+  // and losing it on a routine re-login would disarm the guard exactly when a
+  // tampering server would love that
+  cloudSaveState({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: prev.recordId, lastPush: prev.lastPush, lastHash: prev.lastHash, lastSeenVault: prev.lastSeenVault, mode: prev.mode || null });
   return d;
 }
 async function cloudSignup(url, email, password) {
@@ -2895,7 +2956,7 @@ async function cloudSignup(url, email, password) {
   if (!r.ok) throw new Error(cloudErr(d) || "sign up failed");
   return cloudLogin(base, email, password);   // auto log in
 }
-function cloudLogout() { cloudSaveState({ url: cloudState().url || CLOUD_DEFAULT_URL }); }
+function cloudLogout() { cloudKeySet(""); cloudSaveState({ url: cloudState().url || CLOUD_DEFAULT_URL }); }
 // PocketBase auth tokens expire (~14 days). Refresh on every real cloud touch so
 // regular use never logs you out — and when a session is truly dead, log out
 // honestly instead of letting requests degrade to guest and fail with a cryptic
@@ -2906,7 +2967,9 @@ async function cloudAuthCheck() {
   try {
     const r = await fetch(cloudUrl() + "/api/collections/users/auth-refresh", { method: "POST", headers: { Authorization: s.token } });
     if (r.status === 401 || r.status === 403) {
-      cloudSaveState({ url: s.url, email: s.email, recordId: s.recordId });  // keep email — re-login is one password away
+      // keep email/userId/mode — re-login is one password away, the same-account
+      // check needs userId, and the zk guard must survive an expiry round-trip
+      cloudSaveState({ url: s.url, email: s.email, userId: s.userId, recordId: s.recordId, mode: s.mode || null, lastPush: s.lastPush, lastHash: s.lastHash, lastSeenVault: s.lastSeenVault });
       return false;
     }
     if (r.ok) {
@@ -2928,42 +2991,127 @@ async function cloudFindVaultId(s) {
 // makes the app YOURS — so it rides in the encrypted bundle to any device. Excludes the auth token.
 function snapshotLocal() {
   const out = {};
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && k !== "money.cloud") out[k] = localStorage.getItem(k); } } catch (e) {}
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey") out[k] = localStorage.getItem(k); } } catch (e) {}
   return out;
 }
 function restoreLocal(local) {
   if (!local || typeof local !== "object") return 0;
   let n = 0;
-  Object.keys(local).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud") { try { localStorage.setItem(k, local[k]); n++; } catch (e) {} } });
+  Object.keys(local).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey") { try { localStorage.setItem(k, local[k]); n++; } catch (e) {} } });
   return n;
 }
 async function cloudPush(passphrase) {
   if (!cloudState().token) throw new Error("log in first");
   if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again in Step 1 (your data is safe)");
   const s = cloudState();  // fresh token after the refresh
+  const hdr = { Authorization: s.token, "Content-Type": "application/json" };
+  // fetch the current record once — we need its keybox (to adopt the data key on a
+  // new device) and, on the web, its blob (to preserve the financial data)
+  let id = await cloudFindVaultId(s), rec = null;
+  if (id) { try { rec = await (await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { headers: { Authorization: s.token } })).json(); } catch (e) {} }
+  // a record exists but we couldn't READ it → stop. Guessing here could write a
+  // fresh escrow keybox over a zero-knowledge one — never act blind on the keybox.
+  if (id && (!rec || !rec.id)) throw new Error("cloud hiccup — couldn't read your vault, try again");
+  const wantZk = !!(passphrase && passphrase.length >= 6);
+  const curBox = rec && rec.keybox ? JSON.parse(rec.keybox) : null;
+  const curMode = curBox ? (curBox.m || "esc") : null;
+  if (curBox) keyboxGuard(curBox);   // BEFORE any adoption — never touch a downgraded keybox
+  // make sure this device holds the data key: adopt from the keybox, or mint one
+  let kb = cloudKeyGet(), mintedKey = false;
+  if (kb && curBox && curBox.m === "esc" && curBox.k && curBox.k !== kb) { kb = curBox.k; cloudKeySet(kb); }  // server keybox is the authority — heal key divergence
+  if (!kb && curBox) { kb = await keyboxOpen(rec.keybox, passphrase || ""); cloudKeySet(kb); }
+  if (!kb) {
+    // a zero-knowledge account whose keybox vanished must ask BEFORE minting —
+    // a junk key stored here would shadow the real one forever
+    if ((curMode === "zk" || (!curMode && s.mode === "zk")) && !wantZk) throw new Error("your zero-knowledge key needs re-sealing — enter your passphrase (Step 2) once");
+    // v1 → v2 migration: v1 vaults were always passphrase-sealed, so require the
+    // passphrase once — zero-knowledge intent must never silently become escrow
+    let isV1 = false; try { isV1 = !!(rec && rec.blob) && (JSON.parse(rec.blob).v || 1) < 2; } catch (e) {}
+    if (isV1 && !wantZk) throw new Error("this vault is sealed with your passphrase — enter it once (Step 2) to upgrade it");
+    kb = await cloudGenKey(); cloudKeySet(kb); mintedKey = true;
+  }
+  // held-key validation: if a zero-knowledge vault was re-sealed on another device
+  // (key rotation), sealing with this stale key would FORK the vault — check the
+  // held key actually opens the current blob before trusting it
+  if (kb && !mintedKey && curMode === "zk" && rec && rec.blob) {
+    let v2 = false; try { v2 = (JSON.parse(rec.blob).v || 1) >= 2; } catch (e) {}
+    if (v2) {
+      try { await cloudOpen(rec.blob, ""); }
+      catch (e) { cloudKeySet(""); throw new Error("this vault was re-sealed on another device — enter your passphrase (Step 2) once to catch up"); }
+    }
+  }
+  // gather the payload BEFORE any key rotation — the web branch must open the
+  // existing blob with the CURRENT key, and must never overwrite real financial
+  // data with an empty bundle just because the open failed
   let files = {}, api = {}, exported;
   if (window.__CACHE_WEB__) {
-    // the web app has no local backend — preserve the cloud's existing financial data, update only your setup
-    try {
-      const gid = await cloudFindVaultId(s);
-      if (gid) { const gr = await fetch(cloudUrl() + "/api/collections/vaults/records/" + gid, { headers: { Authorization: s.token } }); const gd = await gr.json(); if (gd && gd.blob) { const cur = await decryptJSON(gd.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; } }
-    } catch (e) {}
+    if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; }
   } else {
     const data = await (await fetch("/api/export-data")).json();
     if (!data || !data.ok) throw new Error("couldn't read your data");
     files = data.files || {}; api = data.api || {}; exported = data.exported;
   }
   const count = Object.keys(files).length;
-  const blob = await encryptJSON({ files, api, local: snapshotLocal(), exported }, passphrase);
-  const hdr = { Authorization: s.token, "Content-Type": "application/json" };
-  let id = await cloudFindVaultId(s), r;
-  if (id) r = await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "PATCH", headers: hdr, body: JSON.stringify({ blob }) });
-  else r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify({ owner: s.userId, blob }) });
-  if (r.status === 404) { id = null; r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify({ owner: s.userId, blob }) }); }  // record vanished → make a fresh one
+  // the keybox is only ever written when it doesn't exist yet, or when a manual
+  // passphrase push upgrades escrow → zero-knowledge. Background pushes never
+  // touch it. A zero-knowledge account (mode remembered locally) never accepts a
+  // silent fallback to escrow — if the server's keybox vanished, we stop and ask.
+  const zkIntent = curMode === "zk" || (!curMode && s.mode === "zk");
+  let writeKeybox = false;
+  if (zkIntent && !curBox) {
+    if (kb && s.keyboxMissing && !wantZk) { /* server schema lacks the field — blob sync still works; the chip's setup note carries the fix */ }
+    else if (!wantZk) throw new Error("your zero-knowledge key needs re-sealing — enter your passphrase (Step 2) once");
+    else writeKeybox = true;   // zk keybox restored, passphrase in hand
+  } else if (!curBox) {
+    writeKeybox = true;   // first keybox for this vault
+  } else if (wantZk && curMode === "esc") {
+    // escrow → zero-knowledge upgrade: ROTATE the key. The old key sat on the
+    // server in plaintext — wrapping that same key would be zero-knowledge in
+    // name only. Fresh key, blob re-sealed below, other devices re-ask once.
+    kb = await cloudGenKey(); cloudKeySet(kb); mintedKey = true;
+    writeKeybox = true;
+  }
+  const payloadCore = JSON.stringify({ files, api, local: snapshotLocal() });
+  // content short-circuit: unchanged data never re-uploads (auto-push fires freely).
+  // Hashes the real content only — exported is a timestamp and would defeat it.
+  let h = 5381; for (let i = 0; i < payloadCore.length; i++) h = ((h << 5) + h + payloadCore.charCodeAt(i)) | 0;
+  const hash = payloadCore.length + ":" + h;
+  if (!mintedKey && !writeKeybox && hash === s.lastHash && id) {
+    cloudSaveState(Object.assign(cloudState(), { lastPush: new Date().toISOString() }));   // confirmed in sync — the chip stays truthful
+    return { count, bytes: s.bytes || 0, unchanged: true };
+  }
+  const body = { blob: await cloudSeal(Object.assign(JSON.parse(payloadCore), { exported })) };
+  if (writeKeybox) body.keybox = await keyboxMake(kb, wantZk ? passphrase : "");
+  let r;
+  if (id) r = await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "PATCH", headers: hdr, body: JSON.stringify(body) });
+  else r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify(Object.assign({ owner: s.userId }, body)) });
+  if (r.status === 404) {
+    // record vanished mid-push → recreate it WITH a keybox, never without one
+    // (a keybox-less record would invite a silent escrow write on the next push)
+    id = null;
+    if (!body.keybox) {
+      if (zkIntent && !wantZk) throw new Error("your vault was recreated and its zero-knowledge key needs re-sealing — enter your passphrase (Step 2)");
+      body.keybox = await keyboxMake(kb, wantZk ? passphrase : "");
+    }
+    r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify(Object.assign({ owner: s.userId }, body)) });
+  }
   const d = await r.json();
   if (!r.ok) throw new Error(cloudErr(d) || ("cloud backup failed (HTTP " + r.status + " — is the 'vaults' collection set up?)"));
-  cloudSaveState(Object.assign(cloudState(), { recordId: d.id || id, lastPush: new Date().toISOString(), lastPushCount: count, bytes: (blob || "").length }));
-  return { count, bytes: (blob || "").length };
+  cloudSaveState(Object.assign(cloudState(), {
+    recordId: d.id || id, lastPush: new Date().toISOString(), lastPushCount: count,
+    bytes: (body.blob || "").length, lastHash: hash, lastSeenVault: d.updated || "",
+    mode: body.keybox ? (wantZk ? "zk" : "esc") : (curMode || s.mode || null),   // remember the seal mode — the downgrade guard reads it
+    // schema lacks the keybox field → sync works on THIS device, but other devices
+    // can't adopt the key until the field exists (self-clears once it does)
+    keyboxMissing: body.keybox ? (d && d.keybox === undefined) : (d && d.keybox !== undefined ? false : !!s.keyboxMissing),
+  }));
+  return { count, bytes: (body.blob || "").length };
+}
+// a zero-knowledge account must never silently accept an escrow keybox — that
+// shape change is exactly what a tampering or compromised server would send
+function keyboxGuard(box) {
+  if (cloudState().mode === "zk" && box && box.m === "esc")
+    throw new Error("your vault's key seal changed unexpectedly — re-enter your passphrase in Settings to re-seal it");
 }
 // "3 minutes ago" style relative time for the cloud status line
 function cloudAgo(iso) {
@@ -2984,13 +3132,135 @@ async function cloudPull(passphrase) {
   if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault");
   const rec = d.items && d.items[0];
   if (!rec || !rec.blob) throw new Error("no cloud backup yet — push one first");
+  // v2 vaults: adopt the data key from the keybox if this device doesn't hold it yet
+  if (rec.keybox) {
+    const box = JSON.parse(rec.keybox);
+    keyboxGuard(box);
+    if (!cloudKeyGet()) { try { cloudKeySet(await keyboxOpen(rec.keybox, passphrase || "")); } catch (e) { throw new Error(e.message || "couldn't unlock the vault key"); } }
+    cloudSaveState(Object.assign(cloudState(), { mode: box.m === "zk" ? "zk" : "esc" }));   // remember the seal mode
+  }
   let obj;
-  try { obj = await decryptJSON(rec.blob, passphrase); } catch (e) { throw new Error("wrong passphrase or corrupt backup"); }
+  try { obj = await cloudOpen(rec.blob, passphrase); } catch (e) { throw new Error(e.message === "this device doesn't hold the cloud key yet" ? "open this vault from a device that has it, or enter your passphrase" : "wrong passphrase or corrupt backup"); }
   const res = await (await fetch("/api/import-data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: (obj && obj.files) || {} }) })).json();
   if (!res || !res.ok) throw new Error((res && res.error) || "restore failed");
   if (obj && obj.local) res.localRestored = restoreLocal(obj.local);   // bring your deck / base / config back too
-  cloudSaveState(Object.assign(cloudState(), { recordId: rec.id }));
+  cloudSaveState(Object.assign(cloudState(), { recordId: rec.id, lastSeenVault: rec.updated || "" }));
   return res;
+}
+// ── Cloud auto-sync ─────────────────────────────────────────
+// Logged in = same data everywhere, without thinking about it. Meaningful changes
+// arm a debounced push; boot + every return to the tab adopt the freshest "local"
+// layer other devices left behind. The #cloudHealth chip narrates every state.
+// Runs only once this device holds the data key (first backup/unlock plants it).
+let _apT = null, _apBusy = false;
+// Connected is enough — cloudPush mints/adopts the key itself. Devices that need
+// a passphrase first (zero-knowledge, v1 migration) fail with a friendly message
+// that the chip carries: "needs you" is the whole point, not a crash.
+function cloudReady() { return !!cloudState().token; }
+function autoPushSoon() {
+  if (!cloudReady()) return;
+  clearTimeout(_apT);
+  _apT = setTimeout(autoPushNow, 9000);   // generous window — a push seals + uploads the whole vault
+}
+async function autoPushNow() {
+  clearTimeout(_apT); _apT = null;
+  if (!cloudReady()) return;
+  if (_apBusy) { autoPushSoon(); return; }   // single-flight; re-queue behind the current push
+  _apBusy = true;
+  cloudChip("syncing");
+  try { await cloudPush(""); cloudChip("ok"); }
+  catch (e) { cloudChip("err", (e && e.message) || "sync failed"); }
+  _apBusy = false;
+}
+// Merge the "local" layer another device left in the vault. NEVER wholesale —
+// each key gets the merge it deserves, so nothing here can eat local progress:
+//   check-in log + offline queue → union (deduped the same way ckSync dedupes)
+//   deck → newest revision wins (the server's own rule)
+//   character → higher EXP wins
+// Everything else (layout, look, config) stays this device's own; full adoption
+// only happens on a fresh-device login (webcache) or a manual Restore.
+function mergeRemoteLocal(lo) {
+  let changed = false;
+  ["money.log", "money.logPending"].forEach((key) => {
+    try {
+      const rem = JSON.parse(lo[key] || "[]");
+      if (!Array.isArray(rem) || !rem.length) return;
+      const loc = JSON.parse(localStorage.getItem(key) || "[]");
+      const seen = new Set(loc.map((e) => (e.at || 0) + "|" + (e.itemId || "")));
+      const add = rem.filter((e) => e && !seen.has((e.at || 0) + "|" + (e.itemId || "")));
+      if (add.length) { localStorage.setItem(key, JSON.stringify(loc.concat(add))); changed = true; }
+    } catch (e) {}
+  });
+  try {
+    const remRev = parseInt(lo["money.deckRev"]) || 0, locRev = parseInt(localStorage.getItem("money.deckRev")) || 0;
+    if (remRev > locRev && lo["money.deck"]) { localStorage.setItem("money.deck", lo["money.deck"]); localStorage.setItem("money.deckRev", String(remRev)); changed = true; }
+  } catch (e) {}
+  try {
+    const mine = JSON.parse(localStorage.getItem("money.profile") || "{}");
+    const theirs = JSON.parse(lo["money.profile"] || "{}");
+    const mx = (mine.stats && mine.stats.exp) || 0, tx = (theirs.stats && theirs.stats.exp) || 0;
+    if (tx > mx) {
+      localStorage.setItem("money.profile", lo["money.profile"]);
+      // rehydrate the LIVE stats too — otherwise the very next click's saveStats
+      // would write the stale in-memory copy right back over the merge
+      try { if (typeof PROFILE_STATS === "object" && theirs.stats) { Object.assign(PROFILE_STATS, theirs.stats); if (typeof updateXp === "function") updateXp(); } } catch (e) {}
+      changed = true;
+    }
+  } catch (e) {}
+  return changed;
+}
+let _pullBusy = false;
+async function cloudAutoPull() {
+  if (_pullBusy || !cloudReady()) return;
+  const s = cloudState();
+  _pullBusy = true;
+  try {
+    const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&fields=id,updated&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
+    const d = await r.json();
+    const rec0 = r.ok && d.items && d.items[0];
+    if (rec0 && rec0.updated && rec0.updated !== s.lastSeenVault) {
+      const rr = await fetch(cloudUrl() + "/api/collections/vaults/records/" + rec0.id, { headers: { Authorization: s.token } });
+      const rec = await rr.json();
+      if (rr.ok && rec && rec.blob) {
+        if (rec.keybox) {
+          const box = JSON.parse(rec.keybox);
+          keyboxGuard(box);
+          if (!cloudKeyGet() && box.m === "esc") cloudKeySet(box.k);
+          cloudSaveState(Object.assign(cloudState(), { mode: box.m === "zk" ? "zk" : "esc" }));   // mode memory — the guard reads it
+        }
+        const obj = await cloudOpen(rec.blob, "");
+        if (obj && obj.local && mergeRemoteLocal(obj.local)) {
+          try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {}   // energy & friends repaint
+          try { ckSync(); } catch (e) {}   // route merged check-ins into the server ledger
+        }
+        cloudSaveState(Object.assign(cloudState(), { lastSeenVault: rec.updated || rec0.updated }));
+        cloudChip("ok");
+      }
+    }
+  } catch (e) {
+    // a key/seal problem must never rot silently behind a green chip; plain
+    // network blips stay quiet and retry on the next tab-return
+    const m = (e && e.message) || "";
+    if (e && e.name === "OperationError") cloudChip("err", "this vault was re-sealed on another device — enter your passphrase in Settings once");
+    else if (/passphrase|key|seal|vault/i.test(m)) cloudChip("err", m);
+  }
+  _pullBusy = false;
+}
+// The cloud chip — a status pill beside sync. Hidden until an account is connected;
+// after that it always tells the truth: synced ✓ / syncing / needs you.
+function cloudChip(state, msg) {
+  const el = document.getElementById("cloudHealth");
+  if (!el) return;
+  const s = cloudState();
+  if (!s.token) { el.hidden = true; return; }
+  el.hidden = false;
+  const dot = el.querySelector(".sync-dot"), txt = el.querySelector(".sync-text");
+  if (state === "syncing") { dot.style.background = "#d6920f"; txt.textContent = "cloud: syncing…"; el.title = "encrypting + syncing to your cloud"; return; }
+  if (state === "err") { dot.style.background = "#c9542e"; txt.textContent = "cloud: needs you"; el.title = (msg || "cloud sync failed") + " — tap for cloud settings"; return; }
+  if (s.keyboxMissing) { dot.style.background = "#d6920f"; txt.textContent = "cloud: setup note"; el.title = "one-time server setup: add a 'keybox' text field to the vaults collection so your other devices can unlock"; return; }
+  dot.style.background = s.lastPush ? "#3f8f4e" : "#d6920f";
+  txt.textContent = s.lastPush ? "cloud ✓" : "cloud: not synced";
+  el.title = s.lastPush ? ("last sync " + cloudAgo(s.lastPush) + " — tap for cloud settings") : "connected — first backup pending (Settings → Cache cloud)";
 }
 // ── Click sparks: rapid clicking shoots theme-colored sparks from the cursor —
 //    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
@@ -3450,9 +3720,9 @@ function openSettings() {
         '</div>' +
       '</div>' +
       '<div class="cloud-step" id="cloudStep2">' +
-        '<div class="cloud-step-h"><span class="cloud-num">2</span><span class="cloud-step-t">Your encryption key</span><span class="cloud-chk" id="cloudChk2"></span></div>' +
-        '<label class="set-row"><span>Passphrase</span><input id="setCloudPhrase" type="password" autocomplete="off" placeholder="a secret only you know"></label>' +
-        '<div class="set-hint">This is what encrypts your data. Keep it <b>different</b> from your password, and <b>write it down</b> — without it, your backup can’t be opened. That’s the price of true privacy: not even we can recover it for you.</div>' +
+        '<div class="cloud-step-h"><span class="cloud-num">2</span><span class="cloud-step-t">Zero-knowledge mode <span class="cloud-opt">optional</span></span><span class="cloud-chk" id="cloudChk2"></span></div>' +
+        '<label class="set-row"><span>Passphrase</span><input id="setCloudPhrase" type="password" autocomplete="off" placeholder="leave empty for the simple default"></label>' +
+        '<div class="set-hint">Your cache is always <b>encrypted on your device</b> before it leaves. By default your account keeps a spare key, so a forgotten password never loses your data. Set a passphrase here for <b>zero-knowledge mode</b>: only you hold the key — <b>write it down</b>, because then not even we can recover it.</div>' +
       '</div>' +
       '<div class="cloud-step" id="cloudStep3">' +
         '<div class="cloud-step-h"><span class="cloud-num">3</span><span class="cloud-step-t">Sync</span><span class="cloud-chk" id="cloudChk3"></span></div>' +
@@ -3561,36 +3831,39 @@ function openSettings() {
   // Repaint the whole stepper: checkmarks, which step is active, the next-step banner, button enabling.
   function refreshCloud() {
     const s = cloudState();
-    const inAccount = !!s.token, hasKey = phrase().length >= 6, hasBackup = !!s.lastPush;
+    // the "key" step is satisfied by a typed passphrase (zero-knowledge), OR by the
+    // device already holding the cloud data key, OR simply by being logged in —
+    // escrow mode needs nothing from the user (that's the point)
+    const inAccount = !!s.token, hasPhrase = phrase().length >= 6, hasBackup = !!s.lastPush;
+    // the zero-knowledge check means zero-knowledge is actually ON — an escrow
+    // account showing ✓ there would be claiming a protection it doesn't have
+    const zkOn = s.mode === "zk" || hasPhrase;
     // step checkmarks + active highlight
-    [[1, inAccount], [2, hasKey], [3, hasBackup]].forEach(([n, done]) => {
+    [[1, inAccount], [2, zkOn], [3, hasBackup]].forEach(([n, done]) => {
       clChk[n].textContent = done ? "✓" : "";
       clChk[n].className = "cloud-chk" + (done ? " on" : "");
       clStep[n].classList.toggle("done", done);
     });
-    const active = !inAccount ? 1 : !hasKey ? 2 : 3;
+    const active = !inAccount ? 1 : 3;   // step 2 is optional — never the blocker
     clStep.forEach((el, n) => el && el.classList.toggle("active", n === active));
     // account buttons
     clSignup.style.display = inAccount ? "none" : "";
     clLogin.style.display = inAccount ? "none" : "";
     clLogout.style.display = inAccount ? "" : "none";
-    // sync buttons only live once you're logged in + have a key
-    const canSync = inAccount && hasKey;
+    // sync buttons only need a login — the key takes care of itself
+    const canSync = inAccount;
     [clPush, clPull].forEach((b) => { b.disabled = !canSync; b.classList.toggle("is-disabled", !canSync); });
     clPull.disabled = !canSync || !hasBackup; clPull.classList.toggle("is-disabled", clPull.disabled);
     // the big "where am I / what next" banner
     let cls = "cloud-guide", html;
     if (!inAccount) {
       html = '<b>Step 1 — create your account</b><span class="cloud-sub">Pick an email + password below and hit <b>Create account</b> (or <b>Log in</b> if you have one).</span>';
-    } else if (!hasKey) {
-      cls += " mid";
-      html = '<b>✓ Signed in as ' + escapeHtml(s.email || "") + '</b><span class="cloud-sub"><b>Step 2 — set your encryption passphrase</b> below (6+ characters). It’s the key that seals your data.</span>';
     } else if (!hasBackup) {
       cls += " mid";
-      html = '<b>✓ Signed in &amp; key set — you’re ready</b><span class="cloud-sub"><b>Step 3 — hit ⬆ Back up to cloud</b> to seal &amp; upload your cache.</span>';
+      html = '<b>✓ Signed in as ' + escapeHtml(s.email || "") + ' — you’re ready</b><span class="cloud-sub"><b>Hit ⬆ Back up to cloud</b> to seal &amp; upload your cache. From then on it syncs itself.</span>';
     } else {
       cls += " done";
-      html = '<b>✓ All set — your cache is in the cloud</b><span class="cloud-sub">Last backup <b>' + cloudAgo(s.lastPush) + '</b>' + (s.lastPushCount ? ' · ' + s.lastPushCount + ' files sealed' : '') + '. Sign in with this email + passphrase on any device to restore.</span>';
+      html = '<b>✓ All set — your cache syncs itself</b><span class="cloud-sub">Last sync <b>' + cloudAgo(s.lastPush) + '</b>' + (s.lastPushCount ? ' · ' + s.lastPushCount + ' files sealed' : '') + '. Sign in with this email on any device and your cache follows you.</span>';
     }
     clGuide.className = cls; clGuide.innerHTML = html;
   }
@@ -3608,25 +3881,25 @@ function openSettings() {
   })();
   clSignup.addEventListener("click", async () => {
     clSay("Creating account…", "work");
-    try { await cloudSignup(clUrl.value.trim(), clEmail.value.trim(), clPass.value); refreshCloud(); clSay("✓ Account created — you’re signed in. Now do Step 2: set your encryption passphrase.", "ok"); }
+    try { await cloudSignup(clUrl.value.trim(), clEmail.value.trim(), clPass.value); refreshCloud(); clSay("✓ Account created — you’re signed in. Hit ⬆ Back up to cloud and you’re done.", "ok"); }
     catch (e) { clSay("Couldn’t create account: " + (e.message || e), "err"); }
   });
   clLogin.addEventListener("click", async () => {
     clSay("Logging in…", "work");
-    try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); refreshCloud(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
+    try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); refreshCloud(); cloudChip(); cloudAutoPull(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
     catch (e) { clSay("Login failed: " + (e.message || e), "err"); }
   });
   clLogout.addEventListener("click", () => { cloudLogout(); clPass.value = ""; refreshCloud(); clSay("Logged out.", ""); });
   clPush.addEventListener("click", async () => {
     if (!cloudState().token) { clSay("Do Step 1 first — create or log into your account.", "err"); return; }
-    if (phrase().length < 6) { clSay("Do Step 2 first — set an encryption passphrase (6+ characters).", "err"); return; }
+    if (phrase() && phrase().length < 6) { clSay("A zero-knowledge passphrase needs 6+ characters (or clear the field for the simple default).", "err"); return; }
     clSay("Encrypting + syncing to cloud…", "work");
-    try { const res = await cloudPush(phrase()); refreshCloud(); clSay("✓ Backed up to the cloud — " + res.count + " files sealed & encrypted. Safe to use on another device.", "ok"); }
+    try { const res = await cloudPush(phrase()); refreshCloud(); cloudChip("ok"); clSay("✓ Backed up to the cloud — " + res.count + " files sealed & encrypted. From here it syncs itself.", "ok"); }
     catch (e) { clSay("Cloud backup failed: " + (e.message || e), "err"); }
   });
   clPull.addEventListener("click", async () => {
     if (!cloudState().token) { clSay("Do Step 1 first — log into your account.", "err"); return; }
-    if (phrase().length < 6) { clSay("Enter your encryption passphrase (Step 2) to decrypt.", "err"); return; }
+    if (phrase() && phrase().length < 6) { clSay("A zero-knowledge passphrase needs 6+ characters (or clear the field for the simple default).", "err"); return; }
     if (!confirm("Restore from cloud will OVERWRITE your current data (snapshotted first). Continue?")) return;
     clSay("Pulling + decrypting…", "work");
     try { const res = await cloudPull(phrase()); clSay("✓ Restored " + res.written + " files from cloud. Reloading…", "ok"); setTimeout(() => location.reload(), 1500); }
@@ -4025,6 +4298,7 @@ function loadLayout() {
 function saveLayout() {
   localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));   // mirror the active board (back-compat)
   if (PAGES.list[PAGES.active]) { PAGES.list[PAGES.active].layout = layout; savePages(); }
+  autoPushSoon();
 }
 
 // ── Saved views: snapshot the whole board under a name, jump back anytime ──
@@ -4955,7 +5229,7 @@ syncHealth.addEventListener("click", () => {
   fetch("/api/sync", { method: "POST" })
     .then((r) => r.json())
     .then((d) => {
-      if (d && d.ok) location.reload();
+      if (d && d.ok) autoPushNow().then(() => location.reload());   // seal the fresh sync to the cloud, then reload
       else { syncText.textContent = "sync failed"; syncHealth.classList.remove("syncing"); }
     })
     .catch(() => { syncText.textContent = "backend off"; syncHealth.classList.remove("syncing"); });
@@ -6143,6 +6417,7 @@ function ckPushDeckSoon() {
   _deckPushT = setTimeout(() => {
     let rev = 0; try { rev = parseInt(localStorage.getItem(DECKREV_KEY)) || 0; } catch (e) {}
     fetch("/api/checkin-deck", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rev: rev, items: loadDeck() }) }).catch(() => {});
+    autoPushSoon();
   }, 1200);
 }
 let _ckSyncing = false;
@@ -6367,7 +6642,10 @@ function openDeckEditor() {
 (function () {
   const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", openDaily);
   ckSync();   // converge with the cache on boot…
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) ckSync(); });   // …and every return to the tab (log on your phone, walk to the desk, it's there)
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { ckSync(); cloudAutoPull(); }   // …and every return to the tab (log on your phone, walk to the desk, it's there)
+    else if (_apT) autoPushNow();   // leaving the tab with a push pending → flush it now
+  });
 })();
 
 // ── Setup wizard — coached first-run screens (design locked 2026-07-13, Working Docs/3_ROADMAP.md).
@@ -6700,7 +6978,7 @@ function syncNow() {
   fetch("/api/sync", { method: "POST" })
     .then((r) => r.json())
     .then((res) => {
-      if (res && res.ok) { flash("Synced — reloading…"); setTimeout(() => location.reload(), 1200); }
+      if (res && res.ok) { flash("Synced — reloading…"); autoPushNow().then(() => setTimeout(() => location.reload(), 1200)); }
       else flash((res && res.error) || "sync failed");
     })
     .catch(() => flash("backend not running — start python3 server.py"));
@@ -7020,6 +7298,9 @@ const Store = {
     ])
       .then(([d, rec]) => {
         if (d.catmeta && d.catmeta.labels) CAT_LABELS = d.catmeta.labels;  // renames ripple to every widget
+        // server data moved (categorize, tag, sync, delete…) → arm a cloud auto-push.
+        // The push's own content hash makes repeats free, so boot is harmless here.
+        if (d && d.updated && d.updated !== this._cloudSeen) { this._cloudSeen = d.updated; autoPushSoon(); }
         this.data = d; this.recurring = (rec && rec.recurring) || []; this.ready = true; this.emit(); return d;
       })
       .catch(() => {});  // keep the last good data on the screen if a pull fails
@@ -7281,9 +7562,11 @@ function openClockSettings(anchor) {
     el.setAttribute("draggable", "true");
     dock.appendChild(el);  // re-home it (keeps its event listeners)
   });
-  // sync lives OUTSIDE the dock, to its right
+  // sync lives OUTSIDE the dock, to its right — the cloud chip rides beside it
   const sync = document.getElementById("syncHealth");
   if (sync) bar.appendChild(sync);
+  const cloud = document.getElementById("cloudHealth");
+  if (cloud) { bar.appendChild(cloud); cloud.addEventListener("click", () => { autoPushNow(); openSettings(); }); }
   const oldBar = document.querySelector(".status-bar");
   if (oldBar) oldBar.remove();
 
@@ -7559,4 +7842,7 @@ Store.subscribe(document.getElementById("trustBadge"), syncBadges);  // award da
 initAnalytics();  // no-op unless the user opted in (Settings → Share anonymous usage)
 window.addEventListener("error", (e) => track("client_error", { msg: String(e.message || "").slice(0, 140), src: (e.filename || "").split("/").pop() }));
 requestAnimationFrame(reflowBelowStats);  // once the stats bar has measured, clear the top band
+cloudChip();               // the chip tells the truth from the first paint
+cloudAutoPull();           // adopt whatever another device left in the cloud
+document.addEventListener("cache:logged", autoPushSoon);   // a finished check-in is worth syncing
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint

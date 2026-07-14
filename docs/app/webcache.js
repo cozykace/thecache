@@ -1,11 +1,14 @@
 // THE CACHE — web runtime (the hosted, browser-only app).
 //
 // Turns the same app.js into a no-backend web app:
-//   1. Gate on a cloud login (PocketBase) + the user's encryption passphrase.
-//   2. Pull the E2E-encrypted vault, decrypt it HERE in the browser, hydrate an
+//   1. Gate on a cloud login (PocketBase). v2 vaults are sealed with a data key
+//      that rides the vault record in a "keybox" — escrow mode opens with just
+//      the login (and unlocks SILENTLY on a returning device); zero-knowledge
+//      mode asks for the passphrase once per device, then goes silent too.
+//   2. Pull the encrypted vault, decrypt it HERE in the browser, hydrate an
 //      in-memory store of the data files + the precomputed dashboard views.
 //   3. Intercept every data/*.json + /api/* call app.js makes and answer it from
-//      that store — so the server never sees plaintext (true zero-knowledge).
+//      that store — the server only ever holds ciphertext.
 //
 // The desktop app is the "sync engine": it pulls the bank, computes everything,
 // and pushes the sealed bundle (store.export_data → cloudPush). The web app reads.
@@ -19,7 +22,8 @@
   var gate = new Promise(function (r) { resolveGate = r; });
   var realFetch = window.fetch ? window.fetch.bind(window) : null;
 
-  // ── crypto (must match app.js encryptJSON envelope exactly) ──────────────────
+  // ── crypto (must match app.js envelopes exactly: v1 passphrase, v2 data key) ──
+  function _b64(buf) { var b = new Uint8Array(buf), s = ""; for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
   function _unb64(s) { return Uint8Array.from(atob(s), function (c) { return c.charCodeAt(0); }); }
   async function _deriveKey(pass, salt) {
     var base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
@@ -31,6 +35,28 @@
     var key = await _deriveKey(pass, _unb64(env.salt));
     var pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(env.iv) }, key, _unb64(env.ct));
     return JSON.parse(new TextDecoder().decode(pt));
+  }
+  function keyGet() { try { return localStorage.getItem("money.cloudKey") || ""; } catch (e) { return ""; } }
+  function keySet(b64) { try { if (b64) localStorage.setItem("money.cloudKey", b64); else localStorage.removeItem("money.cloudKey"); } catch (e) {} }
+  function _importK(b64) { return crypto.subtle.importKey("raw", _unb64(b64), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]); }
+  async function keyboxOpen(boxStr, pass) {
+    var box = JSON.parse(boxStr);
+    if (box.m === "esc") return box.k;                       // escrow: the account is the key
+    if (!pass) throw new Error("ZK");                        // zero-knowledge: passphrase needed once on this device
+    var kek = await _deriveKey(pass, _unb64(box.salt));
+    var raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(box.iv) }, kek, _unb64(box.ct));
+    return _b64(raw);
+  }
+  async function openVault(envStr, pass) {
+    var env = JSON.parse(envStr);
+    if ((env.v || 1) >= 2) {
+      var kb = keyGet();
+      if (!kb) throw new Error("ZK");
+      var pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(env.iv) }, await _importK(kb), _unb64(env.ct));
+      return JSON.parse(new TextDecoder().decode(pt));
+    }
+    if (!pass) throw new Error("ZK");                        // v1 legacy vault always needs the passphrase
+    return decryptJSON(envStr, pass);
   }
 
   // ── cloud account (shares the money.cloud key so app.js Settings shows it too) ─
@@ -44,7 +70,10 @@
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identity: email, password: pass }) });
     var d = await r.json();
     if (!r.ok || !d.token) throw new Error(errMsg(d) || "login failed");
-    cloudSave({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: cloudState().recordId });
+    var prev = cloudState();
+    // a different account on this browser → drop the old account's device key + mode
+    if (prev.userId && d.record && d.record.id !== prev.userId) { keySet(""); prev.recordId = null; prev.mode = null; }
+    cloudSave({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: prev.recordId, mode: prev.mode || null });
   }
   async function signup(email, pass) {
     var base = cloudUrl();
@@ -64,12 +93,47 @@
     if (!r.ok) throw new Error(errMsg(d) || "couldn't reach your cloud vault");
     var rec = d.items && d.items[0];
     if (!rec || !rec.blob) { FILES = {}; API = {}; return { empty: true }; }   // account exists, nothing synced yet
+    // v2: adopt the data key from the keybox if this device doesn't hold it yet
+    if (rec.keybox) {
+      var box = JSON.parse(rec.keybox);
+      // a zero-knowledge account must never silently accept an escrow keybox —
+      // that shape change is what a tampering server would send
+      if (cloudState().mode === "zk" && box.m === "esc") throw new Error("your vault's key seal changed unexpectedly — open the app on your computer to re-seal it");
+      if (!keyGet()) {
+        try { keySet(await keyboxOpen(rec.keybox, pass || "")); }
+        catch (e) { if ((e && e.message) === "ZK") throw e; throw new Error("wrong passphrase — try again"); }
+      }
+      try { cloudSave(Object.assign(cloudState(), { mode: box.m === "zk" ? "zk" : "esc" })); } catch (e) {}
+    } else if (!keyGet()) {
+      // v2 blob but no keybox anywhere → the server schema is missing the keybox
+      // field; a passphrase prompt would be a lie (there is nothing it can unwrap)
+      var v = 1; try { v = JSON.parse(rec.blob).v || 1; } catch (e) {}
+      if (v >= 2) throw new Error("this vault's key isn't on the server yet — open the app on your computer once (it will add it), then reload here");
+    }
     var obj;
-    try { obj = await decryptJSON(rec.blob, pass); } catch (e) { throw new Error("wrong passphrase or corrupt vault"); }
+    try { obj = await openVault(rec.blob, pass || ""); }
+    catch (e) { if ((e && e.message) === "ZK") throw e; throw new Error("wrong passphrase or corrupt vault"); }
     FILES = (obj && obj.files) || {};
     API = (obj && obj.api) || {};
-    // restore the user's setup (deck, daily log, base, config) so it appears on this device too
-    try { const lo = obj && obj.local; if (lo && typeof lo === "object") Object.keys(lo).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud") { try { localStorage.setItem(k, lo[k]); } catch (e) {} } }); } catch (e) {}
+    // restore the user's setup (deck, base, config) so it appears on this device too —
+    // EXCEPT the check-in log + offline queue, which merge by union so an answer
+    // logged on this phone before this pull can never be erased by it
+    try {
+      const lo = obj && obj.local;
+      if (lo && typeof lo === "object") {
+        Object.keys(lo).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.log" && k !== "money.logPending") { try { localStorage.setItem(k, lo[k]); } catch (e) {} } });
+        ["money.log", "money.logPending"].forEach(function (key) {
+          try {
+            var rem = JSON.parse(lo[key] || "[]"); if (!Array.isArray(rem) || !rem.length) return;
+            var loc = JSON.parse(localStorage.getItem(key) || "[]");
+            var seen = {}; loc.forEach(function (e) { seen[(e.at || 0) + "|" + (e.itemId || "")] = 1; });
+            var add = rem.filter(function (e) { return e && !seen[(e.at || 0) + "|" + (e.itemId || "")]; });
+            if (add.length) localStorage.setItem(key, JSON.stringify(loc.concat(add)));
+          } catch (e) {}
+        });
+      }
+    } catch (e) {}
+    try { cloudSave(Object.assign(cloudState(), { lastSeenVault: rec.updated || "" })); } catch (e) {}
     return { empty: false, count: Object.keys(FILES).length };
   }
 
@@ -106,6 +170,7 @@
   };
 
   // ── the login / unlock gate ──────────────────────────────────────────────────
+  var _expiredMsg = "";   // set when an expired session rebuilds the gate as a sign-in
   function buildGate() {
     var st = document.createElement("style");
     st.textContent =
@@ -127,7 +192,8 @@
       ".wc-btn.primary{background:var(--ink,#111);color:var(--paper,#fff);border-color:var(--ink,#111)}" +
       ".wc-msg{font-size:12px;min-height:16px;text-align:center;color:rgba(var(--ink-rgb,17,17,17),.6)}" +
       ".wc-msg.err{color:#e0533d}.wc-msg.ok{color:#2ec16b}" +
-      ".wc-link{font-size:12px;color:rgba(var(--ink-rgb,17,17,17),.55);text-align:center;cursor:pointer;text-decoration:underline}";
+      ".wc-link{font-size:12px;color:rgba(var(--ink-rgb,17,17,17),.55);text-align:center;cursor:pointer;text-decoration:underline}" +
+      ".wc-hidden{display:none !important}";
     document.head.appendChild(st);
 
     var g = document.createElement("div");
@@ -139,11 +205,11 @@
       '<div class="wc-brand">The Cache</div>' +
       '<h1 class="wc-h">' + (returning ? "Welcome back" : "Open your cache") + '</h1>' +
       '<div class="wc-sub">' + (returning
-        ? ("Signed in as " + esc(s.email) + ". Enter your passphrase to unlock — it decrypts your cache right here in your browser.")
-        : "Your cache is end-to-end encrypted. Sign in and unlock it with your passphrase — only you can read it.") + '</div>' +
+        ? ("Signed in as " + esc(s.email) + ".")
+        : "Encrypted in your browser before it ever leaves. Sign in and your cache follows you.") + '</div>' +
       '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Email</label><input id="wcEmail" type="email" autocomplete="username" value="' + esc(s.email || "") + '" placeholder="you@email.com"></div>' +
       '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Account password</label><input id="wcPass" type="password" autocomplete="current-password" placeholder="your account password"></div>' +
-      '<div class="wc-field"><label>Encryption passphrase</label><input id="wcPhrase" type="password" autocomplete="off" placeholder="the secret that decrypts your cache"></div>' +
+      '<div class="wc-field wc-phrase wc-hidden"><label>Passphrase (zero-knowledge mode only)</label><input id="wcPhrase" type="password" autocomplete="off" placeholder="only if you set one"></div>' +
       '<div class="wc-row">' +
         (returning
           ? '<button class="wc-btn primary" id="wcUnlock">Unlock my cache</button>'
@@ -157,17 +223,28 @@
     var msg = g.querySelector("#wcMsg");
     function say(t, kind) { msg.textContent = t; msg.className = "wc-msg" + (kind ? " " + kind : ""); }
     function val(id) { var e = g.querySelector(id); return e ? e.value.trim() : ""; }
+    function showPhrase() { var p = g.querySelector(".wc-phrase"); if (p) p.classList.remove("wc-hidden"); }
 
     async function enter(phrase) {
       var res = await pullVault(phrase);
       READY = true; resolveGate();
-      if (res.empty) say("✓ Logged in. This account has no synced cache yet — sync from the desktop app to fill it.", "ok");
+      if (res.empty) say("✓ Logged in. This account has no synced cache yet — it fills up as you use the app.", "ok");
       g.style.opacity = "0";
       setTimeout(function () { g.remove(); if (window.lucide && window.lucide.createIcons) try { window.lucide.createIcons(); } catch (e) {} }, 520);
     }
     function fail(e) {
-      if ((e && e.message) === "AUTH") { say("Session expired — please sign in again.", "err"); reveal(); return; }
-      say((e && e.message) || "Something went wrong.", "err");
+      var m = e && e.message;
+      if (m === "AUTH") {
+        // the returning gate has no Log in button — rebuild as a fresh sign-in
+        // gate (email kept) instead of stranding the user on a dead Unlock
+        try { cloudSave(Object.assign(cloudState(), { token: "" })); } catch (err) {}
+        g.remove();
+        _expiredMsg = "Session expired — enter your password to sign back in.";
+        buildGate();
+        return;
+      }
+      if (m === "ZK") { showPhrase(); say("This vault is in zero-knowledge mode — enter your passphrase once on this device.", "err"); return; }
+      say(m || "Something went wrong.", "err");
     }
     function reveal() {
       var acct = g.querySelectorAll(".wc-acct"); for (var i = 0; i < acct.length; i++) acct[i].style.display = "";
@@ -175,30 +252,35 @@
 
     var unlockBtn = g.querySelector("#wcUnlock");
     if (unlockBtn) unlockBtn.addEventListener("click", async function () {
-      var phrase = val("#wcPhrase");
-      if (phrase.length < 6) { say("Enter your passphrase (6+ characters).", "err"); return; }
       say("Unlocking…");
-      try { await enter(phrase); } catch (e) { fail(e); }
+      try { await enter(val("#wcPhrase")); } catch (e) { fail(e); }
     });
     var switchLink = g.querySelector("#wcSwitch");
-    if (switchLink) switchLink.addEventListener("click", function () { reveal(); switchLink.style.display = "none"; say(""); });
+    if (switchLink) switchLink.addEventListener("click", function () { reveal(); showPhrase(); switchLink.style.display = "none"; say(""); });
 
     var loginBtn = g.querySelector("#wcLogin");
     if (loginBtn) loginBtn.addEventListener("click", async function () {
-      var email = val("#wcEmail"), pass = val("#wcPass"), phrase = val("#wcPhrase");
+      var email = val("#wcEmail"), pass = val("#wcPass");
       if (!email || !pass) { say("Enter your email and account password.", "err"); return; }
-      if (phrase.length < 6) { say("Enter your encryption passphrase (6+ characters).", "err"); return; }
       say("Logging in…");
-      try { await login(email, pass); await enter(phrase); } catch (e) { fail(e); }
+      try { await login(email, pass); await enter(val("#wcPhrase")); } catch (e) { fail(e); }
     });
     var signupBtn = g.querySelector("#wcSignup");
     if (signupBtn) signupBtn.addEventListener("click", async function () {
-      var email = val("#wcEmail"), pass = val("#wcPass"), phrase = val("#wcPhrase");
+      var email = val("#wcEmail"), pass = val("#wcPass");
       if (!email || !pass) { say("Pick an email and a password to create your account.", "err"); return; }
-      if (phrase.length < 6) { say("Choose an encryption passphrase (6+ characters) — write it down, it can't be recovered.", "err"); return; }
       say("Creating your account…");
-      try { await signup(email, pass); await enter(phrase); } catch (e) { fail(e); }
+      try { await signup(email, pass); await enter(val("#wcPhrase")); } catch (e) { fail(e); }
     });
+
+    if (_expiredMsg) { say(_expiredMsg, "err"); _expiredMsg = ""; }
+    // returning device: try the silent unlock — escrow vaults (and any device that
+    // already holds the data key) open with no typing at all. Zero-knowledge vaults
+    // fall through to the passphrase prompt, once per device.
+    if (returning) {
+      say("Opening your cache…");
+      enter("").catch(function (e) { say(""); fail(e); });
+    }
   }
   function esc(s) { return (s + "").replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
