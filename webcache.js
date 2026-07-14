@@ -174,7 +174,9 @@
   async function pullVault(pass) {
     var s = cloudState();
     if (!s.token) throw new Error("not logged in");
-    var r = await realFetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&filter=" +
+    // sort=created must MATCH app.js's VAULT_Q — if the account ever holds two vault
+    // records, phone and desktop have to latch the SAME one or they read different vaults
+    var r = await realFetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&sort=created&filter=" +
       encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
     var d = await r.json();
     if (r.status === 401 || r.status === 403) throw new Error("AUTH");        // token expired → re-login

@@ -3161,10 +3161,17 @@ async function cloudAuthCheck() {
     return true;  // 5xx → don't log out over a server blip
   } catch (e) { return true; }  // offline → keep state; the op itself surfaces the network error
 }
+// sort=created: if two devices ever raced a first push (or both hit the 404-recreate
+// path) the account can hold TWO vault records. Without an explicit sort, each device
+// could latch a DIFFERENT one via items[0] — permanent split-brain, both chips green
+// over different vaults. Pinning every lookup to the OLDEST record makes all devices
+// agree on one canonical vault; the loser's content folds back in via merge-before-seal.
+// (The real belt-and-braces fix is a unique index on `owner` in the vaults collection.)
+const VAULT_Q = "?perPage=1&sort=created&filter=";
 async function cloudFindVaultId(s) {
   // always ask the server for the real current record (never trust a cached id — it can go stale
   // if the record was cleared, and then a PATCH 404s with "resource wasn't found")
-  const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
+  const r = await fetch(cloudUrl() + "/api/collections/vaults/records" + VAULT_Q + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
   const d = await r.json();
   if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault (is the 'vaults' collection created?)");
   return d.items && d.items[0] ? d.items[0].id : null;
@@ -3477,7 +3484,7 @@ async function cloudPull(passphrase) {
     if (cloudPaused()) throw new Error("cloud sync is off — flip “Sync to cloud” on first");
     if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again in Step 1 (your data is safe)");
     const s = cloudState();  // fresh token after the refresh
-    const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
+    const r = await fetch(cloudUrl() + "/api/collections/vaults/records" + VAULT_Q + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
     const d = await r.json();
     if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault");
     const rec = d.items && d.items[0];
@@ -3508,7 +3515,7 @@ async function cloudPull(passphrase) {
 // arm a debounced push; boot + every return to the tab adopt the freshest "local"
 // layer other devices left behind. The #cloudHealth chip narrates every state.
 // Runs only once this device holds the data key (first backup/unlock plants it).
-let _apT = null, _apBusy = false, _restoreBusy = false;   // _restoreBusy: a manual Restore is applying — pushes requeue behind it
+let _apT = null, _apBusy = false, _restoreBusy = false, _apFails = 0;   // _restoreBusy: a manual Restore is applying — pushes requeue behind it. _apFails: consecutive push failures (bounded retry)
 // local-only by choice: the toggle pauses the whole engine — no pushes, no pulls,
 // and the chip says so plainly. The cloud copy stays sealed until removed.
 function cloudPaused() { try { return localStorage.getItem("money.cloudPaused") === "1"; } catch (e) { return false; } }
@@ -3540,8 +3547,16 @@ async function autoPushNow() {
   if (_apBusy) { autoPushSoon(); return; }   // single-flight; re-queue behind the current push
   _apBusy = true;
   cloudChip("syncing");
-  try { await cloudPush(""); cloudChip("ok"); }
-  catch (e) { cloudChip("err", (e && e.message) || "sync failed"); }
+  try { await cloudPush(""); cloudChip("ok"); _apFails = 0; }
+  catch (e) {
+    cloudChip("err", (e && e.message) || "sync failed");
+    // A CORRECTIVE push (armed because we hold authored data the vault lacks) must not
+    // die on a transient blip: if the vault then goes quiet, cloudAutoPull early-returns
+    // on the unchanged stamp, so the ahead-check never re-runs and nothing would ever
+    // retry. Back off a few times, then stop — a permanent error (needs passphrase)
+    // can't spin, and the next real change or vault move re-arms normally.
+    if (++_apFails <= 3) { clearTimeout(_apT); _apT = setTimeout(autoPushNow, 15000 * _apFails); }
+  }
   _apBusy = false;
 }
 // Merge the "local" layer another device left in the vault. NEVER wholesale —
@@ -3718,7 +3733,7 @@ async function cloudAutoPull() {
   const s = cloudState();
   _pullBusy = true;
   try {
-    const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&fields=id,updated&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
+    const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&sort=created&fields=id,updated&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
     const d = await r.json();
     const rec0 = r.ok && d.items && d.items[0];
     if (rec0 && rec0.updated && rec0.updated !== s.lastSeenVault) {
