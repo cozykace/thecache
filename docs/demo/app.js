@@ -3016,18 +3016,67 @@ async function cloudFindVaultId(s) {
   if (!r.ok) throw new Error(cloudErr(d) || "couldn't reach the vault (is the 'vaults' collection created?)");
   return d.items && d.items[0] ? d.items[0].id : null;
 }
+// ── Per-key merge classification ─────────────────────────────
+// Three classes of money.* key decide how a key crosses devices:
+//   INTERNAL — never rides the vault. Two reasons a key doesn't sync:
+//     · cloud/identity internals (the data key, device slot, sync toggles), and
+//     · device-ergonomic geometry (zoom, sidebar width, stats-scroll, modal
+//       positions) — these are per-device by nature; syncing them made the phone
+//       snap to desktop-pixel layout on every unlock.
+//   SPECIAL  — has its own dedicated merge (union, EXP-ledger, rev, min); handled
+//              explicitly in mergeRemoteLocal so nothing accumulator-shaped is lost.
+//   GENERIC  — everything else (layout, look, config, note, forecast, cats…);
+//              per-key newest-wins by an mtime stamp so a stale device can't revert
+//              a fresher edit and the web app can't blind-adopt on every unlock.
+const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta"];
+// device-ergonomic geometry — pinned to the device that set it, never synced
+const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki"];
+const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.deckRev", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
+function isInternalKey(k) { return CLOUD_INTERNAL_KEYS.indexOf(k) !== -1 || DEVICE_LOCAL_KEYS.indexOf(k) !== -1; }
+function isSpecialKey(k) { return SPECIAL_MERGE_KEYS.indexOf(k) !== -1; }
+function isGenericKey(k) { return k.indexOf("money.") === 0 && !isInternalKey(k) && !isSpecialKey(k); }
+// djb2 — a cheap content fingerprint so we can tell a real local edit apart from a
+// key we merely re-read (must match webcache.js's wLhash exactly).
+function lhash(s) { let h = 5381; s = s || ""; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h; }
+function lmetaGet() { try { return JSON.parse(localStorage.getItem("money.__lmeta") || "{}") || {}; } catch (e) { return {}; } }
+function lmetaSet(m) { try { localStorage.setItem("money.__lmeta", JSON.stringify(m)); } catch (e) {} }
+// Give every generic key a per-key mtime. A newly-seen key claims NOTHING (m:0) so
+// simply shipping this code never lets a key win a merge; only a real edit (its
+// content hash changed since the last stamp) claims Date.now() and thus outranks an
+// un-edited copy on another device. Idempotent — safe to call on every push/pull.
+function stampGeneric(lm) {
+  lm = lm || lmetaGet();
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !isGenericKey(k)) continue;
+      const v = localStorage.getItem(k), h = lhash(v), cur = lm[k];
+      if (!cur) lm[k] = { m: 0, h };
+      else if (cur.h !== h) lm[k] = { m: Date.now(), h };
+    }
+  } catch (e) {}
+  lmetaSet(lm);
+  return lm;
+}
+// The mtimes to seal alongside a snapshot (generic keys only; special keys carry
+// their own ordering). Old vaults simply lack this map — read as {} → all mtime 0.
+function buildLocalMeta(localSnap) {
+  const lm = lmetaGet(), out = {};
+  Object.keys(localSnap).forEach((k) => { if (isGenericKey(k)) out[k] = (lm[k] && +lm[k].m) || 0; });
+  return out;
+}
 // Snapshot the user's money.* localStorage (deck, daily log, base, config) — the setup that
 // makes the app YOURS — so it rides in the encrypted bundle to any device. Excludes the auth token.
 function snapshotLocal() {
   const out = {};
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused" && k !== "money.deviceId" && k !== "money.dockMobile") out[k] = localStorage.getItem(k); } } catch (e) {}
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && !isInternalKey(k)) out[k] = localStorage.getItem(k); } } catch (e) {}
   return out;
 }
-function restoreLocal(local) {
+// Manual "Restore from cloud" is a MERGE, not a wipe: route it through the same
+// per-key rules as an auto-pull so unpushed local check-ins / EXP / edits survive.
+function restoreLocal(local, meta) {
   if (!local || typeof local !== "object") return 0;
-  let n = 0;
-  Object.keys(local).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused" && k !== "money.deviceId" && k !== "money.dockMobile") { try { localStorage.setItem(k, local[k]); n++; } catch (e) {} } });
-  return n;
+  return mergeRemoteLocal(local, meta || {}) ? 1 : 0;
 }
 async function cloudPush(passphrase) {
   if (!cloudState().token) throw new Error("log in first");
@@ -3073,28 +3122,31 @@ async function cloudPush(passphrase) {
   // gather the payload BEFORE any key rotation — the web branch must open the
   // existing blob with the CURRENT key, and must never overwrite real financial
   // data with an empty bundle just because the open failed
-  let files = {}, api = {}, exported, curLocal = null;
+  let files = {}, api = {}, exported, curLocal = null, curLocalMeta = null;
   if (window.__CACHE_WEB__) {
-    if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; curLocal = cur.local || null; }
+    if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; curLocal = cur.local || null; curLocalMeta = cur.localMeta || null; }
   } else {
     const data = await (await fetch("/api/export-data")).json();
     if (!data || !data.ok) throw new Error("couldn't read your data");
     files = data.files || {}; api = data.api || {}; exported = data.exported;
-    if (rec && rec.blob) { try { curLocal = (await cloudOpen(rec.blob, passphrase || "")).local || null; } catch (e) {} }   // v1/keyless blobs just skip the merge
+    if (rec && rec.blob) { try { const cur = await cloudOpen(rec.blob, passphrase || ""); curLocal = cur.local || null; curLocalMeta = cur.localMeta || null; } catch (e) {} }   // v1/keyless blobs just skip the merge
   }
   const count = Object.keys(files).length;
   // converge BOTH ways on every push: ADOPT the vault's shared "local" layer into
   // this device first (EXP bank aggregates, check-ins + journey union, deck by
-  // revision) — so the device that pushes also ends up HOLDING the full bank it
-  // uploads, not just mailing it. Then snapshot the converged state and seal that.
+  // revision, per-key newest-wins for config) — so the device that pushes also ends
+  // up HOLDING the full bank it uploads, not just mailing it, and a STALE device can
+  // never seal its old copy of a key another device edited more recently. Then
+  // snapshot the converged state and seal that.
   if (curLocal) {
     try {
-      if (mergeRemoteLocal(curLocal)) {
+      if (mergeRemoteLocal(curLocal, curLocalMeta)) {
         try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {}   // widgets repaint with the merged truth
         try { ckSync(); } catch (e) {}                                                  // merged check-ins reach the server ledger
       }
     } catch (e) {}
   }
+  stampGeneric();   // ensure every generic key has an mtime even on a first (curLocal-less) push
   const localSnap = snapshotLocal();
   // the keybox is only ever written when it doesn't exist yet, or when a manual
   // passphrase push upgrades escrow → zero-knowledge. Background pushes never
@@ -3115,7 +3167,7 @@ async function cloudPush(passphrase) {
     kb = await cloudGenKey(); cloudKeySet(kb); mintedKey = true;
     writeKeybox = true;
   }
-  const payloadCore = JSON.stringify({ files, api, local: localSnap });
+  const payloadCore = JSON.stringify({ files, api, local: localSnap, localMeta: buildLocalMeta(localSnap) });
   // content short-circuit: unchanged data never re-uploads (auto-push fires freely).
   // Hashes the real content only — exported is a timestamp and would defeat it.
   let h = 5381; for (let i = 0; i < payloadCore.length; i++) h = ((h << 5) + h + payloadCore.charCodeAt(i)) | 0;
@@ -3188,7 +3240,7 @@ async function cloudPull(passphrase) {
   try { obj = await cloudOpen(rec.blob, passphrase); } catch (e) { throw new Error(e.message === "this device doesn't hold the cloud key yet" ? "open this vault from a device that has it, or enter your passphrase" : "wrong passphrase or corrupt backup"); }
   const res = await (await fetch("/api/import-data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: (obj && obj.files) || {} }) })).json();
   if (!res || !res.ok) throw new Error((res && res.error) || "restore failed");
-  if (obj && obj.local) res.localRestored = restoreLocal(obj.local);   // bring your deck / base / config back too
+  if (obj && obj.local) res.localRestored = restoreLocal(obj.local, obj.localMeta);   // bring your deck / base / config back too (merged, never clobbered)
   cloudSaveState(Object.assign(cloudState(), { recordId: rec.id, lastSeenVault: rec.updated || "" }));
   return res;
 }
@@ -3236,9 +3288,10 @@ async function autoPushNow() {
 // each key gets the merge it deserves, so nothing here can eat local progress:
 //   check-in log + offline queue → union (deduped the same way ckSync dedupes)
 //   deck → newest revision wins (the server's own rule)
-//   character → higher EXP wins
-// Everything else (layout, look, config) stays this device's own; full adoption
-// only happens on a fresh-device login (webcache) or a manual Restore.
+//   character (profile) → EXP-ledger aggregate; charLog → union
+//   badges → union of earned ids; customStats → union of tapped marks
+//   charSince → earliest founding date wins (min)
+//   everything else → per-key newest-wins by mtime (buildLocalMeta stamps them)
 // Merge two profile snapshots under the EXP-ledger rule: per-device slots,
 // slot-wise max, total = sum of slots — points earned anywhere always AGGREGATE.
 // A legacy profile (no ledger yet) claims its unbanked balance under its own
@@ -3272,7 +3325,53 @@ function mergeCharLogStrings(aStr, bStr) {
   if (!add.length) return JSON.stringify(a.slice(-800));
   return JSON.stringify(a.concat(add).sort((x, y) => (x.t || 0) - (y.t || 0)).slice(-800));
 }
-function mergeRemoteLocal(lo) {
+// Achievements are monotonic — union the earned-badge ids so a badge earned on one
+// device shows on every device and can never un-earn through a merge.
+function mergeBadgesStr(remStr) {
+  try {
+    const rem = JSON.parse(remStr || "[]"); if (!Array.isArray(rem)) return false;
+    const loc = JSON.parse(localStorage.getItem("money.badges") || "[]");
+    const arr = Array.isArray(loc) ? loc.slice() : [], set = new Set(arr);
+    let add = false; rem.forEach((b) => { if (b != null && !set.has(b)) { set.add(b); arr.push(b); add = true; } });
+    if (add) localStorage.setItem("money.badges", JSON.stringify(arr));
+    return add;
+  } catch (e) { return false; }
+}
+// Custom stats: union by id, and per matching id union the tapped streak marks so a
+// month marked on the phone is never lost to the desktop's copy. Local metadata
+// (a rename) is kept; a stat that exists only remotely is adopted.
+function mergeCustomStatsStr(remStr) {
+  let rem; try { rem = JSON.parse(remStr || "null"); } catch (e) { return false; }
+  if (!Array.isArray(rem)) return false;
+  let loc; try { loc = JSON.parse(localStorage.getItem("money.customStats") || "null"); } catch (e) { loc = null; }
+  if (!Array.isArray(loc)) loc = [];
+  const remById = {}; rem.forEach((s) => { if (s && s.id) remById[s.id] = s; });
+  const seen = {};
+  const merged = loc.map((s) => {
+    if (!s || !s.id) return s;
+    seen[s.id] = 1; const r = remById[s.id];
+    if (!r) return s;
+    const marks = [...new Set([].concat(s.marks || [], r.marks || []))].sort();
+    return Object.assign({}, s, { marks });
+  });
+  rem.forEach((s) => { if (s && s.id && !seen[s.id]) merged.push(s); });
+  const after = JSON.stringify(merged);
+  if (after !== JSON.stringify(loc)) { localStorage.setItem("money.customStats", after); return true; }
+  return false;
+}
+// The founding date is the EARLIEST either device has seen — so a fresh install that
+// mints charSince=now can never push the journey start (or the Devoted badge) forward.
+function mergeCharSinceStr(remStr) {
+  const rem = parseInt(remStr); if (!rem) return false;
+  const loc = parseInt(localStorage.getItem("money.charSince") || "0");
+  if (!loc || rem < loc) { localStorage.setItem("money.charSince", String(rem)); return true; }
+  return false;
+}
+// mergeRemoteLocal(lo, meta): lo = the vault's "local" layer (flat {key:string}),
+// meta = its sibling per-key mtime map (absent on pre-merge vaults → treated as {}).
+function mergeRemoteLocal(lo, meta) {
+  if (!lo || typeof lo !== "object") return false;
+  meta = meta || {};
   let changed = false;
   ["money.log", "money.logPending"].forEach((key) => {
     try {
@@ -3312,6 +3411,29 @@ function mergeRemoteLocal(lo) {
       }
     }
   } catch (e) {}
+  // accumulators — union badges, union custom-stat marks, earliest founding date
+  try { if (lo["money.badges"] != null && mergeBadgesStr(lo["money.badges"])) changed = true; } catch (e) {}
+  try { if (lo["money.customStats"] != null && mergeCustomStatsStr(lo["money.customStats"])) changed = true; } catch (e) {}
+  try { if (lo["money.charSince"] != null && mergeCharSinceStr(lo["money.charSince"])) changed = true; } catch (e) {}
+  // everything else → per-key newest-wins. Stamp our own generic keys first (a real
+  // local edit claims Date.now(); an un-edited key stays at m:0) so a fresher local
+  // value is never overwritten, then adopt the vault's copy only where it is newer.
+  try {
+    const lm = stampGeneric();
+    Object.keys(lo).forEach((k) => {
+      if (!isGenericKey(k)) return;
+      const vm = (+meta[k]) || 0;
+      const has = localStorage.getItem(k) !== null;
+      const localM = has ? ((lm[k] && +lm[k].m) || 0) : -1;   // never had it → adopt even a mtime-0 vault value
+      if (vm > localM) {
+        try {
+          if (localStorage.getItem(k) !== lo[k]) { localStorage.setItem(k, lo[k]); changed = true; }
+          lm[k] = { m: vm, h: lhash(lo[k]) };
+        } catch (e) {}
+      }
+    });
+    lmetaSet(lm);
+  } catch (e) {}
   return changed;
 }
 let _pullBusy = false;
@@ -3334,7 +3456,7 @@ async function cloudAutoPull() {
           cloudSaveState(Object.assign(cloudState(), { mode: box.m === "zk" ? "zk" : "esc" }));   // mode memory — the guard reads it
         }
         const obj = await cloudOpen(rec.blob, "");
-        if (obj && obj.local && mergeRemoteLocal(obj.local)) {
+        if (obj && obj.local && mergeRemoteLocal(obj.local, obj.localMeta)) {
           try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {}   // energy & friends repaint
           try { ckSync(); } catch (e) {}   // route merged check-ins into the server ledger
         }

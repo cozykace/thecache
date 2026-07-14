@@ -87,6 +87,64 @@
     if (!add.length) return JSON.stringify(a.slice(-800));
     return JSON.stringify(a.concat(add).sort(function (x, y) { return (x.t || 0) - (y.t || 0); }).slice(-800));
   }
+  // accumulators (mirror app.js): badges union, custom-stat marks union, charSince min
+  function wMergeBadges(remStr) {
+    try {
+      var rem = JSON.parse(remStr || "[]"); if (!Array.isArray(rem)) return false;
+      var loc = JSON.parse(localStorage.getItem("money.badges") || "[]"); if (!Array.isArray(loc)) loc = [];
+      var arr = loc.slice(), set = {}; arr.forEach(function (b) { set[b] = 1; });
+      var add = false; rem.forEach(function (b) { if (b != null && !set[b]) { set[b] = 1; arr.push(b); add = true; } });
+      if (add) localStorage.setItem("money.badges", JSON.stringify(arr));
+      return add;
+    } catch (e) { return false; }
+  }
+  function wMergeCustomStats(remStr) {
+    var rem; try { rem = JSON.parse(remStr || "null"); } catch (e) { return false; }
+    if (!Array.isArray(rem)) return false;
+    var loc; try { loc = JSON.parse(localStorage.getItem("money.customStats") || "null"); } catch (e) { loc = null; }
+    if (!Array.isArray(loc)) loc = [];
+    var remById = {}; rem.forEach(function (s) { if (s && s.id) remById[s.id] = s; });
+    var seen = {};
+    var merged = loc.map(function (s) {
+      if (!s || !s.id) return s;
+      seen[s.id] = 1; var r = remById[s.id]; if (!r) return s;
+      var mset = {}; (s.marks || []).concat(r.marks || []).forEach(function (m) { mset[m] = 1; });
+      return Object.assign({}, s, { marks: Object.keys(mset).sort() });
+    });
+    rem.forEach(function (s) { if (s && s.id && !seen[s.id]) merged.push(s); });
+    var after = JSON.stringify(merged);
+    if (after !== JSON.stringify(loc)) { localStorage.setItem("money.customStats", after); return true; }
+    return false;
+  }
+  function wMergeCharSince(remStr) {
+    var rem = parseInt(remStr); if (!rem) return false;
+    var loc = parseInt(localStorage.getItem("money.charSince") || "0");
+    if (!loc || rem < loc) { localStorage.setItem("money.charSince", String(rem)); return true; }
+    return false;
+  }
+  // ── per-key mtime bookkeeping (must match app.js: same djb2, same key classes) ──
+  function wLhash(s) { var h = 5381; s = s || ""; for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h; }
+  function wLmetaGet() { try { return JSON.parse(localStorage.getItem("money.__lmeta") || "{}") || {}; } catch (e) { return {}; } }
+  function wLmetaSet(m) { try { localStorage.setItem("money.__lmeta", JSON.stringify(m)); } catch (e) {} }
+  // cloud/identity internals + device-ergonomic geometry (never synced — keeps the
+  // phone from snapping to desktop-pixel zoom / sidebar / modal layout on unlock)
+  var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki"];
+  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.deckRev", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
+  function wIsGeneric(k) { return k.indexOf("money.") === 0 && W_INTERNAL.indexOf(k) === -1 && W_SPECIAL.indexOf(k) === -1; }
+  function wStampGeneric(lm) {
+    lm = lm || wLmetaGet();
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (!k || !wIsGeneric(k)) continue;
+        var v = localStorage.getItem(k), h = wLhash(v), cur = lm[k];
+        if (!cur) lm[k] = { m: 0, h: h };
+        else if (cur.h !== h) lm[k] = { m: Date.now(), h: h };
+      }
+    } catch (e) {}
+    wLmetaSet(lm);
+    return lm;
+  }
 
   // ── cloud account (shares the money.cloud key so app.js Settings shows it too) ─
   function cloudState() { try { return JSON.parse(localStorage.getItem("money.cloud") || "{}") || {}; } catch (e) { return {}; } }
@@ -145,20 +203,25 @@
     FILES = (obj && obj.files) || {};
     API = (obj && obj.api) || {};
     // restore the user's setup (deck, base, config) so it appears on this device too —
-    // with merge rules so nothing earned anywhere is ever erased:
-    //   money.profile → EXP LEDGER: per-device slots, slot-wise max, total = sum —
-    //     points from an accidental fresh start AGGREGATE into the main bank
-    //   money.charLog → union (the journey survives every device)
-    //   money.log / money.logPending → union, deduped (no check-in answer ever lost)
-    //   everything else → the vault's copy (the point of signing in on a new device)
+    // with the SAME per-key merge rules app.js uses, so nothing edited on the phone is
+    // ever erased by a stale desktop push adopted on the next unlock:
+    //   money.profile → EXP LEDGER: per-device slots, slot-wise max, total = sum
+    //   money.charLog → union · money.log/logPending → union, deduped
+    //   money.deck → newest revision wins (NOT blind-adopted — that reverted edits)
+    //   money.badges → union · money.customStats → union marks · money.charSince → min
+    //   everything else → per-key newest-wins by the vault's localMeta mtimes
+    //     (a fresh device, which holds no keys, still adopts the whole vault)
     var changed = 0;
     try {
       const lo = obj && obj.local;
+      const meta = (obj && obj.localMeta) || {};
       if (lo && typeof lo === "object") {
-        Object.keys(lo).forEach((k) => {
-          if (k.indexOf("money.") !== 0 || k === "money.cloud" || k === "money.cloudKey" || k === "money.cloudPaused" || k === "money.deviceId" || k === "money.dockMobile" || k === "money.log" || k === "money.logPending" || k === "money.profile" || k === "money.charLog") return;
-          try { if (localStorage.getItem(k) !== lo[k]) { localStorage.setItem(k, lo[k]); changed++; } } catch (e) {}
-        });
+        // deck by revision — mirror app.js mergeRemoteLocal (the web used to setItem
+        // the vault's deck blindly, reverting a phone edit that held a HIGHER rev)
+        try {
+          var remRev = parseInt(lo["money.deckRev"]) || 0, locRev = parseInt(localStorage.getItem("money.deckRev")) || 0;
+          if (remRev > locRev && lo["money.deck"]) { localStorage.setItem("money.deck", lo["money.deck"]); localStorage.setItem("money.deckRev", String(remRev)); changed++; }
+        } catch (e) {}
         try {
           if (lo["money.profile"] != null) {
             var curP = localStorage.getItem("money.profile") || "";
@@ -182,6 +245,27 @@
             if (add.length) { localStorage.setItem(key, JSON.stringify(loc.concat(add))); changed++; }
           } catch (e) {}
         });
+        try { if (lo["money.badges"] != null && wMergeBadges(lo["money.badges"])) changed++; } catch (e) {}
+        try { if (lo["money.customStats"] != null && wMergeCustomStats(lo["money.customStats"])) changed++; } catch (e) {}
+        try { if (lo["money.charSince"] != null && wMergeCharSince(lo["money.charSince"])) changed++; } catch (e) {}
+        // everything else → per-key newest-wins (was: blind adopt on every unlock,
+        // which reverted phone-local note / theme / layout / config edits every visit)
+        try {
+          var lm = wStampGeneric();
+          Object.keys(lo).forEach(function (k) {
+            if (!wIsGeneric(k)) return;
+            var vm = (+meta[k]) || 0;
+            var has = localStorage.getItem(k) !== null;
+            var localM = has ? ((lm[k] && +lm[k].m) || 0) : -1;
+            if (vm > localM) {
+              try {
+                if (localStorage.getItem(k) !== lo[k]) { localStorage.setItem(k, lo[k]); changed++; }
+                lm[k] = { m: vm, h: wLhash(lo[k]) };
+              } catch (e) {}
+            }
+          });
+          wLmetaSet(lm);
+        } catch (e) {}
       }
     } catch (e) {}
     try { cloudSave(Object.assign(cloudState(), { lastSeenVault: rec.updated || "" })); } catch (e) {}
