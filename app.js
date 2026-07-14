@@ -3083,29 +3083,19 @@ async function cloudPush(passphrase) {
     if (rec && rec.blob) { try { curLocal = (await cloudOpen(rec.blob, passphrase || "")).local || null; } catch (e) {} }   // v1/keyless blobs just skip the merge
   }
   const count = Object.keys(files).length;
-  // the vault's "local" layer is shared ground between devices — merge, never
-  // bulldoze: the character with the HIGHER EXP wins (an accidental fresh start
-  // can never eat the primary experience), check-in log + offline queue union,
-  // deck by newest revision. Everything else is this device's to write.
-  const localSnap = snapshotLocal();
+  // converge BOTH ways on every push: ADOPT the vault's shared "local" layer into
+  // this device first (EXP bank aggregates, check-ins + journey union, deck by
+  // revision) — so the device that pushes also ends up HOLDING the full bank it
+  // uploads, not just mailing it. Then snapshot the converged state and seal that.
   if (curLocal) {
     try {
-      if (curLocal["money.profile"] != null) localSnap["money.profile"] = mergeProfileStrings(localSnap["money.profile"] || "", curLocal["money.profile"]);   // EXP ledger: slots aggregate
-      if (curLocal["money.charLog"] != null) localSnap["money.charLog"] = mergeCharLogStrings(localSnap["money.charLog"] || "[]", curLocal["money.charLog"]);
-      ["money.log", "money.logPending"].forEach((key) => {
-        try {
-          const rem = JSON.parse(curLocal[key] || "[]");
-          if (!Array.isArray(rem) || !rem.length) return;
-          const loc = JSON.parse(localSnap[key] || "[]");
-          const seen = new Set(loc.map((e) => (e.at || 0) + "|" + (e.itemId || "")));
-          const add = rem.filter((e) => e && !seen.has((e.at || 0) + "|" + (e.itemId || "")));
-          if (add.length) localSnap[key] = JSON.stringify(loc.concat(add));
-        } catch (e) {}
-      });
-      const remRev = parseInt(curLocal["money.deckRev"]) || 0, locRev = parseInt(localSnap["money.deckRev"]) || 0;
-      if (remRev > locRev && curLocal["money.deck"]) { localSnap["money.deck"] = curLocal["money.deck"]; localSnap["money.deckRev"] = curLocal["money.deckRev"]; }
+      if (mergeRemoteLocal(curLocal)) {
+        try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {}   // widgets repaint with the merged truth
+        try { ckSync(); } catch (e) {}                                                  // merged check-ins reach the server ledger
+      }
     } catch (e) {}
   }
+  const localSnap = snapshotLocal();
   // the keybox is only ever written when it doesn't exist yet, or when a manual
   // passphrase push upgrades escrow → zero-knowledge. Background pushes never
   // touch it. A zero-knowledge account (mode remembered locally) never accepts a
@@ -8072,5 +8062,6 @@ window.addEventListener("error", (e) => track("client_error", { msg: String(e.me
 requestAnimationFrame(reflowBelowStats);  // once the stats bar has measured, clear the top band
 cloudChip();               // the chip tells the truth from the first paint
 cloudAutoPull();           // adopt whatever another device left in the cloud
+setInterval(() => { if (!document.hidden) cloudAutoPull(); }, 75000);   // near-live: a tiny two-field check while you're looking
 document.addEventListener("cache:logged", autoPushSoon);   // a finished check-in is worth syncing
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint
