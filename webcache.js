@@ -196,6 +196,10 @@
       ".wc-msg{font-size:12px;min-height:16px;text-align:center;color:rgba(var(--ink-rgb,17,17,17),.6)}" +
       ".wc-msg.err{color:#e0533d}.wc-msg.ok{color:#2ec16b}" +
       ".wc-link{font-size:12px;color:rgba(var(--ink-rgb,17,17,17),.55);text-align:center;cursor:pointer;text-decoration:underline}" +
+      ".wc-paths{display:flex;justify-content:center;align-items:center;gap:4px;margin-top:10px;flex-wrap:wrap}" +
+      ".wc-paths a{font-size:11.5px;color:rgba(var(--ink-rgb,17,17,17),.55);text-decoration:none;padding:10px 6px}" +
+      ".wc-paths a:hover{color:var(--accent,#FFD409);text-decoration:underline}" +
+      ".wc-paths span{color:rgba(var(--ink-rgb,17,17,17),.3)}" +
       ".wc-hidden{display:none !important}";
     document.head.appendChild(st);
 
@@ -220,6 +224,12 @@
       '</div>' +
       '<div class="wc-msg" id="wcMsg"></div>' +
       (returning ? '<div class="wc-link" id="wcSwitch">Use a different account</div>' : '') +
+      // paths for the curious — the front door welcomes strangers too
+      '<div class="wc-paths">' +
+        '<a href="/demo/">try the demo</a><span>·</span>' +
+        '<a href="/roadmap/">roadmap</a><span>·</span>' +
+        '<a href="https://cozyace.com/the-cache-app" target="_blank" rel="noreferrer">about &amp; download</a>' +
+      '</div>' +
       '</div>';
     document.body.appendChild(g);
 
