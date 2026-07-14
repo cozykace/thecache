@@ -7,7 +7,7 @@ A living, product-facing list of what THE CACHE does — kept current as we ship
 _Last updated: 2026-07-13_
 
 ## Log your life in one tap
-- **Daily check-in** — a full-screen, phone-first flow of big friendly buttons: one question per screen, confetti and EXP when you finish. Logging once feeds your whole cache.
+- **🃏 The deck** — the one button to remember. Always in the same spot on every device, it opens your day one card at a time: big friendly buttons, one question per screen, confetti and EXP when you finish. One minute keeps your whole cache fed — and a one-time coaching card teaches the habit the first day.
 - **Build your own deck** — choose the questions, the answer types, and where each answer lands (Money, Health, a custom Tracker, or the Day-log); drag to reorder. A plain-language line explains every choice.
 - **The energy question** — "How's your energy right now?" on a one-tap 1–5 scale, from Drained to Charged. No wrong answer — Cache learns your pattern so you can plan around it.
 - **Your energy pattern, visible** — the Energy widget turns every answer into one bar per day across the last two weeks, with today's energy up top and your average below. It updates live the moment a check-in finishes. A missed day shows as a quiet dash — information, never a failure.

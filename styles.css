@@ -1060,6 +1060,48 @@ body.panning .cursor-ball { display: none !important; }
 .cloud-btn-sub { flex: 0 0 auto; opacity: 0.7; }
 .cloud-opt { font-size: 8.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(var(--ink-rgb), 0.4); border: 1px solid var(--edge-soft); border-radius: 999px; padding: 1px 7px; margin-left: 7px; vertical-align: 2px; }
 .status-pill[hidden] { display: none !important; }   /* the hidden attribute must win over the pill's display:inline-flex */
+/* the deck! — THE primary CTA: one unmissable, unhideable, always-first button.
+   External memory for the daily ritual: same spot, same look, every device. */
+.ledger-pill.deck-cta {
+  background: var(--accent); border-color: var(--accent);
+  min-height: 44px; padding: 8px 16px; flex-shrink: 0;
+  /* a real 3-D button: it stands proud of the page and SQUASHES when pressed —
+     the first taste of the living action button */
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.28), 0 6px 14px rgba(0, 0, 0, 0.16);
+  transition: transform 0.09s ease, box-shadow 0.09s ease;
+}
+.ledger-pill.deck-cta .lp-label { color: var(--paper); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+.ledger-pill.deck-cta .lp-uni { font-size: 18px; }
+.ledger-pill.deck-cta:hover .lp-label { color: var(--paper); }
+.ledger-pill.deck-cta:active {
+  transform: translateY(4px) scale(0.985);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0.28), inset 0 2px 6px rgba(0, 0, 0, 0.22);
+}
+/* the one-time coaching card: anchored above the dock, plain words, one job */
+.deck-coach {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(86px + env(safe-area-inset-bottom)); z-index: 90;
+  width: min(92vw, 360px); padding: 16px 16px 12px;
+  background: var(--panel); border: 1.5px solid var(--accent); border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18); text-align: center;
+}
+.deck-coach::after {
+  content: ""; position: absolute; left: 50%; bottom: -8px; margin-left: -8px;
+  width: 14px; height: 14px; transform: rotate(45deg);
+  background: var(--panel); border-right: 1.5px solid var(--accent); border-bottom: 1.5px solid var(--accent);
+}
+.deck-coach h3 { margin: 0 0 6px; font-size: 17px; color: var(--ink); }
+.deck-coach p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.5; color: rgba(var(--ink-rgb), 0.7); }
+.deck-coach .dc-row { display: flex; gap: 8px; }
+.deck-coach .dc-open {
+  flex: 1; min-height: 48px; border: none; border-radius: 12px; background: var(--accent);
+  color: var(--paper); font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.deck-coach .dc-open:active { transform: scale(0.97); }
+.deck-coach .dc-later { flex: 0 0 auto; min-height: 48px; padding: 0 14px; border: 1px solid var(--edge); border-radius: 12px; background: none; color: rgba(var(--ink-rgb), 0.6); font-family: inherit; font-size: 13px; cursor: pointer; }
+/* gentle pulse on the deck pill while the coach card is up (motion-gated in JS) */
+@keyframes deckPulse { 0% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb, 201, 84, 46), 0.5); } 100% { box-shadow: 0 0 0 14px rgba(var(--accent-rgb, 201, 84, 46), 0); } }
+.deck-cta.coaching { animation: deckPulse 1.6s ease-out infinite; }
 /* pull-to-sync: a quiet bar parked above the screen that rides the pull down */
 .ptr-bar {
   position: fixed; top: -54px; left: 0; right: 0; z-index: 60;

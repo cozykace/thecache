@@ -64,7 +64,7 @@ The board is desktop-first today (drag / zoom / pan), but build everything new s
 - *money config*: `reserve` `need` `core` `guaranteedIncome` `rate` `rent` `rentAccount` `period` `mustpayOrder` `planNextOpen` `balExpanded` `balNet`
 - *subs/categories*: `subcore` `subnames` `subpaused` `subcadence` `subsMigrated` `cats` `catMgr` `catModal` `flowCards`
 - *income forecast*: `forecastSources` `forecastGoal` `forecastMode`
-- *misc/ui*: `favorites` `autoPinFavorites` `soundtrack` `clock24` `clockSecs` `dateFmt` `tz` `note` `timer` `skipUpdate` `settings` `connect` `badges`
+- *misc/ui*: `favorites` `autoPinFavorites` `soundtrack` `clock24` `clockSecs` `dateFmt` `tz` `note` `timer` `skipUpdate` `settings` `connect` `badges` `deckCoach` (one-time deck coaching card seen) `actionTaps` (normalized tap positions on the action button — heat-map raw material, capped 1000)
 - *cloud*: `cloud` (account/session state) `cloudKey` (the device's vault data key — never rides in the encrypted bundle; excluded by snapshotLocal/restoreLocal) `cloudPaused` (local-only toggle) `deviceId` (the EXP-ledger slot id — also never rides the bundle)
 
 **Systems map** (added since the original CLAUDE.md — where the new stuff lives in `app.js`):

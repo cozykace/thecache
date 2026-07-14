@@ -962,7 +962,12 @@ def verify_ledger():
     days = sorted(d for d in os.listdir(BACKUPS) if os.path.isdir(os.path.join(BACKUPS, d))) if os.path.isdir(BACKUPS) else []
     res["backups"] = len(days)
     res["last_backup"] = days[-1] if days else None
-    add("recoverable backup exists", _restore_ledger_from_backup() is not None, "%d backup days" % len(days))
+    # a brand-new cache has nothing to back up yet — that's a clean bill, not a warning
+    # (day one should never open with "check your data")
+    if res.get("count", 0) == 0 and not days:
+        add("recoverable backup exists", True, "nothing to back up yet")
+    else:
+        add("recoverable backup exists", _restore_ledger_from_backup() is not None, "%d backup days" % len(days))
     return res
 
 

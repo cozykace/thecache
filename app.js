@@ -464,7 +464,7 @@ const RENDERERS = {
       sub.textContent = when
         ? "as of " + when.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
           " " + when.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-        : "synced";
+        : "no bank connected yet — that can wait";
       list.innerHTML = accts
         .map((a, i) =>
           '<div class="acct" style="--i:' + i + '">' +
@@ -5371,7 +5371,11 @@ function updateSyncHealth() {
   fetch("data/balances.json?t=" + Date.now())
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
-      if (!d || !d.updated) { syncDot.style.background = "#c9542e"; syncText.textContent = "no sync"; return; }
+      if (!d || !d.updated) {
+        if (window.__CACHE_WEB__) { syncDot.style.background = "#8a8a8a"; syncText.textContent = "no money data yet"; syncHealth.title = "money joins from a computer you own — this device reads the synced result"; }
+        else { syncDot.style.background = "#c9542e"; syncText.textContent = "no sync"; }
+        return;
+      }
       const hrs = (Date.now() - new Date(d.updated).getTime()) / 3600000;
       syncDot.style.background = hrs < 12 ? "#3f8f4e" : hrs < 48 ? "#d6920f" : "#c9542e";
       syncText.textContent = "synced " + ageStr(Date.now() - new Date(d.updated).getTime());
@@ -6244,7 +6248,7 @@ function buildBase() {
       '<div class="base-tools"><button class="base-tool primary" id="baseDaily"><i data-lucide="pencil-line"></i> Daily check-in</button>' +
         '<button class="base-tool" id="baseAdd"><i data-lucide="plus"></i> Building</button>' +
         '<button class="base-tool" id="baseAutofill"><i data-lucide="sparkles"></i> Auto-fill from cache</button></div>' +
-      '<div class="base-hint" id="baseHint">tap a building to set it up · <b>+ Building</b> to place one · <b>WASD</b> to pan</div>' +
+      '<div class="base-hint" id="baseHint">tap a building to set it up · <b>+ Building</b> to place one · <b>' + (matchMedia("(hover: none)").matches ? "drag" : "WASD") + '</b> to pan</div>' +
     '</div>';
   document.body.appendChild(ground);
   const world = ground.querySelector("#baseWorld"), hint = ground.querySelector("#baseHint");
@@ -6453,7 +6457,7 @@ function buildBase() {
 
   // ── placement: + Building → click the grid to drop one (banks +2 EXP) ──
   let placeMode = false, camX = 0, camY = 0;
-  const setHint = () => { hint.innerHTML = placeMode ? "click anywhere on the grid to place your building" : "tap a building to set it up · <b>+ Building</b> to place one · <b>WASD</b> to pan"; };
+  const setHint = () => { hint.innerHTML = placeMode ? "tap anywhere on the grid to place your building" : "tap a building to set it up · <b>+ Building</b> to place one · <b>" + (matchMedia("(hover: none)").matches ? "drag" : "WASD") + "</b> to pan"; };
   ground.querySelector("#baseDaily").addEventListener("click", (e) => { e.stopPropagation(); openDaily(); });
   ground.querySelector("#baseAdd").addEventListener("click", (e) => { e.stopPropagation(); placeMode = !placeMode; ground.classList.toggle("placing", placeMode); setHint(); });
   ground.addEventListener("click", (e) => {
@@ -6857,8 +6861,52 @@ function openDeckEditor() {
   root.querySelector("#deckRun").addEventListener("click", () => { root.remove(); openDaily(); });
   render();
 }
+// ── The deck coach: a one-time card that installs the habit (when you open
+//    your cache → tap the deck). Anchored above the action button, one job. ──
+const DECKCOACH_KEY = "money.deckCoach";
+function showDeckCoach() {
+  try { if (localStorage.getItem(DECKCOACH_KEY)) return; } catch (e) { return; }
+  if (document.querySelector(".deck-coach")) return;
+  const card = document.createElement("div");
+  card.className = "deck-coach";
+  card.setAttribute("role", "dialog");
+  card.setAttribute("aria-label", "The deck");
+  card.innerHTML =
+    '<h3>🃏 The deck</h3>' +
+    '<p>Your day, one card at a time. <b>When you open your cache, tap the deck.</b> One minute — that’s the whole job.</p>' +
+    '<div class="dc-row"><button class="dc-open" type="button">Open the deck</button><button class="dc-later" type="button">got it</button></div>';
+  document.body.appendChild(card);
+  const pill = document.getElementById("dailyBtn");
+  if (pill && !reduceMotion()) pill.classList.add("coaching");
+  const done = () => {
+    try { localStorage.setItem(DECKCOACH_KEY, String(Date.now())); } catch (e) {}
+    if (pill) pill.classList.remove("coaching");
+    card.remove();
+  };
+  card.querySelector(".dc-open").addEventListener("click", () => { done(); openDaily(); });
+  card.querySelector(".dc-later").addEventListener("click", done);
+}
 (function () {
   const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", openDaily);
+  // ── The action button remembers your touch. Every tap's landing spot is
+  //    banked (normalized 0..1) — the raw material for the living, wearing,
+  //    heat-mapped button of the FLAGSHIP action-button vision. Starts now so
+  //    the future button is born with real history. ──
+  if (b) b.addEventListener("pointerdown", (e) => {
+    try {
+      const r = b.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const pt = [Math.round(((e.clientX - r.left) / r.width) * 100) / 100, Math.round(((e.clientY - r.top) / r.height) * 100) / 100];
+      const taps = JSON.parse(localStorage.getItem("money.actionTaps") || "[]");
+      taps.push(pt);
+      localStorage.setItem("money.actionTaps", JSON.stringify(taps.slice(-1000)));
+    } catch (err) {}
+  });
+  // returning users who finished setup before the coach existed, and have never
+  // run the deck: one gentle nudge, once
+  setTimeout(() => {
+    try { if (localStorage.getItem(WIZ_KEY) && !localStorage.getItem(DECKCOACH_KEY) && loadLog().length === 0) showDeckCoach(); } catch (e) {}
+  }, 1800);
   ckSync();   // converge with the cache on boot…
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) { ckSync(); cloudAutoPull(); }   // …and every return to the tab (log on your phone, walk to the desk, it's there)
@@ -6949,6 +6997,20 @@ function openWizard() {
     b.querySelector("[data-skip]").addEventListener("click", next);
   }
   function wMoney(b) {
+    if (window.__CACHE_WEB__) {
+      // the money engine lives on a computer you own — on the phone, every bank
+      // door would be a dead end. Say so plainly instead of promising a payoff.
+      b.innerHTML = '<div class="daily-q">Money joins from a computer</div>' +
+        '<div class="daily-hint">Bank connections run on a computer you own — your phone reads the synced result, always sealed. Nothing to do here today; everything else works right now.</div>' +
+        '<div class="daily-opts">' +
+          '<button class="daily-btn" data-door="later"><span class="e">👍</span><span>Got it — keep going</span></button>' +
+          '<button class="daily-btn" data-door="webdemo"><span class="e">🎮</span><span>Peek at the demo (new tab)</span></button></div>';
+      b.querySelectorAll("[data-door]").forEach((d) => d.addEventListener("click", () => {
+        if (d.dataset.door === "webdemo") { try { window.open("/demo/", "_blank"); } catch (e) {} door = "later"; return; }
+        door = "later"; next();
+      }));
+      return;
+    }
     b.innerHTML = '<div class="daily-q">Boss battle: connect your money</div>' +
       '<div class="daily-hint">The biggest payoff in the whole setup. Plain truth: your bank data stays on YOUR machine, the app never sees your bank login, and the demo is a zero-risk way to look around first. I’ll open the connection panel when we finish.</div>' +
       '<div class="daily-opts">' +
@@ -6961,7 +7023,7 @@ function openWizard() {
   function wEnergy(b) {
     const it = (loadDeck().find((q) => q && q.id === "energy")) || DEFAULT_DECK.find((q) => q.id === "energy");
     b.innerHTML = '<div class="daily-q">' + escapeHtml(it.prompt) + '</div>' +
-      '<div class="daily-hint">This is the daily check-in — the heart of Cache. Your energy varies; that’s not a flaw. One tap a day builds a pattern you can plan around.</div>';
+      '<div class="daily-hint">This is a card from <b>the deck</b> — the heart of Cache. Your energy varies; that’s not a flaw. One tap a day builds a pattern you can plan around.</div>';
     const holder = document.createElement("div"); holder.className = "daily-input"; b.appendChild(holder);
     const sk = document.createElement("button"); sk.className = "wiz-skip"; sk.textContent = "skip this step"; b.appendChild(sk);
     sk.addEventListener("click", next);
@@ -6997,13 +7059,18 @@ function openWizard() {
     const bits = [];
     if (picks.length) bits.push(picks.length + (picks.length === 1 ? " life area" : " life areas") + " picked");
     if (energyLogged) bits.push("energy day 1 logged");
-    bits.push(door === "later" ? "money connection saved for later (⚡ in the menu)" : "opening the connection panel next");
+    if (!window.__CACHE_WEB__) bits.push(door === "later" ? "money connection saved for later (⚡ in the menu)" : "opening the connection panel next");
     b.innerHTML = '<div id="wizGoat" class="daily-goat">🐐</div><div class="daily-big">Your cache is ready</div>' +
       '<div class="daily-exp">+10 EXP</div><div class="daily-funny">' + escapeHtml(bits.join(" · ")) + "</div>" +
+      '<div class="daily-hint">One thing to remember: <b>🃏 the deck!</b> button at the bottom. When you open your cache, tap the deck — one minute keeps it fed.</div>' +
       '<button class="daily-cta" id="wizEnter">Enter your cache</button>';
     const r = stage.getBoundingClientRect(); dailyBurst(stage, r.width / 2, r.height * 0.36);
     const goat = b.querySelector("#wizGoat"); if (!reduceMotion() && goat.animate) goat.animate([{ transform: "scale(.4) rotate(-12deg)" }, { transform: "scale(1.15) rotate(6deg)" }, { transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.2,1.3,.4,1)" });
-    b.querySelector("#wizEnter").addEventListener("click", () => { close(); if (door !== "later") { try { openConnect(); } catch (e) {} } });
+    b.querySelector("#wizEnter").addEventListener("click", () => {
+      close();
+      if (!window.__CACHE_WEB__ && door !== "later") { try { openConnect(); } catch (e) {} }
+      else setTimeout(showDeckCoach, 700);   // land the ritual: point at the deck
+    });
   }
   render();
 }
@@ -7396,6 +7463,7 @@ board.addEventListener("pointercancel", endPan);
 
 // ── Backend heartbeat (HUD light) ──────────────────────────
 const serverBtn = document.getElementById("serverBtn");
+if (serverBtn && window.__CACHE_WEB__) serverBtn.style.display = "none";   // no local backend here — a "restart" pill would be theater
 const serverText = serverBtn ? serverBtn.querySelector(".server-text") : null;
 function setServer(state) {
   // mirror live status on the brand dot next to the THE CACHE title
@@ -7599,7 +7667,7 @@ const DOCK_DEFS = [
   { id: "scale", label: "Scale" },
   { id: "datetime", label: "Date / time" },
   { id: "period", label: "Period" },
-  { id: "daily", label: "Daily check-in" },
+  { id: "daily", label: "The deck (daily check-in)" },
   { id: "base", label: "The Base" },
   { id: "ledger", label: "Visit your cache" },
   { id: "status", label: "Status" },
@@ -7624,12 +7692,16 @@ function applyDockConfig(dock) {
   dock.querySelectorAll(".dock-item").forEach((el) => {
     el.style.display = hidden.has(el.dataset.dock) ? "none" : "";
   });
+  // the deck is the PRIMARY CTA — always first, always visible, on every device.
+  // External memory needs one findable anchor; a hideable, driftable button isn't one.
+  const deck = dock.querySelector('[data-dock="daily"]');
+  if (deck) { deck.style.display = ""; dock.insertBefore(deck, dock.firstChild); }
 }
 function renderDockMenu() {
   const host = document.getElementById("dockMenu");
   if (!host) return;
   const hidden = new Set(dockList(DOCK_HIDDEN_KEY)), f = favs();
-  const defs = DOCK_DEFS.slice();
+  const defs = DOCK_DEFS.filter((d) => d.id !== "daily");   // the deck can't be hidden — it's the front door of the day
   if (autoPinOn()) defs.sort((a, b) => (f.has("dock:" + b.id) ? 1 : 0) - (f.has("dock:" + a.id) ? 1 : 0));
   host.innerHTML = defs.map((d) => {
     const on = !hidden.has(d.id), fav = f.has("dock:" + d.id);
@@ -7829,17 +7901,17 @@ const STAT_DEFS = [
   { id: "cash", label: "Cash", fn: (d) => ({ val: d ? fmtUSD(d.cash || 0) : "…" }) },
   { id: "earn", label: "To earn", fn: (d) => {
       const S = d && planSummary(d, 0);
-      if (!S) return { val: "…" };
+      if (!S) return { val: d ? "—" : "…" };
       return S.covered ? { val: "✓ covered", tone: "ok" } : { val: fmtUSD(S.totalShort), tone: "bad" };
     } },
-  { id: "hours", label: "IC hours", fn: (d) => {
+  { id: "hours", label: "Gig hours", fn: (d) => {
       const S = d && planSummary(d, 0);
-      if (!S) return { val: "…" };
+      if (!S) return { val: d ? "—" : "…" };
       return S.covered ? { val: "0 h", tone: "ok" } : { val: S.hrs + " h", tone: "warn" };
     } },
   { id: "rent", label: "Rent", fn: (d) => {
       const S = d && planSummary(d, 0);
-      if (!S) return { val: "…" };
+      if (!S) return { val: d ? "—" : "…" };
       const rt = S.rentTier;
       if (!rt) return { val: "—" };
       if (rt.paid) return { val: "✓ paid", tone: "ok" };
@@ -7847,7 +7919,7 @@ const STAT_DEFS = [
       if (short < 0.5) return { val: "✓ ready", tone: "ok" };
       return { val: fmtUSD(short) + " short", tone: "bad" };
     } },
-  { id: "spend", label: "Spend/mo", fn: (d) => ({ val: d && d.spending ? fmtUSD(d.spending.per_month) : "…" }) },
+  { id: "spend", label: "Spend/mo", fn: (d) => ({ val: d && d.spending ? fmtUSD(d.spending.per_month) : (d ? "—" : "…") }) },
 ];
 // ── Custom stat trackers: monthly streak · days-since · bank-purchase count · manual tally ──
 const CUSTOM_STATS_KEY = "money.customStats";
