@@ -1380,6 +1380,9 @@ body.sidebar-open .sidebar-toggle { opacity: 0; pointer-events: none; }
 }
 .theme-toggle:hover { background: var(--panel); }
 .theme-toggle svg { width: 17px; height: 17px; }
+/* theme + background moved into the hamburger menu — one button owns the top
+   right on every device. The elements stay (their handlers serve the menu rows). */
+#themeToggle, #bgToggle { display: none; }
 
 .theme-backdrop { position: fixed; inset: 0; z-index: 315; }
 
@@ -2615,7 +2618,10 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
   .af-wrap  { height: 300px !important; flex: none !important; }
 
   /* floating chrome: keep it, fit the narrow screen, scroll if crowded */
-  .stats-bar { top: 0; padding: calc(6px + env(safe-area-inset-top)) 8px 0; }
+  /* one grid line across the top: [+] · stats strip · [☰] — the strip sits
+     BETWEEN the corner buttons instead of sliding under them */
+  .stats-bar { top: 0; padding: calc(6px + env(safe-area-inset-top)) 56px 0; }
+  .sidebar-toggle, .pages-toggle { top: calc(6px + env(safe-area-inset-top)); }
   .king-bar { top: calc(34px + env(safe-area-inset-top)); padding-top: 0; }   /* cartridge tucks into the slot on phones too */
   .stats { max-width: 100%; }
   .dock-bar { padding: 0 8px calc(8px + env(safe-area-inset-bottom)); }

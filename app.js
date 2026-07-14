@@ -7135,6 +7135,23 @@ document.getElementById("manageCats").addEventListener("click", () => { openCate
     flash("Syncing…");
     Promise.resolve(runSync()).then(() => flash("Synced ✓")).catch(() => flash("Sync hit a snag — try again"));
   });
+  // theme + background live in the menu now — the rows drive the original buttons'
+  // handlers, so the pickers behave exactly as before (they're fixed-position pops)
+  const mt = document.getElementById("menuTheme");
+  if (mt) mt.addEventListener("click", () => { setSidebar(false); const b = document.getElementById("themeToggle"); if (b) b.click(); });
+  const mb = document.getElementById("menuBg");
+  if (mb) mb.addEventListener("click", () => { setSidebar(false); const b = document.getElementById("bgToggle"); if (b) b.click(); });
+  // the stats strip remembers where you swiped it — pick your stat once, it sticks
+  setTimeout(() => {
+    const s = document.querySelector(".stats");
+    if (!s) return;
+    try { const x = parseInt(localStorage.getItem("money.statsScroll")) || 0; if (x > 0) s.scrollLeft = x; } catch (e) {}
+    let t = null;
+    s.addEventListener("scroll", () => {
+      clearTimeout(t);
+      t = setTimeout(() => { try { localStorage.setItem("money.statsScroll", String(Math.round(s.scrollLeft))); } catch (e) {} }, 300);
+    }, { passive: true });
+  }, 700);
 })();
 document.getElementById("reportBug").addEventListener("click", () => { openBugReport(); setSidebar(false); });
 document.getElementById("openA11y").addEventListener("click", () => { openA11y(); setSidebar(false); });
