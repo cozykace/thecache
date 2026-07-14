@@ -37,4 +37,11 @@ find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECAC
 sed 's#<script defer src="app.js"></script>#<script defer src="webcache.js"></script>\n    <script defer src="app.js"></script>#' \
   "$HERE/index.html" > "$DEST/index.html"
 
+# roadmap source — the public roadmap page reads these from its OWN origin.
+# It used to fetch them from raw.githubusercontent.com, which breaks the instant the
+# repo goes private. Shipping them with the site makes /roadmap/ independent of repo
+# visibility. Both files are already written to be safe for anyone to read.
+cp "$HERE/BACKLOG.md"  "$DEST/roadmap/BACKLOG.md"
+cp "$HERE/FEATURES.md" "$DEST/roadmap/FEATURES.md"
+
 echo "web app built → $DEST"

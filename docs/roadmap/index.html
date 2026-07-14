@@ -63,11 +63,26 @@
     <button class="tab" data-tab="feat">What's here</button>
   </div>
   <div id="content"><div class="intro">Loading the latest from the repo…</div></div>
-  <div class="foot">Live from <a href="https://github.com/cozykace/thecache" target="_blank" rel="noreferrer">the public repo</a> — updates the moment a change is pushed. · <a href="/status/">status</a></div>
+  <div class="foot">Straight from the workbench — updates the moment a change ships. · <a href="/status/">status</a></div>
 </div>
 <script>
   var REPO = "cozykace/thecache", BRANCH = "main";
-  var raw = function (f) { return "https://raw.githubusercontent.com/" + REPO + "/" + BRANCH + "/" + f + "?t=" + Date.now(); };
+  // Read the roadmap from OUR OWN origin — build-app.sh copies BACKLOG.md and FEATURES.md
+  // into docs/roadmap/ on every build.
+  // ⚠️ This used to fetch raw.githubusercontent.com directly, which 404s the moment the
+  // repo goes private: the page would spin on "Loading the latest…" forever, with nothing
+  // saying why. Serving the files from the site itself makes the roadmap independent of
+  // repo visibility (and it's faster, same-origin, and not rate-limited). The raw URL
+  // stays only as a fallback for opening this file outside the built site.
+  var bust = function (u) { return u + (u.indexOf("?") < 0 ? "?" : "&") + "t=" + Date.now(); };
+  function grab(f) {
+    return fetch(bust("./" + f))
+      .then(function (r) { if (!r.ok) throw new Error("local " + r.status); return r.text(); })
+      .catch(function () {
+        return fetch(bust("https://raw.githubusercontent.com/" + REPO + "/" + BRANCH + "/" + f))
+          .then(function (r) { return r.text(); });
+      });
+  }
   // Default LIGHT so the embed matches a light Squarespace section regardless of
   // the visitor's OS setting. For a dark section, embed with ?theme=dark.
   var q = new URLSearchParams(location.search), th = q.get("theme");
@@ -144,12 +159,12 @@
     });
   });
 
-  fetch(raw("BACKLOG.md")).then(function(r){ return r.text(); }).then(function(md){
+  grab("BACKLOG.md").then(function(md){
     DATA.road = parse(md);
     if (DATA.road.updated) document.getElementById("updated").textContent = "updated " + DATA.road.updated;
     show(document.querySelector(".tab.on").dataset.tab);
   }).catch(function(){ document.getElementById("content").innerHTML = '<div class="err">Couldn’t load the roadmap right now — refresh in a moment.</div>'; });
-  fetch(raw("FEATURES.md")).then(function(r){ return r.text(); }).then(function(md){ DATA.feat = parse(md); }).catch(function(){});
+  grab("FEATURES.md").then(function(md){ DATA.feat = parse(md); }).catch(function(){});
 </script>
 </body>
 </html>
