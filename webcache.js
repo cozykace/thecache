@@ -156,7 +156,7 @@
       const lo = obj && obj.local;
       if (lo && typeof lo === "object") {
         Object.keys(lo).forEach((k) => {
-          if (k.indexOf("money.") !== 0 || k === "money.cloud" || k === "money.cloudKey" || k === "money.cloudPaused" || k === "money.deviceId" || k === "money.log" || k === "money.logPending" || k === "money.profile" || k === "money.charLog") return;
+          if (k.indexOf("money.") !== 0 || k === "money.cloud" || k === "money.cloudKey" || k === "money.cloudPaused" || k === "money.deviceId" || k === "money.dockMobile" || k === "money.log" || k === "money.logPending" || k === "money.profile" || k === "money.charLog") return;
           try { if (localStorage.getItem(k) !== lo[k]) { localStorage.setItem(k, lo[k]); changed++; } } catch (e) {}
         });
         try {

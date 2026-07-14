@@ -58,7 +58,7 @@ The board is desktop-first today (drag / zoom / pan), but build everything new s
 **API** (`server.py`, 127.0.0.1) — GET: `ping` `connect-status` `summary` `categories` `recurring` `transfers` `deposits` `merchants` `other-merchants` `averages` `work` `income-monthly` `work-monthly` `integrity` `issues` `subs` `income-links` `match-count` `bugs` `update-check`. POST: `categorize` `income` `category` `sync` `import` `bug` `bug-status` `subs` `income-links` `delete-txn` `connect` `update` `restart`.
 
 **localStorage registry** (all `money.*`) — keep CURRENT when you add a key:
-- *board/layout*: `layout.v2` `zoom` `gutter` `views` `pinned` `sidebar` `sidebarWidth` `icons.collapsed` `dockHidden` `dockOrder` `statsScroll` (remembered stats-strip swipe position)
+- *board/layout*: `layout.v2` `zoom` `gutter` `views` `pinned` `sidebar` `sidebarWidth` `icons.collapsed` `dockHidden` `dockOrder` `dockMobile` (per-device "show the dock on this phone" opt-in — excluded from the vault snapshot like cloudKey/deviceId) `statsScroll` (remembered stats-strip swipe position)
 - *identity/character*: `profile` `cacheName` `founder` `charLog` `charSince` `customStats` `statsHidden` `statsOrder`
 - *look*: `theme` `themeStars` `bg` `font` `menuTier` `privacy`
 - *money config*: `reserve` `need` `core` `guaranteedIncome` `rate` `rent` `rentAccount` `period` `mustpayOrder` `planNextOpen` `balExpanded` `balNet`

@@ -3020,13 +3020,13 @@ async function cloudFindVaultId(s) {
 // makes the app YOURS — so it rides in the encrypted bundle to any device. Excludes the auth token.
 function snapshotLocal() {
   const out = {};
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused" && k !== "money.deviceId") out[k] = localStorage.getItem(k); } } catch (e) {}
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused" && k !== "money.deviceId" && k !== "money.dockMobile") out[k] = localStorage.getItem(k); } } catch (e) {}
   return out;
 }
 function restoreLocal(local) {
   if (!local || typeof local !== "object") return 0;
   let n = 0;
-  Object.keys(local).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused" && k !== "money.deviceId") { try { localStorage.setItem(k, local[k]); n++; } catch (e) {} } });
+  Object.keys(local).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused" && k !== "money.deviceId" && k !== "money.dockMobile") { try { localStorage.setItem(k, local[k]); n++; } catch (e) {} } });
   return n;
 }
 async function cloudPush(passphrase) {
@@ -3531,6 +3531,11 @@ window.addEventListener("beforeunload", saveStats);
 function applyPrivacy() {
   document.body.classList.toggle("privacy-on", localStorage.getItem("money.privacy") === "1");
 }
+// Phones hide the dock's pills so the deck is the one button; this per-device opt-in
+// (never rides the vault — "this phone" means this phone) brings them back.
+function applyDockMobile() {
+  document.documentElement.toggleAttribute("data-dockmobile", localStorage.getItem("money.dockMobile") === "1");
+}
 // First-run coaching: how to set up the SimpleFIN bank connection, in-app (no Terminal).
 function openConnect() {
   closeCategorizer();
@@ -3820,6 +3825,8 @@ function openSettings() {
       '<div class="set-sec">Display</div>' +
       '<button class="set-toggle" id="setPrivacy"><span>Privacy blur</span><span class="set-state">off</span></button>' +
       '<div class="set-hint">blurs dollar amounts until you hover — good for screen-sharing</div>' +
+      '<button class="set-toggle" id="setDockMobile"><span>Show the dock on this phone</span><span class="set-state">off</span></button>' +
+      '<div class="set-hint">phones keep just <b>🃏 the deck</b> at the bottom — turn this on to bring the dock’s pills back on this device (this setting stays on this device)</div>' +
       '<button class="set-toggle" id="setAutoPin" data-tier="2"><span>Auto-pin favorites</span><span class="set-state">on</span></button>' +
       '<div class="set-hint" data-tier="2">starred widgets &amp; dock items jump to the top · turn off to leave them where they are when starred</div>' +
       '<button class="set-toggle" id="setAnalytics"><span>Share anonymous usage</span><span class="set-state">off</span></button>' +
@@ -4072,6 +4079,18 @@ function openSettings() {
   privBtn.addEventListener("click", () => {
     localStorage.setItem("money.privacy", localStorage.getItem("money.privacy") === "1" ? "0" : "1");
     applyPrivacy(); paintPriv();
+  });
+
+  const dockMbBtn = modal.querySelector("#setDockMobile");
+  const paintDockMb = () => {
+    const on = localStorage.getItem("money.dockMobile") === "1";
+    dockMbBtn.classList.toggle("on", on);
+    dockMbBtn.querySelector(".set-state").textContent = on ? "on" : "off";
+  };
+  paintDockMb();
+  dockMbBtn.addEventListener("click", () => {
+    localStorage.setItem("money.dockMobile", localStorage.getItem("money.dockMobile") === "1" ? "0" : "1");
+    applyDockMobile(); paintDockMb();
   });
 
   const pinBtn = modal.querySelector("#setAutoPin");
@@ -8146,6 +8165,7 @@ setSidebar(localStorage.getItem(SIDEBAR_KEY) === "1");
 applyZoom();
 drawIcons();
 applyPrivacy();
+applyDockMobile();
 updateGreeting();
 updateXp();
 renderTrust();
