@@ -2944,7 +2944,7 @@ async function cloudLogin(url, email, password) {
   // same account → mode RIDES ALONG: the zero-knowledge downgrade guard reads it,
   // and losing it on a routine re-login would disarm the guard exactly when a
   // tampering server would love that
-  cloudSaveState({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: prev.recordId, lastPush: prev.lastPush, lastHash: prev.lastHash, lastSeenVault: prev.lastSeenVault, mode: prev.mode || null });
+  cloudSaveState({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: prev.recordId, lastPush: prev.lastPush, lastHash: prev.lastHash, lastSeenVault: prev.lastSeenVault, mode: prev.mode || null, verified: !!(d.record && d.record.verified) });
   return d;
 }
 async function cloudSignup(url, email, password) {
@@ -2954,6 +2954,9 @@ async function cloudSignup(url, email, password) {
     body: JSON.stringify({ email, password, passwordConfirm: password }) });
   const d = await r.json();
   if (!r.ok) throw new Error(cloudErr(d) || "sign up failed");
+  // ask the cloud to send the verification email (fire-and-forget — delivers
+  // once SMTP is configured on the instance; harmless before that)
+  try { fetch(base + "/api/collections/users/request-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).catch(() => {}); } catch (e) {}
   return cloudLogin(base, email, password);   // auto log in
 }
 function cloudLogout() { cloudKeySet(""); cloudSaveState({ url: cloudState().url || CLOUD_DEFAULT_URL }); }
@@ -2974,7 +2977,7 @@ async function cloudAuthCheck() {
     }
     if (r.ok) {
       const d = await r.json();
-      if (d && d.token) cloudSaveState(Object.assign(cloudState(), { token: d.token, userId: (d.record && d.record.id) || s.userId, email: (d.record && d.record.email) || s.email }));
+      if (d && d.token) cloudSaveState(Object.assign(cloudState(), { token: d.token, userId: (d.record && d.record.id) || s.userId, email: (d.record && d.record.email) || s.email, verified: !!(d.record && d.record.verified) }));
     }
     return true;  // 5xx → don't log out over a server blip
   } catch (e) { return true; }  // offline → keep state; the op itself surfaces the network error
@@ -2991,17 +2994,18 @@ async function cloudFindVaultId(s) {
 // makes the app YOURS — so it rides in the encrypted bundle to any device. Excludes the auth token.
 function snapshotLocal() {
   const out = {};
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey") out[k] = localStorage.getItem(k); } } catch (e) {}
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused") out[k] = localStorage.getItem(k); } } catch (e) {}
   return out;
 }
 function restoreLocal(local) {
   if (!local || typeof local !== "object") return 0;
   let n = 0;
-  Object.keys(local).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey") { try { localStorage.setItem(k, local[k]); n++; } catch (e) {} } });
+  Object.keys(local).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused") { try { localStorage.setItem(k, local[k]); n++; } catch (e) {} } });
   return n;
 }
 async function cloudPush(passphrase) {
   if (!cloudState().token) throw new Error("log in first");
+  if (cloudPaused()) throw new Error("cloud sync is off — flip “Sync to cloud” on first (nothing leaves this device while it's off)");
   if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again in Step 1 (your data is safe)");
   const s = cloudState();  // fresh token after the refresh
   const hdr = { Authorization: s.token, "Content-Type": "application/json" };
@@ -3125,6 +3129,7 @@ function cloudAgo(iso) {
 }
 async function cloudPull(passphrase) {
   if (!cloudState().token) throw new Error("log in first");
+  if (cloudPaused()) throw new Error("cloud sync is off — flip “Sync to cloud” on first");
   if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again in Step 1 (your data is safe)");
   const s = cloudState();  // fresh token after the refresh
   const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
@@ -3153,10 +3158,25 @@ async function cloudPull(passphrase) {
 // layer other devices left behind. The #cloudHealth chip narrates every state.
 // Runs only once this device holds the data key (first backup/unlock plants it).
 let _apT = null, _apBusy = false;
+// local-only by choice: the toggle pauses the whole engine — no pushes, no pulls,
+// and the chip says so plainly. The cloud copy stays sealed until removed.
+function cloudPaused() { try { return localStorage.getItem("money.cloudPaused") === "1"; } catch (e) { return false; } }
 // Connected is enough — cloudPush mints/adopts the key itself. Devices that need
 // a passphrase first (zero-knowledge, v1 migration) fail with a friendly message
 // that the chip carries: "needs you" is the whole point, not a crash.
-function cloudReady() { return !!cloudState().token; }
+function cloudReady() { return !!cloudState().token && !cloudPaused(); }
+// remove the sealed cloud copy — the explicit "local-only, for real" action
+async function cloudWipe() {
+  if (!cloudState().token) throw new Error("log in first");
+  if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again first");
+  const s = cloudState();
+  const id = await cloudFindVaultId(s);
+  if (!id) { cloudSaveState(Object.assign(cloudState(), { lastPush: null, lastHash: null, lastSeenVault: null, recordId: null })); return { gone: true, none: true }; }
+  const r = await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "DELETE", headers: { Authorization: s.token } });
+  if (!r.ok && r.status !== 404) { const d = await r.json().catch(() => null); throw new Error(cloudErr(d) || ("couldn't remove the cloud copy (HTTP " + r.status + ")")); }
+  cloudSaveState(Object.assign(cloudState(), { lastPush: null, lastHash: null, lastSeenVault: null, recordId: null }));
+  return { gone: true };
+}
 function autoPushSoon() {
   if (!cloudReady()) return;
   clearTimeout(_apT);
@@ -3255,6 +3275,7 @@ function cloudChip(state, msg) {
   if (!s.token) { el.hidden = true; return; }
   el.hidden = false;
   const dot = el.querySelector(".sync-dot"), txt = el.querySelector(".sync-text");
+  if (cloudPaused()) { dot.style.background = "#8a8a8a"; txt.textContent = "cloud: off"; el.title = "cloud sync is off by your choice — your data stays on this device (Settings → Cache cloud)"; return; }
   if (state === "syncing") { dot.style.background = "#d6920f"; txt.textContent = "cloud: syncing…"; el.title = "encrypting + syncing to your cloud"; return; }
   if (state === "err") { dot.style.background = "#c9542e"; txt.textContent = "cloud: needs you"; el.title = (msg || "cloud sync failed") + " — tap for cloud settings"; return; }
   if (s.keyboxMissing) { dot.style.background = "#d6920f"; txt.textContent = "cloud: setup note"; el.title = "one-time server setup: add a 'keybox' text field to the vaults collection so your other devices can unlock"; return; }
@@ -3662,6 +3683,40 @@ function openSettings() {
       '<div class="set-sec">Mode</div>' +
       '<div class="set-tier" id="setTier"></div>' +
       '<div class="set-hint">how much of the app you want to see — <b>Minimalist</b> keeps it simple, <b>Legendary</b> shows every button</div>' +
+      (window.__CACHE_DEMO__ ? "" :
+      '<div class="set-sec">☁️ Cache cloud</div>' +
+      '<div class="set-hint">Sign in and your cache <b>follows you to any device</b> — sealed on this device before it leaves. Prefer to keep everything on this machine? Flip sync off below.</div>' +
+      '<button class="set-toggle" id="setCloudSync"><span>Sync to cloud</span><span class="set-state">on</span></button>' +
+      '<div class="set-hint" id="setCloudSyncHint"></div>' +
+      '<div class="set-bk-row" id="setCloudWipeRow" style="display:none"><button class="set-btn" id="setCloudWipe">Remove my cloud copy…</button></div>' +
+      '<div class="cloud-guide" id="setCloudGuide"></div>' +
+      '<div class="cloud-step" id="cloudStep1">' +
+        '<div class="cloud-step-h"><span class="cloud-num">1</span><span class="cloud-step-t">Your account</span><span class="cloud-chk" id="cloudChk1"></span></div>' +
+        '<div class="set-hint">This is your <b>Cache cloud</b> account — its own email + password, not your hosting (pockethost.io) login and not your bank.</div>' +
+        '<label class="set-row"><span>Cloud URL</span><input id="setCloudUrl" type="text" autocomplete="off" readonly value="https://thecache.pockethost.io">' +
+          '<button type="button" class="cloud-url-edit" id="setCloudUrlEdit" title="Only change this if you run your own cloud server">change</button></label>' +
+        '<label class="set-row"><span>Email</span><input id="setCloudEmail" type="email" autocomplete="off" placeholder="you@email.com"></label>' +
+        '<label class="set-row"><span>Password</span><input id="setCloudPass" type="password" autocomplete="off" placeholder="a password for your cloud account"></label>' +
+        '<div class="set-bk-row">' +
+          '<button class="set-btn" id="setCloudSignup">Create account</button>' +
+          '<button class="set-btn" id="setCloudLogin">Log in</button>' +
+          '<button class="set-btn cloud-btn-sub" id="setCloudLogout">Log out</button>' +
+        '</div>' +
+        '<div class="set-hint cloud-verify" id="setCloudVerify" style="display:none"></div>' +
+      '</div>' +
+      '<div class="cloud-step" id="cloudStep2">' +
+        '<div class="cloud-step-h"><span class="cloud-num">2</span><span class="cloud-step-t">Zero-knowledge mode <span class="cloud-opt">optional</span></span><span class="cloud-chk" id="cloudChk2"></span></div>' +
+        '<label class="set-row"><span>Passphrase</span><input id="setCloudPhrase" type="password" autocomplete="off" placeholder="leave empty for the simple default"></label>' +
+        '<div class="set-hint">Your cache is always <b>encrypted on your device</b> before it leaves. By default your account keeps a spare key, so a forgotten password never loses your data. Set a passphrase here for <b>zero-knowledge mode</b>: only you hold the key — <b>write it down</b>, because then not even we can recover it.</div>' +
+      '</div>' +
+      '<div class="cloud-step" id="cloudStep3">' +
+        '<div class="cloud-step-h"><span class="cloud-num">3</span><span class="cloud-step-t">Sync</span><span class="cloud-chk" id="cloudChk3"></span></div>' +
+        '<div class="set-bk-row">' +
+          '<button class="set-btn" id="setCloudPush">⬆ Back up to cloud</button>' +
+          '<button class="set-btn" id="setCloudPull">⬇ Restore from cloud</button>' +
+        '</div>' +
+        '<div class="set-hint cloud-msg" id="setCloudMsg"></div>' +
+      '</div>') +
       '<div class="set-sec">Profile</div>' +
       '<label class="set-row"><span>Your name</span><input id="setName" type="text" value="' + escapeHtml(p.name || "") + '" placeholder="your name"></label>' +
       '<label class="set-row"><span>What you do</span><input id="setRole" type="text" value="' + escapeHtml(p.role || "") + '" placeholder="musician · gig work · freelance"></label>' +
@@ -3702,36 +3757,6 @@ function openSettings() {
         '<button class="set-btn" id="setWdPush">⬆ Back up to WebDAV now</button>' +
       '</div>' +
       '<div class="set-hint" id="setWdMsg"></div>' +
-      (window.__CACHE_DEMO__ ? "" :
-      '<div class="set-sec">☁️ Cache cloud (beta)</div>' +
-      '<div class="set-hint">Run your cache on any device. It’s <b>end-to-end encrypted</b> — your data is sealed in this browser before it leaves, so the cloud can never read it. Free local stays the default; the cloud is opt-in.</div>' +
-      '<div class="cloud-guide" id="setCloudGuide"></div>' +
-      '<div class="cloud-step" id="cloudStep1">' +
-        '<div class="cloud-step-h"><span class="cloud-num">1</span><span class="cloud-step-t">Your account</span><span class="cloud-chk" id="cloudChk1"></span></div>' +
-        '<div class="set-hint">This is your <b>Cache cloud</b> account — its own email + password, not your hosting (pockethost.io) login and not your bank.</div>' +
-        '<label class="set-row"><span>Cloud URL</span><input id="setCloudUrl" type="text" autocomplete="off" readonly value="https://thecache.pockethost.io">' +
-          '<button type="button" class="cloud-url-edit" id="setCloudUrlEdit" title="Only change this if you run your own cloud server">change</button></label>' +
-        '<label class="set-row"><span>Email</span><input id="setCloudEmail" type="email" autocomplete="off" placeholder="you@email.com"></label>' +
-        '<label class="set-row"><span>Password</span><input id="setCloudPass" type="password" autocomplete="off" placeholder="a password for your cloud account"></label>' +
-        '<div class="set-bk-row">' +
-          '<button class="set-btn" id="setCloudSignup">Create account</button>' +
-          '<button class="set-btn" id="setCloudLogin">Log in</button>' +
-          '<button class="set-btn cloud-btn-sub" id="setCloudLogout">Log out</button>' +
-        '</div>' +
-      '</div>' +
-      '<div class="cloud-step" id="cloudStep2">' +
-        '<div class="cloud-step-h"><span class="cloud-num">2</span><span class="cloud-step-t">Zero-knowledge mode <span class="cloud-opt">optional</span></span><span class="cloud-chk" id="cloudChk2"></span></div>' +
-        '<label class="set-row"><span>Passphrase</span><input id="setCloudPhrase" type="password" autocomplete="off" placeholder="leave empty for the simple default"></label>' +
-        '<div class="set-hint">Your cache is always <b>encrypted on your device</b> before it leaves. By default your account keeps a spare key, so a forgotten password never loses your data. Set a passphrase here for <b>zero-knowledge mode</b>: only you hold the key — <b>write it down</b>, because then not even we can recover it.</div>' +
-      '</div>' +
-      '<div class="cloud-step" id="cloudStep3">' +
-        '<div class="cloud-step-h"><span class="cloud-num">3</span><span class="cloud-step-t">Sync</span><span class="cloud-chk" id="cloudChk3"></span></div>' +
-        '<div class="set-bk-row">' +
-          '<button class="set-btn" id="setCloudPush">⬆ Back up to cloud</button>' +
-          '<button class="set-btn" id="setCloudPull">⬇ Restore from cloud</button>' +
-        '</div>' +
-        '<div class="set-hint cloud-msg" id="setCloudMsg"></div>' +
-      '</div>') +
       '<div class="set-themes" id="setThemes"></div>' +
       '<div class="set-sec">Fonts</div>' +
       '<div class="set-fonts" id="setFonts"></div>' +
@@ -3824,6 +3849,41 @@ function openSettings() {
     clUrl.readOnly = false; clUrlEdit.style.display = "none";
     clUrl.focus(); try { clUrl.select(); } catch (err) {}
   });
+  // storage-mode toggle: cloud sync on ⇄ local-only, said plainly both ways
+  const clSync = modal.querySelector("#setCloudSync"), clSyncHint = modal.querySelector("#setCloudSyncHint"),
+        clWipeRow = modal.querySelector("#setCloudWipeRow"), clWipe = modal.querySelector("#setCloudWipe"),
+        clVerify = modal.querySelector("#setCloudVerify");
+  function paintSyncToggle() {
+    const off = cloudPaused();
+    clSync.querySelector(".set-state").textContent = off ? "off" : "on";
+    clSyncHint.innerHTML = off
+      ? "Cloud sync is <b>off</b> — your cache lives on this device only. Your last cloud copy stays sealed where it is until you remove it below."
+      : "Changes sync to the cloud automatically, sealed on this device first. Sign in anywhere and your cache follows.";
+    clWipeRow.style.display = off && cloudState().token ? "" : "none";
+  }
+  clSync.addEventListener("click", () => {
+    const turnOff = !cloudPaused();
+    try { localStorage.setItem("money.cloudPaused", turnOff ? "1" : "0"); } catch (e) {}
+    if (!turnOff) autoPushSoon();
+    paintSyncToggle(); cloudChip();
+    clSay(turnOff ? "Cloud sync is off — local-only from here. Nothing leaves this device." : "✓ Cloud sync is back on — syncing shortly.", turnOff ? "" : "ok");
+  });
+  clWipe.addEventListener("click", async () => {
+    if (!confirm("Remove your sealed cloud copy? Your data on THIS device is untouched — and you can push a fresh copy anytime by turning sync back on.")) return;
+    clSay("Removing your cloud copy…", "work");
+    try { const res = await cloudWipe(); refreshCloud(); clSay(res.none ? "Nothing in the cloud to remove — you're already local-only." : "✓ Cloud copy removed. You're fully local-only now.", "ok"); }
+    catch (e) { clSay("Couldn't remove it: " + (e.message || e), "err"); }
+  });
+  clVerify.addEventListener("click", async (e) => {
+    if (!e.target.closest("#setCloudResend")) return;
+    clSay("Requesting a fresh verification email…", "work");
+    try {
+      const r = await fetch(cloudUrl() + "/api/collections/users/request-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: cloudState().email || clEmail.value.trim() }) });
+      if (!r.ok) { const d = await r.json().catch(() => null); throw new Error(cloudErr(d) || ("the cloud said no (HTTP " + r.status + ")")); }
+      clSay("✓ Verification email requested — check your inbox (and spam).", "ok");
+    } catch (err) { clSay("Couldn't request it: " + (err.message || err), "err"); }
+  });
+  paintSyncToggle();
   // one shared encryption key across the app: keep the cloud passphrase + the backup passphrase in sync
   clPhrase.addEventListener("input", () => { bkPass.value = clPhrase.value; refreshCloud(); });
   if (bkPass) bkPass.addEventListener("input", () => { clPhrase.value = bkPass.value; refreshCloud(); });
@@ -3850,8 +3910,9 @@ function openSettings() {
     clSignup.style.display = inAccount ? "none" : "";
     clLogin.style.display = inAccount ? "none" : "";
     clLogout.style.display = inAccount ? "" : "none";
-    // sync buttons only need a login — the key takes care of itself
-    const canSync = inAccount;
+    // sync buttons need a login AND sync switched on — while it's off, the
+    // toggle's "nothing leaves this device" promise is kept to the letter
+    const canSync = inAccount && !cloudPaused();
     [clPush, clPull].forEach((b) => { b.disabled = !canSync; b.classList.toggle("is-disabled", !canSync); });
     clPull.disabled = !canSync || !hasBackup; clPull.classList.toggle("is-disabled", clPull.disabled);
     // the big "where am I / what next" banner
@@ -3866,6 +3927,14 @@ function openSettings() {
       html = '<b>✓ All set — your cache syncs itself</b><span class="cloud-sub">Last sync <b>' + cloudAgo(s.lastPush) + '</b>' + (s.lastPushCount ? ' · ' + s.lastPushCount + ' files sealed' : '') + '. Sign in with this email on any device and your cache follows you.</span>';
     }
     clGuide.className = cls; clGuide.innerHTML = html;
+    // gentle verify-your-email nudge (delivers once the instance can send mail)
+    if (clVerify) {
+      if (inAccount && s.verified === false) {
+        clVerify.style.display = "";
+        clVerify.innerHTML = '📧 <b>Verify your email</b> — a confirmation was requested for ' + escapeHtml(s.email || "") + '. Nothing arrived? <button type="button" class="cloud-url-edit" id="setCloudResend">resend</button>';
+      } else clVerify.style.display = "none";
+    }
+    if (typeof paintSyncToggle === "function") paintSyncToggle();
   }
   // big, obvious feedback — green flash on success, red on failure, grey while working
   function clSay(text, kind) {
@@ -3876,8 +3945,9 @@ function openSettings() {
   (function initCloud() {
     const s = cloudState(); if (s.url) clUrl.value = s.url; if (s.token) clEmail.value = s.email || ""; if (bkPass && bkPass.value) clPhrase.value = bkPass.value; refreshCloud();
     // validate the stored session for real — a token quietly expires after ~14 days,
-    // and an eternal green check that fails on sync is worse than an honest re-login ask
-    if (s.token) cloudAuthCheck().then((ok) => { if (!ok) { refreshCloud(); clSay("Your cloud login expired — enter your password and hit Log in. Your data is safe.", "err"); } });
+    // and an eternal green check that fails on sync is worse than an honest re-login ask.
+    // Repaint either way: a success may have just learned the verified flag.
+    if (s.token) cloudAuthCheck().then((ok) => { refreshCloud(); if (!ok) clSay("Your cloud login expired — enter your password and hit Log in. Your data is safe.", "err"); });
   })();
   clSignup.addEventListener("click", async () => {
     clSay("Creating account…", "work");
@@ -5223,27 +5293,80 @@ function updateSyncHealth() {
     })
     .catch(() => {});
 }
-syncHealth.addEventListener("click", () => {
+function runSync() {   // one sync trigger for the button AND the pull-down gesture
   syncHealth.classList.add("syncing");
   syncText.textContent = "syncing…";
+  if (window.__CACHE_WEB__ && cloudPaused()) {
+    // honesty over a fake checkmark: nothing moves while sync is off
+    syncText.textContent = "cloud sync is off";
+    syncHealth.classList.remove("syncing");
+    setTimeout(updateSyncHealth, 2500);
+    return Promise.resolve();
+  }
   if (window.__CACHE_WEB__) {
     // no bank engine on this device — here, sync means CLOUD sync: pull what's
     // new, push what's ours, and say so plainly
-    Promise.resolve(cloudAutoPull()).then(() => autoPushNow()).then(() => {
+    return Promise.resolve(cloudAutoPull()).then(() => autoPushNow()).then(() => {
       syncText.textContent = "cloud synced ✓";
       syncHealth.classList.remove("syncing");
       setTimeout(updateSyncHealth, 2500);
     });
-    return;
   }
-  fetch("/api/sync", { method: "POST" })
+  return fetch("/api/sync", { method: "POST" })
     .then((r) => r.json())
     .then((d) => {
       if (d && d.ok) autoPushNow().then(() => location.reload());   // seal the fresh sync to the cloud, then reload
       else { syncText.textContent = "sync failed"; syncHealth.classList.remove("syncing"); }
     })
     .catch(() => { syncText.textContent = "backend off"; syncHealth.classList.remove("syncing"); });
-});
+}
+syncHealth.addEventListener("click", runSync);
+// ── Pull-to-sync: drag down from the top of the board to reveal "sync now" ──
+// Touch-only by nature (touch events); the bar rides the pull with resistance,
+// arms past the threshold, and springs away when done. Reduced motion = no ride.
+(function () {
+  const boardEl = document.getElementById("board");
+  if (!boardEl) return;
+  const bar = document.createElement("div");
+  bar.className = "ptr-bar";
+  bar.innerHTML = '<span class="ptr-txt">↓ pull to sync</span>';
+  document.body.appendChild(bar);
+  const txt = bar.querySelector(".ptr-txt");
+  let startY = 0, pull = 0, armed = false, active = false;
+  const THRESH = 72;
+  const reset = () => { bar.style.transform = ""; bar.classList.remove("armed"); txt.textContent = "↓ pull to sync"; };
+  boardEl.addEventListener("touchstart", (e) => {
+    active = false;
+    // phone-stack only: on wider touch screens (iPad desktop layout) a downward
+    // widget drag or resize would ride the bar and fire a surprise sync+reload
+    if (!matchMedia("(max-width: 640px)").matches) return;
+    if (boardEl.scrollTop > 2) return;
+    // never hijack a touch that belongs to an inner scroller (a list inside a widget)
+    for (let el = e.target; el && el !== boardEl; el = el.parentElement) {
+      if (el.scrollHeight > el.clientHeight + 2) { const o = getComputedStyle(el).overflowY; if (o === "auto" || o === "scroll") return; }
+    }
+    startY = e.touches[0].clientY; pull = 0; armed = false; active = true;
+  }, { passive: true });
+  boardEl.addEventListener("touchmove", (e) => {
+    if (!active) return;
+    pull = (e.touches[0].clientY - startY) / 2.2;   // resistance — half-speed ride
+    if (pull <= 6) { reset(); armed = false; return; }
+    armed = pull >= THRESH;
+    if (!reduceMotion()) bar.style.transform = "translateY(" + Math.min(pull, THRESH + 16) + "px)";
+    else bar.style.transform = armed ? "translateY(" + THRESH + "px)" : "";
+    bar.classList.toggle("armed", armed);
+    txt.textContent = armed ? "↑ release to sync" : "↓ pull to sync";
+  }, { passive: true });
+  const done = () => {
+    if (!active) return;
+    active = false;
+    if (!armed) { reset(); return; }
+    txt.textContent = "⟳ syncing…";
+    Promise.resolve(runSync()).finally(() => setTimeout(reset, 900));
+  };
+  boardEl.addEventListener("touchend", done);
+  boardEl.addEventListener("touchcancel", done);
+})();
 updateSyncHealth();
 setInterval(updateSyncHealth, 60000);
 

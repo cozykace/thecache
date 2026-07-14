@@ -121,7 +121,7 @@
     try {
       const lo = obj && obj.local;
       if (lo && typeof lo === "object") {
-        Object.keys(lo).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.log" && k !== "money.logPending") { try { localStorage.setItem(k, lo[k]); } catch (e) {} } });
+        Object.keys(lo).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused" && k !== "money.log" && k !== "money.logPending") { try { localStorage.setItem(k, lo[k]); } catch (e) {} } });
         ["money.log", "money.logPending"].forEach(function (key) {
           try {
             var rem = JSON.parse(lo[key] || "[]"); if (!Array.isArray(rem) || !rem.length) return;
