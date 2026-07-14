@@ -7127,6 +7127,15 @@ function explodeUnicorn(btn, done) {
   });
 })();
 document.getElementById("manageCats").addEventListener("click", () => { openCategoryManager(); setSidebar(false); });
+// mobile-only menu row (the bottom bar holds only the deck there)
+(function () {
+  const ms = document.getElementById("menuSync");
+  if (ms) ms.addEventListener("click", () => {
+    setSidebar(false);
+    flash("Syncing…");
+    Promise.resolve(runSync()).then(() => flash("Synced ✓")).catch(() => flash("Sync hit a snag — try again"));
+  });
+})();
 document.getElementById("reportBug").addEventListener("click", () => { openBugReport(); setSidebar(false); });
 document.getElementById("openA11y").addEventListener("click", () => { openA11y(); setSidebar(false); });
 
