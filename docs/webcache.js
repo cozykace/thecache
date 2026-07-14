@@ -124,6 +124,7 @@
   }
   // ── per-key mtime bookkeeping (must match app.js: same djb2, same key classes) ──
   function wLhash(s) { var h = 5381; s = s || ""; for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h; }
+  function _wValWins(a, b) { var ha = wLhash(a), hb = wLhash(b); return ha > hb || (ha === hb && a > b); }   // matches app.js _valWins
   function wLmetaGet() { try { return JSON.parse(localStorage.getItem("money.__lmeta") || "{}") || {}; } catch (e) { return {}; } }
   function wLmetaSet(m) { try { localStorage.setItem("money.__lmeta", JSON.stringify(m)); } catch (e) {} }
   // cloud/identity internals + device-ergonomic geometry (never synced — keeps the
@@ -257,9 +258,13 @@
             var vm = (+meta[k]) || 0;
             var has = localStorage.getItem(k) !== null;
             var localM = has ? ((lm[k] && +lm[k].m) || 0) : -1;
-            if (vm > localM) {
+            var cur = has ? localStorage.getItem(k) : null;
+            // strict-newer wins; exact-mtime tie broken by the same deterministic total
+            // order as app.js (_valWins) so phone + desktop converge, never flip-flop
+            var adopt = vm > localM || (vm === localM && has && cur !== lo[k] && _wValWins(lo[k], cur));
+            if (adopt) {
               try {
-                if (localStorage.getItem(k) !== lo[k]) { localStorage.setItem(k, lo[k]); changed++; }
+                if (cur !== lo[k]) { localStorage.setItem(k, lo[k]); changed++; }
                 lm[k] = { m: vm, h: wLhash(lo[k]) };
               } catch (e) {}
             }

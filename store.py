@@ -603,6 +603,16 @@ def _stamp_map(filename, old_map, new_map):
         _write(MAPMETA, meta)
 
 
+def _map_val_wins(a, b):
+    """Deterministic total order to break an EXACT mtime tie so both desktop backends
+    pick the same winner and the maps converge (they run this identical rule). Compares
+    the canonical JSON form, so it works for string values (categories/income/links)
+    and object values (subs) alike. Adopt the remote value iff it is the greater."""
+    ka = a if isinstance(a, str) else json.dumps(a, sort_keys=True)
+    kb = b if isinstance(b, str) else json.dumps(b, sort_keys=True)
+    return ka > kb
+
+
 @_locked
 def merge_maps(remote_files, remote_meta):
     """Merge another device's copy of the four user-edit maps into the local ones,
@@ -631,7 +641,12 @@ def merge_maps(remote_files, remote_meta):
         for k, rval in rem.items():
             local_m = lm.get(k, 0) if k in local else -1   # never had it → adopt even an unstamped remote value
             remote_m = rm.get(k, 0)
-            if remote_m > local_m:
+            # strict-newer wins; on an EXACT mtime tie with differing values (the
+            # universal m:0 legacy state right after this feature shipped) both
+            # desktops must pick the SAME winner or they ping-pong forever — break the
+            # tie by a deterministic total order on the value (so the client's authored
+            # witness, which sees the merged maps as canonical content, can rest).
+            if remote_m > local_m or (remote_m == local_m and k in local and merged.get(k) != rval and _map_val_wins(rval, merged.get(k))):
                 if merged.get(k) != rval:
                     merged[k] = rval
                     this_changed = True

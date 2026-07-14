@@ -3042,6 +3042,10 @@ function isGenericKey(k) { return k.indexOf("money.") === 0 && !isInternalKey(k)
 // djb2 — a cheap content fingerprint so we can tell a real local edit apart from a
 // key we merely re-read (must match webcache.js's wLhash exactly).
 function lhash(s) { let h = 5381; s = s || ""; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h; }
+// Deterministic total order used to break an EXACT mtime tie so two devices pick the
+// same winner and converge (must match webcache.js's _wValWins). Higher djb2 wins;
+// a hash collision falls back to string compare — strictly asymmetric for a!==b.
+function _valWins(a, b) { const ha = lhash(a), hb = lhash(b); return ha > hb || (ha === hb && a > b); }
 function lmetaGet() { try { return JSON.parse(localStorage.getItem("money.__lmeta") || "{}") || {}; } catch (e) { return {}; } }
 function lmetaSet(m) { try { localStorage.setItem("money.__lmeta", JSON.stringify(m)); } catch (e) {} }
 // Give every generic key a per-key mtime. A newly-seen key claims NOTHING (m:0) so
@@ -3068,6 +3072,67 @@ function buildLocalMeta(localSnap) {
   const lm = lmetaGet(), out = {};
   Object.keys(localSnap).forEach((k) => { if (isGenericKey(k)) out[k] = (lm[k] && +lm[k].m) || 0; });
   return out;
+}
+// ── authored-layer witness (concurrency-honest sync) ─────────────
+// A content fingerprint over just the AUTHORED (mergeable) layer — the localStorage
+// snapshot + the four user-edit maps, VALUES ONLY. It answers one question after
+// merge-before-seal: does the vault ALREADY hold every authored edit we have? If yes,
+// the push short-circuit (and the pull-side chip) may honestly say "synced"; if a
+// concurrent overwrite silently dropped one of our edits, ours differs from the
+// vault's and we re-seal instead of falsely claiming cloud ✓. Deliberately EXCLUDES
+// the engine files (balances/transactions/ledger/monthly/coverage), api, and mtimes —
+// those are last-writer-wins and would make peers' bank-sync churn livelock this.
+// Canonicalizes recursively (sorted keys, parsed JSON values) so two devices that
+// serialize the same data in different key orders don't ping-pong corrective pushes.
+function _canonVal(v) {
+  if (Array.isArray(v)) return v.map(_canonVal);
+  if (v && typeof v === "object") { const o = {}; Object.keys(v).sort().forEach((k) => { o[k] = _canonVal(v[k]); }); return o; }
+  return v;
+}
+function _canonStr(s) {
+  if (typeof s !== "string") return s;
+  try { const v = JSON.parse(s); if (v && typeof v === "object") return _canonVal(v); } catch (e) {}
+  return s;   // plain string (note, theme, a number) — compared as-is
+}
+// The set-union / keep-local SPECIAL keys converge to a SET with device-LOCAL order
+// (log/logPending/charLog/badges appended in each device's own order) — and customStats
+// keeps its label device-local. Byte-hashing them would see two converged devices as
+// forever "ahead" and re-push every poll (a livelock). So the witness hashes each such
+// key's CONVERGENT projection: entries sorted by their dedup identity, and for
+// customStats only id+marks (the parts the merge actually makes equal). Order-significant
+// keys (money.deck) and lattice keys (money.profile) are left to _canonStr — they
+// converge to byte-identical content on their own (deck by rev, profile by EXP-ledger).
+function _ckLog(e) { return (e && e.at || 0) + "|" + (e && e.itemId || ""); }
+function _ckChar(e) { return (e && e.t || 0) + "|" + (e && e.k || "") + "|" + (e && e.d || ""); }
+function _sortBy(arr, keyfn) { return arr.slice().sort((a, b) => { const x = keyfn(a), y = keyfn(b); return x < y ? -1 : x > y ? 1 : 0; }); }
+function _authoredProject(k, str) {
+  try {
+    const v = JSON.parse(str);
+    if ((k === "money.log" || k === "money.logPending") && Array.isArray(v)) return _sortBy(v, _ckLog).map(_canonVal);
+    if (k === "money.charLog" && Array.isArray(v)) return _sortBy(v, _ckChar).map(_canonVal);
+    if (k === "money.badges" && Array.isArray(v)) return v.slice().map(String).sort();
+    if (k === "money.customStats" && Array.isArray(v)) return _sortBy(v.filter((s) => s && s.id), (s) => s.id).map((s) => ({ id: s.id, marks: (s.marks || []).slice().sort() }));
+    // money.profile converges ONLY on its EXP-ledger core (expBy slot-max, exp=sum,
+    // clicks=max). stats.dev is a per-device id the merge never reconciles, and
+    // name/role/note are richer-wins (device-local at equal exp) — hashing them raw
+    // would make two synced devices forever "ahead" (a livelock). Project to the core.
+    if (k === "money.profile" && v && typeof v === "object") {
+      const s = v.stats || {}, by = {};
+      Object.keys(s.expBy || {}).sort().forEach((d) => { by[d] = +s.expBy[d] || 0; });
+      return { exp: +s.exp || 0, clicks: +s.clicks || 0, expBy: by };
+    }
+  } catch (e) {}
+  return _canonStr(str);
+}
+function authoredHash(local, maps) {
+  // filter to the keys snapshotLocal actually seals — an OLD vault blob can still
+  // carry since-reclassified device-local keys (zoom, sidebar…) in its local layer,
+  // and hashing them would make the witness "ahead" of a vault we can never equal
+  const L = {}; Object.keys(local || {}).sort().forEach((k) => { if (isInternalKey(k)) return; L[k] = _authoredProject(k, local[k]); });
+  const M = {}; MAP_FILE_NAMES.forEach((n) => { if (maps && maps[n] != null) M[n] = _canonStr(maps[n]); });
+  const str = JSON.stringify({ local: L, maps: M });
+  let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  return str.length + ":" + h;
 }
 // Snapshot the user's money.* localStorage (deck, daily log, base, config) — the setup that
 // makes the app YOURS — so it rides in the encrypted bundle to any device. Excludes the auth token.
@@ -3126,9 +3191,9 @@ async function cloudPush(passphrase) {
   // gather the payload BEFORE any key rotation — the web branch must open the
   // existing blob with the CURRENT key, and must never overwrite real financial
   // data with an empty bundle just because the open failed
-  let files = {}, api = {}, exported, filesMeta = {}, curLocal = null, curLocalMeta = null;
+  let files = {}, api = {}, exported, filesMeta = {}, curLocal = null, curLocalMeta = null, vaultAuthored = null;
   if (window.__CACHE_WEB__) {
-    if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; filesMeta = cur.filesMeta || {}; curLocal = cur.local || null; curLocalMeta = cur.localMeta || null; }
+    if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; filesMeta = cur.filesMeta || {}; curLocal = cur.local || null; curLocalMeta = cur.localMeta || null; vaultAuthored = authoredHash(cur.local || {}, cur.files || {}); }
   } else {
     // open the vault FIRST so we can merge another device's user-edit maps
     // (categories/income/subs/income-links) into our local backend before exporting —
@@ -3137,6 +3202,7 @@ async function cloudPush(passphrase) {
       try {
         const cur = await cloudOpen(rec.blob, passphrase || "");
         curLocal = cur.local || null; curLocalMeta = cur.localMeta || null;
+        vaultAuthored = authoredHash(cur.local || {}, cur.files || {});   // witness of the vault's authored layer BEFORE merge-maps mutates our backend
         if (cur.files) {
           const rf = {}; MAP_FILE_NAMES.forEach((n) => { if (cur.files[n] != null) rf[n] = cur.files[n]; });
           try {
@@ -3167,6 +3233,9 @@ async function cloudPush(passphrase) {
   }
   stampGeneric();   // ensure every generic key has an mtime even on a first (curLocal-less) push
   const localSnap = snapshotLocal();
+  // our authored layer AFTER merge-before-seal — a superset (per-key newest-wins) of
+  // the vault's. Equal to vaultAuthored ⟺ the vault already holds all our authored data.
+  const ourAuthored = authoredHash(localSnap, files);
   // the keybox is only ever written when it doesn't exist yet, or when a manual
   // passphrase push upgrades escrow → zero-knowledge. Background pushes never
   // touch it. A zero-knowledge account (mode remembered locally) never accepts a
@@ -3191,7 +3260,13 @@ async function cloudPush(passphrase) {
   // Hashes the real content only — exported is a timestamp and would defeat it.
   let h = 5381; for (let i = 0; i < payloadCore.length; i++) h = ((h << 5) + h + payloadCore.charCodeAt(i)) | 0;
   const hash = payloadCore.length + ":" + h;
-  if (!mintedKey && !writeKeybox && hash === s.lastHash && id) {
+  // Two clauses, both required, so "cloud ✓ / unchanged" is never a lie:
+  //   hash === s.lastHash        → we have nothing new to upload (incl. fresh bank files)
+  //   vaultAuthored === ourAuthored → the vault provably still holds all our authored
+  //                                   data (a concurrent push didn't drop one of our
+  //                                   edits). vaultAuthored is null on an unread/v1
+  //                                   vault → we never claim synced against one.
+  if (!mintedKey && !writeKeybox && id && hash === s.lastHash && vaultAuthored !== null && vaultAuthored === ourAuthored) {
     cloudSaveState(Object.assign(cloudState(), { lastPush: new Date().toISOString() }));   // confirmed in sync — the chip stays truthful
     return { count, bytes: s.bytes || 0, unchanged: true };
   }
@@ -3444,9 +3519,15 @@ function mergeRemoteLocal(lo, meta) {
       const vm = (+meta[k]) || 0;
       const has = localStorage.getItem(k) !== null;
       const localM = has ? ((lm[k] && +lm[k].m) || 0) : -1;   // never had it → adopt even a mtime-0 vault value
-      if (vm > localM) {
+      const cur = has ? localStorage.getItem(k) : null;
+      // strict-newer wins; on an EXACT mtime tie with differing values (the common
+      // post-rollout m:0 state), both devices must pick the SAME winner or they
+      // flip-flop forever — so break the tie by a deterministic total order on the
+      // value (higher djb2, then string compare). Symmetric → both converge in one pass.
+      const adopt = vm > localM || (vm === localM && has && cur !== lo[k] && _valWins(lo[k], cur));
+      if (adopt) {
         try {
-          if (localStorage.getItem(k) !== lo[k]) { localStorage.setItem(k, lo[k]); changed = true; }
+          if (cur !== lo[k]) { localStorage.setItem(k, lo[k]); changed = true; }
           lm[k] = { m: vm, h: lhash(lo[k]) };
         } catch (e) {}
       }
@@ -3482,15 +3563,48 @@ async function cloudAutoPull() {
         // adopt another device's category/income/subs/income-link edits into our
         // local backend, newest-per-key (desktop only — the web reads maps straight
         // from the vault's files and has no backend to merge into)
+        let ourMaps = null;
         if (!window.__CACHE_WEB__ && obj && obj.files) {
+          let mergeMapsOk = false;
           try {
             const rf = {}; MAP_FILE_NAMES.forEach((n) => { if (obj.files[n] != null) rf[n] = obj.files[n]; });
-            const mm = await (await fetch("/api/merge-maps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: rf, filesMeta: obj.filesMeta || {} }) })).json();
-            if (mm && mm.changed) { try { if (typeof Store !== "undefined" && Store.refresh) Store.refresh(); } catch (e) {} }   // merged tags → repaint money widgets
+            const r = await fetch("/api/merge-maps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: rf, filesMeta: obj.filesMeta || {} }) });
+            const mm = r.ok ? await r.json() : null;
+            if (mm && mm.ok) { mergeMapsOk = true; if (mm.changed) { try { if (typeof Store !== "undefined" && Store.refresh) Store.refresh(); } catch (e) {} } }   // merged tags → repaint
           } catch (e) {}
+          // Only trust our maps for the witness once the merge actually ran — read them
+          // back from export-data (our REAL maps, never the vault's). If merge-maps didn't
+          // run (old server not yet restarted, or a hiccup), leave ourMaps null: we must
+          // NOT green over an unmerged state, and must NOT push our un-merged maps (that
+          // would clobber the peer's tags). ourMaps stays null → syncing + retry next poll.
+          if (mergeMapsOk) {
+            try { const ex = await (await fetch("/api/export-data")).json(); if (ex && ex.files) { ourMaps = {}; MAP_FILE_NAMES.forEach((n) => { if (ex.files[n] != null) ourMaps[n] = ex.files[n]; }); } } catch (e) {}
+          }
+        } else {
+          ourMaps = (obj && obj.files) || {};   // web: maps come straight from the vault (read-only) → vault == ours
         }
-        cloudSaveState(Object.assign(cloudState(), { lastSeenVault: rec.updated || rec0.updated }));
-        cloudChip("ok");
+        if (ourMaps === null) {
+          // couldn't merge/read our own authored maps (backend down or pre-merge-maps
+          // server) → can't assert synced and mustn't push un-merged maps; leave
+          // lastSeenVault as-is so the next poll retries, and keep the chip honest.
+          cloudChip("syncing");
+        } else {
+          cloudSaveState(Object.assign(cloudState(), { lastSeenVault: rec.updated || rec0.updated }));
+          // Honest chip + corrective push: if OUR authored layer is now AHEAD of the
+          // vault (a concurrent push overwrote the vault with a version that lacked one
+          // of our edits), arming a push re-seals it and we withhold the green until it
+          // reconciles. This closes the finding's quiescent hole — where a keep-local
+          // merge returned changed=false, so nothing re-uploaded yet the chip went green
+          // over a vault that was missing our data.
+          let ahead = false;
+          try {
+            const vaultAuthored = authoredHash((obj && obj.local) || {}, (obj && obj.files) || {});
+            const ourAuthored = authoredHash(snapshotLocal(), ourMaps);
+            ahead = vaultAuthored !== ourAuthored;
+          } catch (e) {}
+          if (ahead) { cloudChip("syncing"); autoPushSoon(); }
+          else cloudChip("ok");
+        }
       }
     }
   } catch (e) {
