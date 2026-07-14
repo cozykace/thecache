@@ -2444,7 +2444,32 @@ function openKingCozy() {
 }
 
 // ── Gamification: every click banks 1 EXP into your profile's stats ──
-let PROFILE_STATS = (function () { const p = getProfile(); return Object.assign({ exp: 0, clicks: 0 }, p.stats || {}); })();
+// The EXP ledger: each device banks the points it earns in its OWN slot
+// (stats.expBy), and the character's total is the SUM of every slot. Merging is
+// slot-wise max — safe in any order, offline included — so points earned on an
+// accidental fresh start (or a plane) always AGGREGATE into the main bank,
+// never erase or get erased. The device id never rides the sync bundle.
+const DEVICE_KEY = "money.deviceId";
+function devId() {
+  try {
+    let d = localStorage.getItem(DEVICE_KEY);
+    if (!d) { d = "d" + Math.random().toString(36).slice(2, 10); localStorage.setItem(DEVICE_KEY, d); }
+    return d;
+  } catch (e) { return "d0"; }
+}
+let PROFILE_STATS = (function () {
+  const p = getProfile();
+  const s = Object.assign({ exp: 0, clicks: 0 }, p.stats || {});
+  s.dev = devId();
+  if (!s.expBy || typeof s.expBy !== "object") s.expBy = {};
+  if (!(s.dev in s.expBy)) {
+    // first run on this device: claim whatever history isn't already banked in
+    // other devices' slots (a pre-ledger profile claims its whole total once)
+    const others = Object.keys(s.expBy).reduce((t, k) => t + (+s.expBy[k] || 0), 0);
+    s.expBy[s.dev] = Math.max(0, (s.exp || 0) - others);
+  }
+  return s;
+})();
 let _statsTimer = null;
 function saveStats() {
   const p = getProfile();
@@ -2701,6 +2726,7 @@ function addExp(n) {
   PROFILE_STATS.clicks += n;
   if (_healthFull) { _expAcc += n * 0.1; if (_expAcc >= 1) { const b = Math.floor(_expAcc); n += b; _expAcc -= b; } }  // +10% EXP at full health
   PROFILE_STATS.exp += n;
+  try { PROFILE_STATS.expBy[PROFILE_STATS.dev] = (+PROFILE_STATS.expBy[PROFILE_STATS.dev] || 0) + n; } catch (e) {}   // bank it in this device's ledger slot
   updateXp();
   clearTimeout(_statsTimer);
   _statsTimer = setTimeout(saveStats, 700);
@@ -2994,13 +3020,13 @@ async function cloudFindVaultId(s) {
 // makes the app YOURS — so it rides in the encrypted bundle to any device. Excludes the auth token.
 function snapshotLocal() {
   const out = {};
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused") out[k] = localStorage.getItem(k); } } catch (e) {}
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused" && k !== "money.deviceId") out[k] = localStorage.getItem(k); } } catch (e) {}
   return out;
 }
 function restoreLocal(local) {
   if (!local || typeof local !== "object") return 0;
   let n = 0;
-  Object.keys(local).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused") { try { localStorage.setItem(k, local[k]); n++; } catch (e) {} } });
+  Object.keys(local).forEach((k) => { if (k.indexOf("money.") === 0 && k !== "money.cloud" && k !== "money.cloudKey" && k !== "money.cloudPaused" && k !== "money.deviceId") { try { localStorage.setItem(k, local[k]); n++; } catch (e) {} } });
   return n;
 }
 async function cloudPush(passphrase) {
@@ -3064,8 +3090,8 @@ async function cloudPush(passphrase) {
   const localSnap = snapshotLocal();
   if (curLocal) {
     try {
-      const expOf = (str) => { try { const p = JSON.parse(str || "{}"); return (p.stats && p.stats.exp) || 0; } catch (e) { return 0; } };
-      if (expOf(curLocal["money.profile"]) > expOf(localSnap["money.profile"])) localSnap["money.profile"] = curLocal["money.profile"];
+      if (curLocal["money.profile"] != null) localSnap["money.profile"] = mergeProfileStrings(localSnap["money.profile"] || "", curLocal["money.profile"]);   // EXP ledger: slots aggregate
+      if (curLocal["money.charLog"] != null) localSnap["money.charLog"] = mergeCharLogStrings(localSnap["money.charLog"] || "[]", curLocal["money.charLog"]);
       ["money.log", "money.logPending"].forEach((key) => {
         try {
           const rem = JSON.parse(curLocal[key] || "[]");
@@ -3223,6 +3249,39 @@ async function autoPushNow() {
 //   character → higher EXP wins
 // Everything else (layout, look, config) stays this device's own; full adoption
 // only happens on a fresh-device login (webcache) or a manual Restore.
+// Merge two profile snapshots under the EXP-ledger rule: per-device slots,
+// slot-wise max, total = sum of slots — points earned anywhere always AGGREGATE.
+// A legacy profile (no ledger yet) claims its unbanked balance under its own
+// device slot. The richer character carries the profile's other fields.
+function mergeProfileStrings(aStr, bStr) {
+  const parse = (s) => { try { return JSON.parse(s || "{}") || {}; } catch (e) { return {}; } };
+  const a = parse(aStr), b = parse(bStr);
+  const sa = a.stats || {}, sb = b.stats || {};
+  const claim = (s) => {
+    const by = (s.expBy && typeof s.expBy === "object") ? Object.assign({}, s.expBy) : {};
+    const banked = Object.keys(by).reduce((t, k) => t + (+by[k] || 0), 0);
+    const rest = Math.max(0, (+s.exp || 0) - banked);
+    if (rest > 0) { const slot = s.dev || "legacy"; by[slot] = (+by[slot] || 0) + rest; }
+    return by;
+  };
+  const A = claim(sa), B = claim(sb), by = {};
+  Object.keys(A).concat(Object.keys(B)).forEach((k) => { by[k] = Math.max(+A[k] || 0, +B[k] || 0); });
+  const total = Object.keys(by).reduce((t, k) => t + by[k], 0);
+  const bRicher = (+sb.exp || 0) > (+sa.exp || 0);
+  const out = Object.assign({}, bRicher ? b : a);
+  out.stats = Object.assign({}, bRicher ? sb : sa, { expBy: by, exp: total, clicks: Math.max(+sa.clicks || 0, +sb.clicks || 0) });
+  return JSON.stringify(out);
+}
+// Union two character activity logs ({k, d, t} entries) — the journey survives
+// every device, capped like charLog itself.
+function mergeCharLogStrings(aStr, bStr) {
+  const parse = (s) => { try { const v = JSON.parse(s || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+  const a = parse(aStr), b = parse(bStr);
+  const seen = new Set(a.map((e) => (e.t || 0) + "|" + (e.k || "") + "|" + (e.d || "")));
+  const add = b.filter((e) => e && !seen.has((e.t || 0) + "|" + (e.k || "") + "|" + (e.d || "")));
+  if (!add.length) return JSON.stringify(a.slice(-800));
+  return JSON.stringify(a.concat(add).sort((x, y) => (x.t || 0) - (y.t || 0)).slice(-800));
+}
 function mergeRemoteLocal(lo) {
   let changed = false;
   ["money.log", "money.logPending"].forEach((key) => {
@@ -3240,15 +3299,27 @@ function mergeRemoteLocal(lo) {
     if (remRev > locRev && lo["money.deck"]) { localStorage.setItem("money.deck", lo["money.deck"]); localStorage.setItem("money.deckRev", String(remRev)); changed = true; }
   } catch (e) {}
   try {
-    const mine = JSON.parse(localStorage.getItem("money.profile") || "{}");
-    const theirs = JSON.parse(lo["money.profile"] || "{}");
-    const mx = (mine.stats && mine.stats.exp) || 0, tx = (theirs.stats && theirs.stats.exp) || 0;
-    if (tx > mx) {
-      localStorage.setItem("money.profile", lo["money.profile"]);
-      // rehydrate the LIVE stats too — otherwise the very next click's saveStats
-      // would write the stale in-memory copy right back over the merge
-      try { if (typeof PROFILE_STATS === "object" && theirs.stats) { Object.assign(PROFILE_STATS, theirs.stats); if (typeof updateXp === "function") updateXp(); } } catch (e) {}
-      changed = true;
+    if (lo["money.charLog"] != null) {
+      const cur = localStorage.getItem("money.charLog") || "[]";
+      const merged = mergeCharLogStrings(cur, lo["money.charLog"]);
+      if (merged !== cur) { localStorage.setItem("money.charLog", merged); changed = true; }
+    }
+  } catch (e) {}
+  try {
+    if (lo["money.profile"] != null) {
+      const cur = localStorage.getItem("money.profile") || "";
+      const merged = mergeProfileStrings(cur, lo["money.profile"]);
+      if (merged !== cur) {
+        localStorage.setItem("money.profile", merged);
+        // rehydrate the LIVE stats too — otherwise the very next click's saveStats
+        // would write the stale in-memory copy right back over the merge. The dev
+        // slot stays THIS device's own.
+        try {
+          const np = JSON.parse(merged);
+          if (typeof PROFILE_STATS === "object" && np.stats) { Object.assign(PROFILE_STATS, np.stats); PROFILE_STATS.dev = devId(); if (typeof updateXp === "function") updateXp(); }
+        } catch (e) {}
+        changed = true;
+      }
     }
   } catch (e) {}
   return changed;

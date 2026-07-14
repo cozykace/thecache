@@ -61,6 +61,7 @@ _Last updated: 2026-07-13_
 - **Daily local backups** and a live **Private & verified** integrity check.
 - **Plain files you own** — your data is simple JSON on your disk. No lock-in, ever.
 - **Cache cloud (beta) — sign in and your cache follows you** — your data is sealed on your device before it leaves, and once you're set up it syncs itself: change something, it's in the cloud moments later; open the app anywhere, the latest is waiting. A cloud chip always tells you the truth (synced ✓ / syncing / needs you). By default your account keeps a spare key so a forgotten password never loses your cache; turn on **zero-knowledge mode** (a passphrase only you know) and not even we can open it — that's your call to make. Local is free forever; the cloud is opt-in.
+- **One character, every device** — your EXP is a ledger: points earned on your phone, your desktop, offline on a plane, or even on an accidental fresh start all **add up** into the same character. Nothing you earn is ever erased by syncing — in any order, ever.
 - **Encrypted file & WebDAV backups** — seal everything with your passphrase into a `.cache` file you own, or push it to your own WebDAV server. Those bundles open anywhere with just the passphrase.
 
 ## What's coming

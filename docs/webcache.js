@@ -59,6 +59,35 @@
     return decryptJSON(envStr, pass);
   }
 
+  // ── EXP-ledger merge (must match app.js mergeProfileStrings/mergeCharLogStrings) ─
+  function wMergeProfile(aStr, bStr) {
+    var parse = function (s) { try { return JSON.parse(s || "{}") || {}; } catch (e) { return {}; } };
+    var a = parse(aStr), b = parse(bStr);
+    var sa = a.stats || {}, sb = b.stats || {};
+    var claim = function (s) {
+      var by = (s.expBy && typeof s.expBy === "object") ? Object.assign({}, s.expBy) : {};
+      var banked = 0; Object.keys(by).forEach(function (k) { banked += (+by[k] || 0); });
+      var rest = Math.max(0, (+s.exp || 0) - banked);
+      if (rest > 0) { var slot = s.dev || "legacy"; by[slot] = (+by[slot] || 0) + rest; }
+      return by;
+    };
+    var A = claim(sa), B = claim(sb), by = {};
+    Object.keys(A).concat(Object.keys(B)).forEach(function (k) { by[k] = Math.max(+A[k] || 0, +B[k] || 0); });
+    var total = 0; Object.keys(by).forEach(function (k) { total += by[k]; });
+    var bRicher = (+sb.exp || 0) > (+sa.exp || 0);
+    var out = Object.assign({}, bRicher ? b : a);
+    out.stats = Object.assign({}, bRicher ? sb : sa, { expBy: by, exp: total, clicks: Math.max(+sa.clicks || 0, +sb.clicks || 0) });
+    return JSON.stringify(out);
+  }
+  function wMergeCharLog(aStr, bStr) {
+    var parse = function (s) { try { var v = JSON.parse(s || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+    var a = parse(aStr), b = parse(bStr);
+    var seen = {}; a.forEach(function (e) { seen[(e.t || 0) + "|" + (e.k || "") + "|" + (e.d || "")] = 1; });
+    var add = b.filter(function (e) { return e && !seen[(e.t || 0) + "|" + (e.k || "") + "|" + (e.d || "")]; });
+    if (!add.length) return JSON.stringify(a.slice(-800));
+    return JSON.stringify(a.concat(add).sort(function (x, y) { return (x.t || 0) - (y.t || 0); }).slice(-800));
+  }
+
   // ── cloud account (shares the money.cloud key so app.js Settings shows it too) ─
   function cloudState() { try { return JSON.parse(localStorage.getItem("money.cloud") || "{}") || {}; } catch (e) { return {}; } }
   function cloudSave(s) { localStorage.setItem("money.cloud", JSON.stringify(s)); }
@@ -116,20 +145,34 @@
     FILES = (obj && obj.files) || {};
     API = (obj && obj.api) || {};
     // restore the user's setup (deck, base, config) so it appears on this device too —
-    // with merge rules so a fresh start can never eat the primary experience:
-    //   money.profile → HIGHER EXP wins (your real character beats an accidental Level 1)
+    // with merge rules so nothing earned anywhere is ever erased:
+    //   money.profile → EXP LEDGER: per-device slots, slot-wise max, total = sum —
+    //     points from an accidental fresh start AGGREGATE into the main bank
+    //   money.charLog → union (the journey survives every device)
     //   money.log / money.logPending → union, deduped (no check-in answer ever lost)
     //   everything else → the vault's copy (the point of signing in on a new device)
     var changed = 0;
     try {
       const lo = obj && obj.local;
       if (lo && typeof lo === "object") {
-        var expOf = function (str) { try { var p = JSON.parse(str || "{}"); return (p.stats && p.stats.exp) || 0; } catch (e) { return 0; } };
         Object.keys(lo).forEach((k) => {
-          if (k.indexOf("money.") !== 0 || k === "money.cloud" || k === "money.cloudKey" || k === "money.cloudPaused" || k === "money.log" || k === "money.logPending") return;
-          if (k === "money.profile" && expOf(localStorage.getItem(k)) > expOf(lo[k])) return;   // this device's character is FURTHER — keep it
+          if (k.indexOf("money.") !== 0 || k === "money.cloud" || k === "money.cloudKey" || k === "money.cloudPaused" || k === "money.deviceId" || k === "money.log" || k === "money.logPending" || k === "money.profile" || k === "money.charLog") return;
           try { if (localStorage.getItem(k) !== lo[k]) { localStorage.setItem(k, lo[k]); changed++; } } catch (e) {}
         });
+        try {
+          if (lo["money.profile"] != null) {
+            var curP = localStorage.getItem("money.profile") || "";
+            var mergedP = wMergeProfile(curP, lo["money.profile"]);
+            if (mergedP !== curP) { localStorage.setItem("money.profile", mergedP); changed++; }
+          }
+        } catch (e) {}
+        try {
+          if (lo["money.charLog"] != null) {
+            var curC = localStorage.getItem("money.charLog") || "[]";
+            var mergedC = wMergeCharLog(curC, lo["money.charLog"]);
+            if (mergedC !== curC) { localStorage.setItem("money.charLog", mergedC); changed++; }
+          }
+        } catch (e) {}
         ["money.log", "money.logPending"].forEach(function (key) {
           try {
             var rem = JSON.parse(lo[key] || "[]"); if (!Array.isArray(rem) || !rem.length) return;
