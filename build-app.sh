@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Build the hosted WEB app (docs/app/) — the same real app.js/styles.css, but with
-# webcache.js (the no-backend web runtime) loaded before app.js. It runs entirely
-# in the browser: login + decrypt the E2E vault, then serve every data/*.json and
+# Build the hosted WEB app (docs/ = the ROOT of thecache.app) — the same real
+# app.js/styles.css, but with webcache.js (the no-backend web runtime) loaded before
+# app.js. It runs entirely
+# in the browser: login + decrypt the vault, then serve every data/*.json and
 # /api/* call from the decrypted bundle. The desktop app is the sync engine.
 #
 # Run after any app.js/styles.css/cursor.js/webcache.js/index.html change so the
-# web app doesn't drift, then push (main → GitHub Pages → /thecache/app/).
+# web app doesn't drift, then push (main → GitHub Pages → https://thecache.app/).
+# The roadmap lives at docs/roadmap/, the demo at docs/demo/ — untouched by this build.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-DEST="$HERE/docs/app"
+DEST="$HERE/docs"
 mkdir -p "$DEST/av assets"
 
 # code
