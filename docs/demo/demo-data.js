@@ -172,6 +172,12 @@
   } };
 
   var incomeLinks = { links: {} };
+  // demo Brain Bucket seed — a couple of example held thoughts so the widget demos full
+  var demoBucket = [
+    { id: "d1", kind: "note", text: "call the dentist about Thursday", url: "" },
+    { id: "d2", kind: "note", text: "that budgeting idea from lunch — try it Sunday", url: "" },
+  ];
+  var demoBucketId = 2;
 
   // per-month income by source (drives the stacked "streams" forecast view) — keys
   // match the demo's forecast sources (retainer / gig) so history lines up with the sliders
@@ -187,7 +193,7 @@
 
   // ── fetch interceptor ───────────────────────────────────────────────────────
   function J(obj) { return new Response(JSON.stringify(obj), { status: 200, headers: { "Content-Type": "application/json" } }); }
-  function route(url, method) {
+  function route(url, method, body) {
     var m = (method || "GET").toUpperCase();
     if (url.indexOf("data/balances.json") !== -1) return J(balances);
     if (url.indexOf("data/monthly.json") !== -1) return J(monthly);
@@ -236,7 +242,12 @@
     ] });
     if (url.indexOf("/api/averages") !== -1) return J(averages);
     if (url.indexOf("/api/issues") !== -1) return J(issues);
-    if (url.indexOf("/api/income-links") !== -1) return J(m === "POST" ? { ok: true, links: {} } : incomeLinks);
+    if (url.indexOf("/api/income-links") !== -1) {
+      // stateful: the widget re-GETs, merges its one change, POSTs the map back and
+      // adopts it — a static route would make the second link erase the first
+      if (m === "POST") { try { incomeLinks.links = JSON.parse(body || "{}").links || {}; } catch (e) {} return J({ ok: true, links: incomeLinks.links }); }
+      return J(incomeLinks);
+    }
     if (url.indexOf("/api/subs") !== -1) return J(m === "POST" ? { ok: true, subs: subs.subs } : subs);
     if (url.indexOf("/api/match-count") !== -1) return J({ count: 8, total: 210 });
     if (url.indexOf("/api/categorize") !== -1) return J({ ok: true, spending: summary.spending });
@@ -266,11 +277,20 @@
     if (url.indexOf("/api/checkin-deck") !== -1) return Promise.resolve(J({ ok: true, deck: { rev: 0, items: [] } }));
     if (url.indexOf("/api/checkin-log") !== -1) return Promise.resolve(J({ ok: true, log: [] }));
     if (url.indexOf("/api/checkin") !== -1) return Promise.resolve(J({ ok: true, added: 0 }));
-    // Brain Bucket: demo answers with an empty bucket; adds/removes pretend to succeed
-    if (url.indexOf("/api/bucket") !== -1) return Promise.resolve(J({ ok: true, items: [] }));
+    // Brain Bucket: a small in-memory bucket so adds + tosses feel real (resets on reload)
+    if (url.indexOf("/api/bucket-remove") !== -1) {
+      try { var rid = JSON.parse((init && init.body) || "{}").id; demoBucket = demoBucket.filter(function (it) { return it.id !== rid; }); } catch (e) {}
+      return Promise.resolve(J({ ok: true, items: demoBucket }));
+    }
+    if (url.indexOf("/api/bucket") !== -1) {
+      if ((((init && init.method) || "GET") + "").toUpperCase() === "POST") {
+        try { var bb = JSON.parse((init && init.body) || "{}"); demoBucket.push({ id: "d" + (++demoBucketId), kind: bb.kind || "note", text: bb.text || "", url: bb.url || "" }); } catch (e) {}
+      }
+      return Promise.resolve(J({ ok: true, items: demoBucket }));
+    }
     if (url.indexOf("/api/") !== -1 || url.indexOf("data/balances.json") !== -1 || url.indexOf("data/monthly.json") !== -1) {
       var method = (init && init.method) || (typeof input === "object" && input && input.method) || "GET";
-      return Promise.resolve(route(url, method));
+      return Promise.resolve(route(url, method, init && init.body));
     }
     if (realFetch) return realFetch(input, init);
     return Promise.reject(new Error("offline"));

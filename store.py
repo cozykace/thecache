@@ -2037,6 +2037,7 @@ def api_snapshot():
     grab("subs", lambda: {"subs": load_subs()})
     grab("income-links", lambda: {"links": load_income_links()})
     grab("bugs", lambda: {"bugs": load_bugs()})
+    grab("bucket", lambda: {"ok": True, "items": bucket_get()})   # held thoughts show on the phone, not a fake-empty bucket
     grab("devtree", lambda: dev_tree())
     return out
 

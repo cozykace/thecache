@@ -1984,6 +1984,10 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
   font-family: inherit; font-size: 14px; cursor: pointer; border-radius: 8px; }
 .bk-x:active { transform: scale(0.9); }
 .bk-empty { line-height: 1.5; }
+.bk-retry { align-self: flex-start; min-height: 44px; padding: 10px 16px; margin-top: 8px;
+  border: 1px solid var(--edge-soft); border-radius: 10px; background: none;
+  color: rgba(var(--ink-rgb), 0.7); font-family: inherit; font-size: 12px; cursor: pointer; }
+.bk-retry:hover { border-color: var(--accent); color: var(--ink); }
 .bk-count { margin-top: auto; }
 .daily-input { margin-top: auto; }
 .daily-opts { display: flex; flex-direction: column; gap: 11px; }

@@ -225,15 +225,44 @@ function monthlyNeed(d) {
 // writes the whole map back to the server.
 let SUBS = {};  // { merchantKey: { mustpay, cadence, paused, name } }
 let _subsSaveTimer = null;
+let _subsLoaded = false;  // the server's map has actually been seen — POSTing before then could wipe it
+let _subsDirty = false;   // an edit is awaiting persistence (retries on next edit / backend recovery)
 function subEntry(key) { return SUBS[key] || {}; }
 function saveSubs() {
+  _subsDirty = true;
   clearTimeout(_subsSaveTimer);
-  _subsSaveTimer = setTimeout(() => {
-    fetch("/api/subs", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ subs: SUBS }) }).catch(() => {});
-    autoPushSoon();
-  }, 350);
+  _subsSaveTimer = setTimeout(pushSubs, 350);
 }
+// The guarded persist: saveSubs POSTs the WHOLE map, so it must never fire from a
+// copy that missed the server's data (backend was starting when the page loaded) —
+// that would wipe every stored decision with a ✓ on screen. Pull-and-merge first.
+function pushSubs() {
+  clearTimeout(_subsSaveTimer); _subsSaveTimer = null;
+  const post = () => fetch("/api/subs", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subs: SUBS }) })
+    .then((r) => { if (!r.ok) throw new Error("save failed"); return r.json(); })
+    .then((d) => {
+      if (d && d.ok === false) { flash(d.error || "read-only here — edit on the desktop app"); return; }   // hosted web mirror answers 200 {ok:false}
+      if (!_subsSaveTimer) _subsDirty = false;   // a timer at resolve time = a NEWER edit queued mid-flight — keep it dirty so recovery retries it
+      autoPushSoon();
+    })
+    .catch(() => { flash("couldn't save — backend down? click the server light"); });
+  if (_subsLoaded) return post();
+  // never saw the server's map — pull it and merge (local edits win per-key) so we can't clobber
+  return fetch("/api/subs?t=" + Date.now())
+    .then((r) => { if (!r.ok) throw new Error("load failed"); return r.json(); })
+    .then((d) => { SUBS = Object.assign({}, (d && d.subs) || {}, SUBS); _subsLoaded = true; })
+    .then(post)
+    .catch(() => { flash("couldn't save — backend down? click the server light"); });
+}
+// a toggle followed by an immediate tab close must still land — flush the debounce.
+// fetch+keepalive (not sendBeacon: the web/demo runtimes intercept fetch only).
+window.addEventListener("pagehide", () => {
+  if (!_subsSaveTimer || !_subsLoaded) return;   // nothing pending, or map never loaded (a blind flush would clobber)
+  clearTimeout(_subsSaveTimer); _subsSaveTimer = null;
+  try {
+    fetch("/api/subs", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subs: SUBS }) }).catch(() => {});
+  } catch (e) {}
+});
 function setSubField(key, field, value) {
   const e = SUBS[key] || (SUBS[key] = {});
   const isDefault = value === false || value == null || value === "" || (field === "cadence" && value === "monthly");
@@ -243,13 +272,15 @@ function setSubField(key, field, value) {
 }
 function loadSubs() {
   return fetch("/api/subs?t=" + Date.now())
-    .then((r) => (r.ok ? r.json() : { subs: {} }))
+    .then((r) => { if (!r.ok) throw new Error("subs load failed"); return r.json(); })  // a 500 is a FAILURE, not an empty map
     .then((d) => {
-      SUBS = (d && d.subs) || {};
+      SUBS = Object.assign({}, (d && d.subs) || {}, SUBS);   // edits made before the load finished win
+      _subsLoaded = true;
       if (!Object.keys(SUBS).length && localStorage.getItem("money.subsMigrated") !== "1") migrateLocalSubs();
       localStorage.setItem("money.subsMigrated", "1");
+      if (_subsDirty) pushSubs();   // an edit queued while the backend was down — persist it now
     })
-    .catch(() => {});
+    .catch(() => {});   // keep resolving: boot chains Store.refresh() off this
 }
 // one-time lift of the old browser-only flags into the durable file
 function migrateLocalSubs() {
@@ -487,7 +518,7 @@ const RENDERERS = {
     const flow = el.querySelector(".af-flow");
     const svg = el.querySelector(".af-links");
     const cardsBtn = el.querySelector(".af-cards-toggle");
-    let transfers = [], lastTypes = null;
+    let transfers = [], lastTypes = null, transfersSeen = null;
     let showCards = localStorage.getItem("money.flowCards") !== "0";  // default: show cards
     const paintCardsBtn = () => { cardsBtn.textContent = showCards ? "hide cards" : "show cards"; cardsBtn.classList.toggle("on", !showCards); };
     cardsBtn.addEventListener("click", () => {
@@ -561,9 +592,19 @@ const RENDERERS = {
         wrap.appendChild(n);
       });
     }
-    Store.subscribe(el, (d) => render(d));
-    fetch("/api/transfers?t=" + Date.now()).then((r) => r.json())
-      .then((t) => { transfers = t.transfers || []; if (Store.data) render(Store.data); }).catch(() => {});
+    // transfers re-pull when the snapshot stamp moves (bank sync — NOTE: recompute-only
+    // edits like categorize/delete-txn don't bump d.updated today; a bal.rev stamp is a
+    // future brick). Keyed so local ripples stay fetch-free; a failed fetch resets the
+    // marker so the next ripple retries instead of leaving bubbles absent forever
+    function fetchTransfers() {
+      fetch("/api/transfers?t=" + Date.now()).then((r) => r.json())
+        .then((t) => { transfers = t.transfers || []; if (Store.data) render(Store.data); })
+        .catch(() => { transfersSeen = null; });
+    }
+    Store.subscribe(el, (d) => {
+      if (d && d.updated !== transfersSeen) { transfersSeen = d.updated; fetchTransfers(); }
+      render(d);
+    });
     if (window.ResizeObserver) new ResizeObserver(() => { if (Store.data) requestAnimationFrame(() => redraw(Store.data)); }).observe(el);
   },
   incomeforecast(el) {
@@ -605,6 +646,7 @@ const RENDERERS = {
         .catch(() => {});
     }
     let workMonthly = null;   // { "YYYY-MM": hours }
+    let dataSeen = null;      // d.updated behind the cached history — re-fetch when server data moves
     function fetchWork() {
       fetch("/api/work-monthly?t=" + Date.now())
         .then((r) => (r.ok ? r.json() : null))
@@ -881,7 +923,15 @@ const RENDERERS = {
       localStorage.setItem(MODE_KEY, mode);
       if (Store.data) paint(Store.data);
     }));
-    Store.subscribe(el, (d) => { if (!d || !d.spending) { big.textContent = "…"; return; } ensureSources(d); paint(d); });
+    Store.subscribe(el, (d) => {
+      if (!d || !d.spending) { big.textContent = "…"; return; }
+      if (d.updated !== dataSeen) {
+        const had = dataSeen !== null;
+        dataSeen = d.updated;
+        if (had) { fetchHist(); fetchWork(); }  // snapshot stamp moved (bank sync; recompute-only edits don't bump it — bal.rev is a future brick) → refresh history; old chart stays up until fresh lands
+      }
+      ensureSources(d); paint(d);
+    });
   },
   clock(el) {
     el.classList.add("is-clock");
@@ -1041,11 +1091,20 @@ const RENDERERS = {
     }, 1000);
   },
   date(el) {
-    const now = new Date();
-    el.innerHTML =
-      '<div><div class="big">' + now.getDate() +
-      '</div><div class="sub">' + now.toLocaleDateString("en-US", { month: "long" }) +
-      '</div></div>';
+    // re-render when the day changes — an always-on board crosses midnight and the
+    // date must not disagree with the clock widget about what day it is
+    let day = null;
+    const render = () => {
+      const now = new Date();
+      if (now.getDate() === day) return;   // no-op except at midnight / tab wake
+      day = now.getDate();
+      el.innerHTML =
+        '<div><div class="big">' + now.getDate() +
+        '</div><div class="sub">' + now.toLocaleDateString("en-US", { month: "long" }) +
+        '</div></div>';
+    };
+    render();
+    const iv = setInterval(() => { if (!el.isConnected) { clearInterval(iv); return; } render(); }, 30000);
   },
   note(el) {
     el.classList.add("is-note");
@@ -1125,7 +1184,10 @@ const RENDERERS = {
         const isUrl = /^https?:\/\/\S+$/i.test(v);
         fetch("/api/bucket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(isUrl ? { kind: "link", url: v, text: "" } : { kind: "note", text: v }) })
           .then((r) => { if (!r.ok) throw new Error("no"); return r.json(); })
-          .then((d) => render((d && d.items) || []))
+          .then((d) => {
+            if (d && d.ok === false) { try { flash(d.error || "couldn’t save"); } catch (e) {} return; }   // web mirror: 200 {ok:false} — don't wipe the list
+            render((d && d.items) || []);
+          })
           .catch(() => { try { flash("couldn’t reach your cache — the bucket lives on the server"); } catch (e) {} });
       };
       el.querySelector(".bk-go").addEventListener("click", add);
@@ -1133,11 +1195,32 @@ const RENDERERS = {
       el.querySelectorAll(".bk-x").forEach((b) => b.addEventListener("click", () => {
         fetch("/api/bucket-remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: b.dataset.id }) })
           .then((r) => { if (!r.ok) throw new Error("no"); return r.json(); })
-          .then((d) => render((d && d.items) || [])).catch(() => {});
+          .then((d) => {
+            if (d && d.ok === false) { try { flash(d.error || "couldn’t save"); } catch (e) {} return; }
+            render((d && d.items) || []);
+          })
+          .catch(() => { try { flash("couldn’t reach your cache — the bucket lives on the server"); } catch (e) {} });   // a toss that failed must say so, same as add
       }));
     }
+    // a failed initial load must NOT paint the authentic empty state — for this
+    // user population "0 things held" reads as "my held thoughts are gone"
+    function renderDown() {
+      if (!el.isConnected) return;
+      el.innerHTML =
+        '<div class="sub bk-empty">couldn’t reach your cache — your held thoughts are safe on the server and will be back the moment it is.</div>' +
+        '<button class="bk-retry" type="button">try again</button>';
+      el.querySelector(".bk-retry").addEventListener("click", load);
+    }
+    function load() {
+      fetch("/api/bucket").then((r) => { if (!r.ok) throw new Error("no"); return r.json(); }).then((d) => render((d && d.items) || [])).catch(renderDown);
+    }
+    function onLive() {
+      if (!el.isConnected) { document.removeEventListener("cache:online", onLive); return; }
+      if (el.querySelector(".bk-retry")) load();   // only reload while showing the down state — never clobber typing
+    }
+    document.addEventListener("cache:online", onLive);
     render([]);
-    fetch("/api/bucket").then((r) => { if (!r.ok) throw new Error("no"); return r.json(); }).then((d) => render((d && d.items) || [])).catch(() => {});
+    load();
   },
   safe(el) {
     // Safe-to-spend + a clean forecast: balance projected forward at your
@@ -1443,6 +1526,11 @@ const RENDERERS = {
     });
     // ── BUILD mode: every budget input lives here (income, rent, rate, bills) ──
     function renderBuild(d) {
+      // A field commit (change → Store.emit) — or any other widget's emit — lands
+      // back here synchronously; rebuilding innerHTML mid-edit wipes in-progress
+      // typing and drops focus. Skip while the user is IN the form; the build view
+      // shows only inputs (no computed numbers), so a skipped repaint is never stale.
+      if (buildView.contains(document.activeElement)) return;
       const v = (k) => { const x = localStorage.getItem(k); return x === null ? "" : x; };
       const rent = getRent();
       const accts = (d && d.accounts) || [];
@@ -1798,13 +1886,15 @@ const RENDERERS = {
     el.classList.add("is-stats");
     el.innerHTML = '<div class="stats-grid"></div>';
     const grid = el.querySelector(".stats-grid");
+    let rendered = false;   // once real numbers are up, a transient fetch failure must not erase them
     function load() {
       fetch("/api/statistics?t=" + Date.now()).then((r) => r.json()).then((d) => {
+        rendered = true;
         if (!d || !d.stats || !d.stats.length) { grid.innerHTML = '<div class="stats-empty">no history yet · connect or import to see your stats</div>'; return; }
         grid.innerHTML = d.stats.map((s) =>
           '<div class="stat-tile"><div class="stat-tile-val' + (s.tone ? " t-" + s.tone : "") + '">' + escapeHtml(s.value) + "</div>" +
           '<div class="stat-tile-lbl">' + escapeHtml(s.label) + "</div></div>").join("");
-      }).catch(() => { grid.innerHTML = '<div class="stats-empty">no data · run sync</div>'; });
+      }).catch(() => { if (rendered) return; grid.innerHTML = '<div class="stats-empty">backend off — restart the server</div>'; });
     }
     Store.subscribe(el, () => load());
     load();
@@ -1881,8 +1971,10 @@ const RENDERERS = {
         spots.forEach((e) => (e.style.fontSize = size + "px"));
       }
     }
+    let rendered = false;   // once a real server answer painted, a transient failure must not erase it
     function load() {
       fetch("/api/work?t=" + Date.now()).then((r) => (r.ok ? r.json() : null)).then((d) => {
+        rendered = true;   // a 200-with-no-month is a real "no Toggl data yet" answer — counts
         if (!d || !d.month) { hoursEl.textContent = "—"; earnedEl.textContent = "—"; sub.textContent = "no Toggl data yet"; list.innerHTML = ""; runEl.innerHTML = ""; return; }
         const eff = (w) => (w.hours > 0 ? fmtUSD(w.earned / w.hours) + "/hr" : "—");
         hoursEl.textContent = r1(d.month.hours);
@@ -1906,7 +1998,7 @@ const RENDERERS = {
         list.innerHTML = html;
         list.querySelectorAll(".pin-btn").forEach((b) => b.addEventListener("click", () => { togglePin("proj", b.dataset.pin); load(); }));
         drawIcons();
-      }).catch(() => { hoursEl.textContent = "—"; earnedEl.textContent = "—"; sub.textContent = "no data · run toggl_sync.py"; list.innerHTML = ""; });
+      }).catch(() => { if (rendered) return; hoursEl.textContent = "—"; earnedEl.textContent = "—"; sub.textContent = "backend off — restart the server"; list.innerHTML = ""; runEl.innerHTML = ""; });
     }
     Store.subscribe(el, () => load());
     load();
@@ -1931,30 +2023,56 @@ const RENDERERS = {
     const inEl = el.querySelector(".mm-in");
     const list = el.querySelector(".cf-list");
     let detected = [], deposits = [], projects = [], incomeLinks = {};
+    let offline = false, seenUpdated;   // seenUpdated: the summary stamp the four feeds were last pulled for
     function loadData() {
       const t = Date.now();
+      // all four hit the same backend — fail together so a down backend reads as
+      // OFFLINE, never as an authentic "$0 must-pay · no deposits" empty state
       Promise.all([
-        fetch("/api/recurring?t=" + t).then((r) => r.json()).catch(() => ({ recurring: [] })),
-        fetch("/api/deposits?t=" + t).then((r) => r.json()).catch(() => ({ deposits: [] })),
-        fetch("/api/work?t=" + t).then((r) => r.json()).catch(() => ({ projects_month: [] })),
-        fetch("/api/income-links?t=" + t).then((r) => r.json()).catch(() => ({ links: {} })),
+        fetch("/api/recurring?t=" + t).then((r) => r.json()),
+        fetch("/api/deposits?t=" + t).then((r) => r.json()),
+        fetch("/api/work?t=" + t).then((r) => r.json()),
+        fetch("/api/income-links?t=" + t).then((r) => r.json()),
       ]).then(([rec, dep, work, lk]) => {
+        offline = false;
         detected = rec.recurring || []; deposits = dep.deposits || [];
         projects = (work && work.projects_month) || []; incomeLinks = (lk && lk.links) || {};
         render();
-      });
+      }).catch(() => { offline = true; render(); });   // keep any last good data on screen
     }
     function setIncomeLink(key, project) {
+      const prev = incomeLinks[key];                       // for revert on failure
       if (project) incomeLinks[key] = project; else delete incomeLinks[key];
-      fetch("/api/income-links", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ links: incomeLinks }) }).catch(() => {});
-      render();
+      render();                                            // optimistic
+      // re-GET → merge ONLY this change → POST: the widget's local copy can be empty
+      // (failed initial load) or stale (another device) — POSTing it wholesale would
+      // silently erase every other link. Build the map from fresh server truth.
+      fetch("/api/income-links?t=" + Date.now())
+        .then((r) => { if (!r.ok) throw new Error("down"); return r.json(); })
+        .then((lk) => {
+          const links = (lk && lk.links) || {};
+          if (project) links[key] = project; else delete links[key];
+          return fetch("/api/income-links", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ links: links }) })
+            .then((r) => { if (!r.ok) throw new Error("stale"); return r.json(); })
+            .then((d) => {
+              if (!d || d.ok === false) throw new Error((d && d.error) || "readonly");   // web mirror answers 200 {ok:false, error:"…"} — carry its message
+              incomeLinks = links;   // adopt the merged map we actually saved
+              render();
+            });
+        })
+        .catch((e) => {
+          if (prev !== undefined) incomeLinks[key] = prev; else delete incomeLinks[key];
+          render();
+          const m = e && e.message;
+          flash(m && m !== "readonly" && m !== "down" && m !== "stale" ? m : "couldn't save — backend down?");
+        });
     }
     function trackKey(key) {
       fetch("/api/categorize", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ merchant: key, category: "subscriptions" }) })
         .then((r) => { if (!r.ok) throw new Error("stale"); return r.json(); })
-        .then(() => { flash("✓ now tracking as a subscription"); loadData(); Store.refresh(); })
+        .then(() => { flash("✓ now tracking as a subscription"); loadData(); Store.refresh(); })   // loadData: summary `updated` only moves on a bank sync, so our own edit must re-pull directly
         .catch(() => flash("couldn't save — backend down?"));
     }
     function untrackKey(key) {
@@ -1972,6 +2090,14 @@ const RENDERERS = {
         .catch(() => flash("couldn't save — backend down?"));
     }
     function render() {
+      // backend unreachable and nothing cached → say so honestly; a fake
+      // "no deposits seen yet" reads as "my carefully-tagged bills vanished"
+      if (offline && !detected.length && !deposits.length) {
+        sub.textContent = "backend offline";
+        inEl.innerHTML = '<div class="mm-empty">can’t reach the backend — this fills in when it’s back</div>';
+        list.innerHTML = "";
+        return;
+      }
       // ── money in ──
       const projHours = {}; projects.forEach((p) => { projHours[p.name] = p.hours; });
       const projNames = projects.map((p) => p.name);
@@ -2055,7 +2181,12 @@ const RENDERERS = {
       list.querySelectorAll(".sub-name").forEach((b) => b.addEventListener("click", () =>
         openSubDetail(detected.find((x) => x.key === b.dataset.key), () => Store.emit())));
     }
-    Store.subscribe(el, () => render());  // re-render on ripple (must-pay toggles, etc.)
+    Store.subscribe(el, (d) => {
+      const u = (d && d.updated) || null;
+      if (seenUpdated === undefined && !offline) { seenUpdated = u; render(); return; }  // boot ripple — creation loadData already pulled
+      if (offline || u !== seenUpdated) { seenUpdated = u; loadData(); }  // snapshot stamp moved (bank sync) or recovering from offline → re-pull the four feeds (own edits re-pull directly in their handlers)
+      else render();  // local-only ripple (pin / pause / must-pay / cadence) → cheap repaint
+    });
     el.querySelector(".bd-fix").addEventListener("click", () => openCategorizer(() => Store.refresh()));
     el.querySelector(".sub-add").addEventListener("click", () => {
       const v = prompt("Add a recurring bill — type the merchant as it reads on your statement (e.g. netflix, spotify). It links to any transaction containing that text.");
@@ -2073,19 +2204,37 @@ const RENDERERS = {
       '<div class="bd-list mo-list"></div>';
     const sub = el.querySelector(".mo-sub");
     const list = el.querySelector(".mo-list");
+    let rendered = false;   // months on screen — a transient failure must not wipe them
+    // the expansion body, factored so a rebuild can re-open the months the user had open
+    function openDetail(row, m) {
+      const det = row.querySelector(".mo-detail");
+      const cmax = (m.categories[0] && m.categories[0].amount) || 1;
+      det.innerHTML = m.categories.slice(0, 6).map((c) => {
+        const meta = catMeta(c.key);
+        return '<div class="mo-cat"><span class="mo-cat-name">' + meta.label + "</span>" +
+          '<span class="mo-cat-track"><span class="mo-cat-fill" style="width:' +
+            Math.max(3, c.amount / cmax * 100) + "%;background:" + meta.color + '"></span></span>' +
+          '<span class="mo-cat-amt">' + fmtUSD(c.amount) + "</span></div>";
+      }).join("") || '<div class="mo-empty">no categorized spending</div>';
+      row.classList.add("open");
+    }
     function loadMonths() {
     fetch("data/monthly.json?t=" + Date.now())
       .then((r) => { if (!r.ok) throw new Error("no file"); return r.json(); })
       .then((d) => {
         const months = (d && d.months) || [];
+        rendered = true;
         if (!months.length) { sub.textContent = "no history yet · run sync"; list.innerHTML = ""; return; }
         sub.textContent = months.length + " months · tap one for detail";
+        // remember which months the user has open — a Store ripple from any widget
+        // rebuilds this list, and snapping a breakdown shut mid-read is hostile
+        const openYms = new Set(Array.from(list.querySelectorAll(".mo-row.open")).map((r) => r.dataset.ym));
         const maxFlow = months.reduce((mx, m) => Math.max(mx, m.income, m.spending), 1);
         list.innerHTML = months.map((m, i) => {
           const inW = Math.max(3, m.income / maxFlow * 100);
           const outW = Math.max(3, m.spending / maxFlow * 100);
           const src = m.imported === 0 ? "synced" : (m.live === 0 ? "imported" : "mixed");
-          return '<div class="mo-row" data-i="' + i + '">' +
+          return '<div class="mo-row" data-i="' + i + '" data-ym="' + escapeHtml(m.ym || m.label) + '">' +
             '<div class="mo-top">' +
               '<span class="mo-label">' + escapeHtml(m.label) + "</span>" +
               '<span class="mo-net" style="color:' + (m.net >= 0 ? "#3f8f4e" : "#c9542e") + '">' +
@@ -2110,19 +2259,16 @@ const RENDERERS = {
           row.querySelector(".mo-top").addEventListener("click", () => {
             const det = row.querySelector(".mo-detail");
             if (det.innerHTML) { det.innerHTML = ""; row.classList.remove("open"); return; }
-            const cmax = (m.categories[0] && m.categories[0].amount) || 1;
-            det.innerHTML = m.categories.slice(0, 6).map((c) => {
-              const meta = catMeta(c.key);
-              return '<div class="mo-cat"><span class="mo-cat-name">' + meta.label + "</span>" +
-                '<span class="mo-cat-track"><span class="mo-cat-fill" style="width:' +
-                  Math.max(3, c.amount / cmax * 100) + "%;background:" + meta.color + '"></span></span>' +
-                '<span class="mo-cat-amt">' + fmtUSD(c.amount) + "</span></div>";
-            }).join("") || '<div class="mo-empty">no categorized spending</div>';
-            row.classList.add("open");
+            openDetail(row, m);
           });
+          if (openYms.has(row.dataset.ym)) openDetail(row, m);   // restore what the user had open
         });
       })
-      .catch(() => { sub.textContent = "no data · run sync"; list.innerHTML = ""; });
+      .catch((e) => {
+        if (rendered) return;   // keep the good list — a blip must not erase it
+        sub.textContent = (e && e.message === "no file") ? "no data · run sync" : "backend off — restart the server";
+        list.innerHTML = "";
+      });
     }
     Store.subscribe(el, loadMonths);  // re-pulls month rollups whenever data changes
   },
@@ -7649,10 +7795,10 @@ function openReview() {
       openIncomeTagger(refresh)));
     statusPanel.querySelectorAll(".rv-pause").forEach((b) => b.addEventListener("click", () => {
       const key = b.closest(".rv-item").dataset.key;
-      setSubPaused(key, true);  // updates SUBS + debounced save
-      // persist immediately so the re-fetched issues reflect it, then refresh
-      fetch("/api/subs", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subs: SUBS }) }).then(refresh).catch(refresh);
+      setSubPaused(key, true);  // updates SUBS + marks dirty
+      // persist immediately (merge-guarded — never a raw whole-map POST) so the
+      // re-fetched issues reflect it, then refresh
+      pushSubs().then(refresh);
     }));
   });
 }
@@ -7775,7 +7921,24 @@ board.addEventListener("pointercancel", endPan);
 const serverBtn = document.getElementById("serverBtn");
 if (serverBtn && window.__CACHE_WEB__) serverBtn.style.display = "none";   // no local backend here — a "restart" pill would be theater
 const serverText = serverBtn ? serverBtn.querySelector(".server-text") : null;
+let _srvWasDown = false;
 function setServer(state) {
+  // edge-triggered recovery: the moment the backend comes back after being down,
+  // (1) tell widgets sitting in an honest offline state (cache:online — the Brain
+  // Bucket and friends listen), (2) re-pull the board's numbers, (3) flush any
+  // subs edit that queued while it was unreachable. Fires once per transition.
+  const cameBack = _srvWasDown && state !== "down";
+  _srvWasDown = state === "down";
+  if (cameBack) {
+    try { document.dispatchEvent(new CustomEvent("cache:online")); } catch (e) {}
+    // mirror the boot order: subs decisions load BEFORE the summary pull, so the
+    // emit never paints every bill as optional/unpaused from an empty SUBS map
+    try {
+      const refresh = () => { try { if (typeof Store !== "undefined" && Store.refresh) Store.refresh(); } catch (e) {} };
+      if (!_subsLoaded) loadSubs().then(refresh);
+      else { if (_subsDirty) pushSubs(); refresh(); }
+    } catch (e) {}
+  }
   // mirror live status on the brand dot next to the THE CACHE title
   const brandDot = document.querySelector(".brand-dot");
   if (brandDot) brandDot.dataset.state = state;
@@ -7809,7 +7972,14 @@ function restartServer() {
 function pingServer() {
   // any HTTP response = process is up; 200 from /api/ping = current build; reject = down
   fetch("/api/ping?t=" + Date.now())
-    .then((r) => setServer(r.ok ? "live" : "stale"))
+    .then((r) => {
+      const prev = serverBtn ? serverBtn.dataset.state : "";
+      setServer(r.ok ? "live" : "stale");
+      // server is up but the boot pull never landed (page loaded before it) → the
+      // board is wedged at "…"/"syncing…"; rescue it. The truthy-prev guard skips
+      // the very first ping so the deliberate boot order (loadSubs → refresh) holds.
+      if (r.ok && prev && !Store.data) { try { Store.refresh(); } catch (e) {} }
+    })
     .catch(() => setServer("down"));
 }
 if (serverBtn) {
@@ -7854,10 +8024,20 @@ function periodLabel() {
   return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
 function setPeriod(p) {
-  PERIOD = p;
+  const prev = PERIOD;
+  PERIOD = p;  // must be set BEFORE refresh — periodQS() reads it inside Store.refresh
   try { localStorage.setItem(PERIOD_KEY, JSON.stringify(p)); } catch (e) {}
   updatePeriodUI();
-  Store.refresh();  // new period → one re-pull → ripples to every widget
+  Store.refresh().then((d) => {
+    if (d) return;  // pull succeeded — widgets now show the new period
+    if (PERIOD !== p) return;  // a newer selection owns the label — don't revert over it
+    // pull failed → every number on screen is still the OLD period; a label
+    // claiming the new one would be a lie. Put the truthful label back.
+    PERIOD = prev;
+    try { localStorage.setItem(PERIOD_KEY, JSON.stringify(prev)); } catch (e) {}
+    updatePeriodUI();
+    flash("Couldn't load that period — still showing " + periodLabel());
+  });
 }
 function updatePeriodUI() {
   const lab = periodLabel();
