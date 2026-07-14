@@ -3197,7 +3197,7 @@ const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "mone
 // bundle is engine-computed and travels whole-file. catmeta.json (your category
 // renames, fold-ins and custom categories) is user-authored too, so it merges here
 // rather than being stranded per-device.
-const MAP_FILE_NAMES = ["categories.json", "income.json", "subs.json", "income_links.json", "catmeta.json"];
+const MAP_FILE_NAMES = ["categories.json", "income.json", "subs.json", "income_links.json", "catmeta.json", "deleted.json"];
 function isInternalKey(k) { return CLOUD_INTERNAL_KEYS.indexOf(k) !== -1 || DEVICE_LOCAL_KEYS.indexOf(k) !== -1; }
 function isSpecialKey(k) { return SPECIAL_MERGE_KEYS.indexOf(k) !== -1; }
 function isGenericKey(k) { return k.indexOf("money.") === 0 && !isInternalKey(k) && !isSpecialKey(k); }
@@ -7860,16 +7860,39 @@ function renderStatus() {
 const catOpts = (cats, cur) => cats
   .map((c) => '<option value="' + c.key + '"' + (c.key === cur ? " selected" : "") + ">" + escapeHtml(c.label) + "</option>").join("");
 
+// put a deleted transaction back — the escape hatch that makes tombstones safe
+function wireUndelete() {
+  statusPanel.querySelectorAll(".rv-undel").forEach((b) => b.addEventListener("click", () => {
+    const id = b.closest(".rv-item").dataset.id;
+    if (!id) return;
+    apiPost("/api/undelete-txn", { id: id }, () => { Store.refresh(); openReview(); });
+  }));
+}
 function openReview() {
   statusPanel.innerHTML = '<div class="src-title">Review</div><div class="status-clear">loading…</div>';
   Promise.all([
     fetch("/api/issues?t=" + Date.now()).then((r) => (r.ok ? r.json() : { issues: [] })).catch(() => ({ issues: [] })),
     fetch("/api/categories?t=" + Date.now()).then((r) => (r.ok ? r.json() : { categories: [] })).catch(() => ({ categories: [] })),
-  ]).then(([iss, cat]) => {
+    fetch("/api/deleted?t=" + Date.now()).then((r) => (r.ok ? r.json() : { deleted: [] })).catch(() => ({ deleted: [] })),
+  ]).then(([iss, cat, del]) => {
     const issues = iss.issues || [];
     const cats = (cat.categories || []).filter((c) => c.key !== "transfer");
+    const gone = (del && del.deleted) || [];
+    // deleting a transaction is reversible — show what you removed so a mistake is
+    // one tap from being put back (a delete otherwise sticks across every device)
+    const goneHtml = gone.length
+      ? '<div class="rv-group rv-gone-h">Deleted · ' + gone.length + " · <span class=\"rv-gone-sub\">tap undo to put one back</span></div>" +
+        gone.slice(0, 8).map((t) => '<div class="rv-item rv-gone" data-id="' + escapeHtml(t.id || "") + '">' +
+          '<span class="rv-txt">' + escapeHtml(t.description || "(no description)") +
+          (t.amount != null ? ' · <span class="rv-amt">' + fmtUSD(Math.abs(+t.amount || 0)) + "</span>" : "") + "</span>" +
+          '<button class="rv-act rv-undel">undo</button></div>').join("")
+      : "";
     let html = '<div class="src-title">Review · ' + issues.length + "</div>";
-    if (!issues.length) { statusPanel.innerHTML = html + '<div class="status-clear">✓ nothing needs you right now</div>'; return; }
+    if (!issues.length) {
+      statusPanel.innerHTML = html + '<div class="status-clear">✓ nothing needs you right now</div>' + goneHtml;
+      wireUndelete();
+      return;
+    }
     const groups = [["duplicate", "Possible duplicates"], ["subscription", "Recurring · not tracked"],
                     ["sub_dropped", "Recurring · stopped?"],
                     ["category", "Uncategorized"], ["income", "Untagged deposits"]];
@@ -7891,7 +7914,8 @@ function openReview() {
       }).join("");
       if (items.length > 10) html += '<div class="rv-more">+' + (items.length - 10) + " more…</div>";
     });
-    statusPanel.innerHTML = html;
+    statusPanel.innerHTML = html + goneHtml;
+    wireUndelete();
     const refresh = () => { Store.refresh(); openReview(); };
     statusPanel.querySelectorAll(".rv-cat").forEach((s) => s.addEventListener("change", (e) => {
       const merch = e.target.closest(".rv-item").dataset.key;

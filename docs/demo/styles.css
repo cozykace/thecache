@@ -966,6 +966,19 @@ body.panning .cursor-ball { display: none !important; }
 .rv-act { align-self: flex-start; border: 1px solid var(--accent); background: none; color: var(--accent);
   cursor: pointer; font-family: inherit; font-size: 11px; padding: 4px 10px; border-radius: 999px; }
 .rv-act:hover { background: var(--accent); color: var(--paper); }
+/* deleted transactions — the undo escape hatch. Quiet by default (a delete you meant
+   to make shouldn't shout), but always reachable. */
+.rv-gone-h { color: rgba(var(--ink-rgb), 0.38); }
+.rv-gone-sub { text-transform: none; letter-spacing: 0; font-size: 9px; opacity: 0.8; }
+.rv-gone { flex-direction: row; align-items: center; justify-content: space-between;
+  gap: 8px; opacity: 0.62; background: none; border-style: dashed; }
+.rv-gone:hover { opacity: 1; }
+.rv-gone .rv-txt { font-size: 11px; color: rgba(var(--ink-rgb), 0.7); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: line-through; }
+.rv-gone .rv-amt { color: rgba(var(--ink-rgb), 0.5); }
+.rv-undel { align-self: center; flex: 0 0 auto; min-height: 44px; padding: 4px 12px;
+  border-color: var(--edge); color: rgba(var(--ink-rgb), 0.65); }
+.rv-undel:hover { background: none; border-color: var(--accent); color: var(--accent); }
 .rv-cat { font-family: inherit; font-size: 11px; padding: 4px 6px; border: 1px solid var(--edge);
   border-radius: 7px; background: var(--panel); color: var(--ink); cursor: pointer; align-self: flex-start; }
 .rv-more { font-size: 10px; color: rgba(var(--ink-rgb), 0.45); padding: 4px 2px; }

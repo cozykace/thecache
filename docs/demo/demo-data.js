@@ -242,6 +242,8 @@
     ] });
     if (url.indexOf("/api/averages") !== -1) return J(averages);
     if (url.indexOf("/api/issues") !== -1) return J(issues);
+    if (url.indexOf("/api/deleted") !== -1) return J({ ok: true, deleted: [] });   // demo starts with nothing deleted
+    if (url.indexOf("/api/undelete-txn") !== -1) return J({ ok: true, restored: true });
     if (url.indexOf("/api/income-links") !== -1) {
       // stateful: the widget re-GETs, merges its one change, POSTs the map back and
       // adopts it — a static route would make the second link erase the first

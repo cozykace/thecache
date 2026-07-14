@@ -171,6 +171,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {"ok": True, "items": store.bucket_get()})
         if path == "/api/issues":
             return self._json(200, {"issues": store.find_issues()})
+        if path == "/api/deleted":
+            return self._json(200, {"ok": True, "deleted": store.deleted_list()})
         if path == "/api/bugs":
             return self._json(200, {"bugs": store.load_bugs()})
         if self._blocked():
@@ -378,8 +380,15 @@ class Handler(SimpleHTTPRequestHandler):
                 data = json.loads(self.rfile.read(n) or b"{}")
             except (ValueError, json.JSONDecodeError):
                 return self._json(400, {"error": "bad request"})
-            store.delete_txn(data.get("id", ""))
-            return self._json(200, {"ok": True})
+            res = store.delete_txn(data.get("id", ""))
+            return self._json(200, res if isinstance(res, dict) else {"ok": True})
+        if self.path == "/api/undelete-txn":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            return self._json(200, store.undelete_txn(data.get("id", "")))
         if self.path == "/api/bug":
             try:
                 n = int(self.headers.get("Content-Length", 0))

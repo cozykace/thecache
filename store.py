@@ -37,9 +37,11 @@ CATMETA = os.path.join(DATA, "catmeta.json")    # category registry: renamed lab
 SUBS = os.path.join(DATA, "subs.json")          # YOUR decisions about recurring money: {key: {mustpay, cadence, paused, name}}
 INCOME_LINKS = os.path.join(DATA, "income_links.json")  # income source key -> Toggl project name
 MAPMETA = os.path.join(DATA, "_mapmeta.json")   # per-key edit times for the merge maps → cross-device newest-wins (leading _ keeps it out of the export files bundle; it rides the vault as filesMeta instead)
+DELETED = os.path.join(DATA, "deleted.json")    # YOUR delete decisions: {txn_key: {deleted:1|0, at, txn:{…}}} — tombstones, so a delete STICKS across devices/restores (and can be undone)
 # the user-authored flat maps that merge key-wise across devices (everything else in
 # data/ is computed by the sync engine and travels whole-file)
-MERGE_MAPS = {"categories.json": CATEGORIES, "income.json": INCOME, "subs.json": SUBS, "income_links.json": INCOME_LINKS}
+MERGE_MAPS = {"categories.json": CATEGORIES, "income.json": INCOME, "subs.json": SUBS,
+              "income_links.json": INCOME_LINKS, "deleted.json": DELETED}
 
 # the built-in category keys (mirror of the frontend CAT_META) — so the manager
 # can list them even when they currently hold zero transactions
@@ -685,6 +687,7 @@ def merge_maps(remote_files, remote_meta):
     remote_meta = remote_meta if isinstance(remote_meta, dict) else {}
     meta = load_mapmeta()
     out_files, out_meta, changed = {}, {}, False
+    deleted_changed = False
     for name, path in MERGE_MAPS.items():
         local = _read(path, {})
         if not isinstance(local, dict):
@@ -715,6 +718,8 @@ def merge_maps(remote_files, remote_meta):
             _write(path, merged)
             meta[name] = merged_meta
             changed = True
+            if name == "deleted.json":
+                deleted_changed = True
         out_files[name] = json.dumps(merged)
         out_meta[name] = merged_meta
     # the category registry (renames / fold-ins / custom categories) is user-authored
@@ -764,6 +769,28 @@ def merge_maps(remote_files, remote_meta):
     out_meta["catmeta.json"] = merged_cm_meta
     if changed:
         _write(MAPMETA, meta)
+    # A delete decision adopted from another device has to actually TAKE EFFECT here —
+    # otherwise the tombstone would only stop RE-adds and the row we already hold would
+    # sit in our ledger forever, so the delete would only ever apply on the machine that
+    # made it. Same for an un-delete: put the transaction back.
+    if deleted_changed:
+        try:
+            tomb = load_deleted()
+            led = load_ledger()
+            drop = [k for k in led if is_deleted(k, tomb)]
+            put_back = [e["txn"] for k, e in tomb.items()
+                        if isinstance(e, dict) and not e.get("deleted") and isinstance(e.get("txn"), dict)
+                        and e["txn"] and k not in led]
+            if drop:
+                for k in drop:
+                    del led[k]
+                _rewrite_ledger(led)
+            if put_back:
+                merge_ledger(put_back)   # tombstones are off for these, so they land
+            if drop or put_back:
+                rebuild_from_ledger()
+        except Exception:
+            pass
     return {"ok": True, "changed": changed, "files": out_files, "filesMeta": out_meta}
 
 
@@ -1193,7 +1220,15 @@ def merge_ledger(txns):
     """Accumulate transactions permanently, deduped by key. APPEND-ONLY: new or
     changed transactions are appended as lines (O(1), never rewrites history);
     the file is compacted only when superseding updates make it grow stale. A
-    shrink guard means a bad read can never replace history with less."""
+    shrink guard means a bad read can never replace history with less.
+
+    THE one choke point for anything entering the ledger (bank sync, CSV import,
+    a merged restore), so it is where TOMBSTONES are enforced: a transaction you
+    deleted can never be resurrected here — not by a device that still holds it,
+    not by a restore from a vault sealed before the delete. (undelete_txn clears
+    the tombstone first, so its own re-add sails through.)"""
+    tomb = load_deleted()
+    txns = [t for t in txns if not is_deleted(_ledger_key(t), tomb)]
     led = load_ledger()
     before = len(led)
     new_lines, changed = [], False
@@ -1973,18 +2008,75 @@ def find_issues():
 
 
 @_locked
+def load_deleted():
+    """{txn_key: {deleted: 1|0, at: ms, txn: {...}}} — your delete decisions. A record
+    with deleted:1 is a TOMBSTONE: no sync, merge, or restore may re-add that
+    transaction, so a delete sticks everywhere instead of being resurrected by another
+    device that still holds it. The full txn is kept so a delete can be UNDONE.
+    deleted:0 is an explicit un-delete (it must outrank an older tombstone on merge,
+    which is why the flag lives in the value rather than the key just being absent)."""
+    d = _read(DELETED, {})
+    return d if isinstance(d, dict) else {}
+
+
+def is_deleted(key, tomb=None):
+    e = (tomb if tomb is not None else load_deleted()).get(key)
+    return bool(isinstance(e, dict) and e.get("deleted"))
+
+
+@_locked
 def delete_txn(txn_id):
-    """Remove a transaction from the ledger by id (for confirmed duplicates).
-    Rewrites the .jsonl without that line, then rebuilds the 30-day window from
-    the ledger so the deletion actually disappears from spending / categories /
-    drill-ins (recompute_spending alone reads the stale transactions.json, which
-    still held the deleted row)."""
+    """Remove a transaction from the ledger by id (for confirmed duplicates) and leave
+    a TOMBSTONE so the delete survives a sync from a device that still has it, and a
+    restore from a vault sealed before the delete. Rewrites the .jsonl without that
+    line, then rebuilds the 30-day window from the ledger so the deletion actually
+    disappears from spending / categories / drill-ins (recompute_spending alone reads
+    the stale transactions.json, which still held the deleted row)."""
     led = load_ledger()
-    if txn_id in led:
+    found = txn_id in led
+    tomb = load_deleted()
+    before = dict(tomb)
+    tomb[txn_id] = {"deleted": 1, "at": _now_ms(), "txn": led.get(txn_id) or (tomb.get(txn_id) or {}).get("txn") or {}}
+    _write(DELETED, tomb)
+    _stamp_map("deleted.json", before, tomb)
+    if found:
         del led[txn_id]
         _rewrite_ledger(led)
         rebuild_from_ledger()
-    return len(led)
+    return {"ok": True, "found": found, "count": len(led)}
+
+
+@_locked
+def undelete_txn(txn_id):
+    """Undo a delete: flip the tombstone off (deleted:0, freshly stamped so it beats the
+    older tombstone on every other device) and put the transaction back in the ledger."""
+    tomb = load_deleted()
+    e = tomb.get(txn_id)
+    if not isinstance(e, dict):
+        return {"ok": False, "error": "nothing to undo"}
+    before = dict(tomb)
+    txn = e.get("txn") or {}
+    tomb[txn_id] = {"deleted": 0, "at": _now_ms(), "txn": txn}
+    _write(DELETED, tomb)
+    _stamp_map("deleted.json", before, tomb)
+    if txn:
+        merge_ledger([txn])   # tombstone is off now, so it lands
+        rebuild_from_ledger()
+    return {"ok": True, "restored": bool(txn)}
+
+
+def deleted_list():
+    """The tombstoned transactions, newest first — what the undo UI shows."""
+    out = []
+    for k, e in load_deleted().items():
+        if not (isinstance(e, dict) and e.get("deleted")):
+            continue
+        t = e.get("txn") or {}
+        out.append({"id": k, "at": e.get("at") or 0, "posted": t.get("posted"),
+                    "amount": t.get("amount"), "description": t.get("description"),
+                    "account": t.get("account")})
+    out.sort(key=lambda x: -(x.get("at") or 0))
+    return out
 
 
 # ── Bug log (report → solve → kept in your local archive) ──
@@ -2178,6 +2270,7 @@ def api_snapshot():
     grab("income-links", lambda: {"links": load_income_links()})
     grab("bugs", lambda: {"bugs": load_bugs()})
     grab("bucket", lambda: {"ok": True, "items": bucket_get()})   # held thoughts show on the phone, not a fake-empty bucket
+    grab("deleted", lambda: {"ok": True, "deleted": deleted_list()})   # the undo list reads on the phone too
     grab("devtree", lambda: dev_tree())
     return out
 
