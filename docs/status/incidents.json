@@ -1,6 +1,16 @@
 {
   "incidents": [
     {
+      "date": "2026-07-14",
+      "title": "Web app stuck on “Unlock my cache”",
+      "status": "fixed",
+      "updates": [
+        { "when": "2026-07-14", "text": "Reported: reloading the web app showed “Welcome back”, but “Unlock my cache” always failed with “Something went wrong while processing your request.” — and there was no way to type your encryption key." },
+        { "when": "2026-07-14", "text": "Cause found: a recent change asked the cloud to sort your vault by a date field that the vault records don't actually carry. The cloud rejected the whole request, so the app could never read your vault — on the web app, and quietly on the desktop's cloud sync too." },
+        { "when": "2026-07-14", "text": "Fixed: vault lookups now sort by a field that always exists, so they can't be rejected. The unlock screen also never dead-ends again — if anything goes wrong, it shows your passphrase box and a sign-in form instead of a button that can't work." }
+      ]
+    },
+    {
       "date": "2026-07-13",
       "title": "Cloud backups failed with “Failed to create record”",
       "status": "fixed",

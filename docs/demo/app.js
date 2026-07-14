@@ -3161,13 +3161,20 @@ async function cloudAuthCheck() {
     return true;  // 5xx → don't log out over a server blip
   } catch (e) { return true; }  // offline → keep state; the op itself surfaces the network error
 }
-// sort=created: if two devices ever raced a first push (or both hit the 404-recreate
-// path) the account can hold TWO vault records. Without an explicit sort, each device
-// could latch a DIFFERENT one via items[0] — permanent split-brain, both chips green
-// over different vaults. Pinning every lookup to the OLDEST record makes all devices
-// agree on one canonical vault; the loser's content folds back in via merge-before-seal.
+// If two devices ever raced a first push (or both hit the 404-recreate path) the account
+// can hold TWO vault records. Without an explicit sort, each device could latch a
+// DIFFERENT one via items[0] — permanent split-brain, both chips green over different
+// vaults. An explicit sort makes every device agree on ONE canonical vault; the loser's
+// content folds back in via merge-before-seal.
+// ⚠️ Sort by `id`, NEVER by `created`/`updated`. Those are AUTODATE fields, and a
+// PocketBase collection only has them if they were explicitly defined — ours does not.
+// Sorting on a field the collection lacks makes PocketBase reject the whole request with
+// a 400, which bricked every vault read (desktop push/pull AND the web unlock gate — it
+// stranded the user on a dead "Unlock my cache" button). `id` is guaranteed to exist and
+// is identical on every device, which is the only property this sort actually needs:
+// canonical, not chronological.
 // (The real belt-and-braces fix is a unique index on `owner` in the vaults collection.)
-const VAULT_Q = "?perPage=1&sort=created&filter=";
+const VAULT_Q = "?perPage=1&sort=id&filter=";
 async function cloudFindVaultId(s) {
   // always ask the server for the real current record (never trust a cached id — it can go stale
   // if the record was cleared, and then a PATCH 404s with "resource wasn't found")
@@ -3765,10 +3772,20 @@ async function cloudAutoPull() {
   const s = cloudState();
   _pullBusy = true;
   try {
-    const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&sort=created&fields=id,updated&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
+    const r = await fetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&sort=id&fields=id,updated," + encodeURIComponent("blob:excerpt(64)") + "&filter=" + encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
     const d = await r.json();
     const rec0 = r.ok && d.items && d.items[0];
-    if (rec0 && rec0.updated && rec0.updated !== s.lastSeenVault) {
+    // Change fingerprint. `updated` is an AUTODATE field and our vaults collection does
+    // NOT define one, so it comes back undefined — the old `rec0.updated !== lastSeenVault`
+    // check was therefore ALWAYS false and this poll never pulled anything. Cross-device
+    // "the phone pushed, the desktop notices" was silently dead.
+    // So: take the best signal the server actually gives us. The blob excerpt carries the
+    // seal's `iv`, which is freshly random on EVERY push → it changes whenever the vault
+    // changes. If neither signal exists, fp is "" → we fall through and pull the full
+    // record every poll: heavier, but CORRECT. This can never go quietly dead again.
+    // (Adding `created`/`updated` autodate fields to the collection makes it cheap again.)
+    const fp = rec0 ? (rec0.updated || rec0.blob || "") : "";
+    if (rec0 && !(fp && fp === s.lastSeenVault)) {
       const rr = await fetch(cloudUrl() + "/api/collections/vaults/records/" + rec0.id, { headers: { Authorization: s.token } });
       const rec = await rr.json();
       if (rr.ok && rec && rec.blob) {
@@ -3812,7 +3829,9 @@ async function cloudAutoPull() {
           // lastSeenVault as-is so the next poll retries, and keep the chip honest.
           cloudChip("syncing");
         } else {
-          cloudSaveState(Object.assign(cloudState(), { lastSeenVault: rec.updated || rec0.updated }));
+          // store the SAME fingerprint the cheap poll compares against (not a different
+          // shape, or every poll would miss and re-pull the whole vault forever)
+          cloudSaveState(Object.assign(cloudState(), { lastSeenVault: fp }));
           // Honest chip + corrective push: if OUR authored layer is now AHEAD of the
           // vault (a concurrent push overwrote the vault with a version that lacked one
           // of our edits), arming a push re-seals it and we withhold the green until it

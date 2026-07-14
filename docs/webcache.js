@@ -222,9 +222,13 @@
   async function pullVault(pass) {
     var s = cloudState();
     if (!s.token) throw new Error("not logged in");
-    // sort=created must MATCH app.js's VAULT_Q — if the account ever holds two vault
-    // records, phone and desktop have to latch the SAME one or they read different vaults
-    var r = await realFetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&sort=created&filter=" +
+    // The sort must MATCH app.js's VAULT_Q — if the account ever holds two vault records,
+    // phone and desktop have to latch the SAME one or they read different vaults.
+    // ⚠️ Sort by `id`, NEVER `created`/`updated`: those are autodate fields our collection
+    // doesn't define, and PocketBase 400s the whole request when you sort on a field it
+    // lacks — which is what locked this gate ("Something went wrong while processing your
+    // request." on a dead Unlock button). `id` always exists and is the same on every device.
+    var r = await realFetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&sort=id&filter=" +
       encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
     var d = await r.json();
     if (r.status === 401 || r.status === 403) throw new Error("AUTH");        // token expired → re-login
@@ -437,9 +441,13 @@
       '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Account password</label><input id="wcPass" type="password" autocomplete="current-password" placeholder="your account password"></div>' +
       '<div class="wc-field wc-phrase wc-hidden"><label>Passphrase (zero-knowledge mode only)</label><input id="wcPhrase" type="password" autocomplete="off" placeholder="only if you set one"></div>' +
       '<div class="wc-row">' +
-        (returning
-          ? '<button class="wc-btn primary" id="wcUnlock">Unlock my cache</button>'
-          : '<button class="wc-btn primary" id="wcLogin">Log in</button><button class="wc-btn" id="wcSignup">Create account</button>') +
+        (returning ? '<button class="wc-btn primary" id="wcUnlock">Unlock my cache</button>' : '') +
+        // Always RENDERED (just hidden while the silent unlock is expected to work). A
+        // returning gate that renders no sign-in button at all is a dead end: any failure
+        // strands the user on "Unlock my cache" with nothing else to click and no way to
+        // type their key. fail() and the switch link reveal these.
+        '<button class="wc-btn primary wc-acct" id="wcLogin"' + (returning ? ' style="display:none"' : '') + '>Log in</button>' +
+        '<button class="wc-btn wc-acct" id="wcSignup"' + (returning ? ' style="display:none"' : '') + '>Create account</button>' +
       '</div>' +
       '<div class="wc-msg" id="wcMsg"></div>' +
       (returning ? '<div class="wc-link" id="wcSwitch">Use a different account</div>' : '') +
@@ -477,7 +485,12 @@
         return;
       }
       if (m === "ZK") { showPhrase(); say("This vault is in zero-knowledge mode — enter your passphrase once on this device.", "err"); return; }
+      // ANY other failure (server hiccup, offline, a query the server rejects) used to
+      // just print the message and stop — on the returning gate that left a dead Unlock
+      // button, a hidden passphrase field and no sign-in form. The user could not get in
+      // at all. Never strand: always open the manual doors so there IS a way through.
       say(m || "Something went wrong.", "err");
+      if (returning) { showPhrase(); reveal(); }
     }
     function reveal() {
       var acct = g.querySelectorAll(".wc-acct"); for (var i = 0; i < acct.length; i++) acct[i].style.display = "";
@@ -489,7 +502,15 @@
       try { await enter(val("#wcPhrase")); } catch (e) { fail(e); }
     });
     var switchLink = g.querySelector("#wcSwitch");
-    if (switchLink) switchLink.addEventListener("click", function () { reveal(); showPhrase(); switchLink.style.display = "none"; say(""); });
+    // a real account switch: reveal the email/password/passphrase fields AND the Log in
+    // button that actually uses them. (It used to reveal the fields but leave only
+    // "Unlock my cache", which ignores them — so switching accounts was impossible.)
+    if (switchLink) switchLink.addEventListener("click", function () {
+      reveal(); showPhrase();
+      switchLink.style.display = "none";
+      if (unlockBtn) unlockBtn.style.display = "none";   // unlocking the OLD session is not what "different account" means
+      say("");
+    });
 
     var loginBtn = g.querySelector("#wcLogin");
     if (loginBtn) loginBtn.addEventListener("click", async function () {
