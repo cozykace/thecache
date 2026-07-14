@@ -181,6 +181,7 @@
       "background:var(--paper,#fff);padding:24px;box-sizing:border-box;transition:opacity .5s ease}" +
       ".wc-card{width:100%;max-width:360px;display:flex;flex-direction:column;gap:12px}" +
       ".wc-brand{font-family:var(--font-mono,ui-monospace,monospace);letter-spacing:.22em;font-size:13px;color:var(--ink,#111);opacity:.7;text-transform:uppercase;text-align:center;margin-bottom:2px}" +
+      ".wc-logo{display:block;height:30px;max-width:240px;object-fit:contain;margin:0 auto 4px}" +
       ".wc-h{font-size:21px;font-weight:500;color:var(--ink,#111);text-align:center;margin:0}" +
       ".wc-sub{font-size:12.5px;color:rgba(var(--ink-rgb,17,17,17),.6);text-align:center;line-height:1.5;margin:-4px 0 6px}" +
       ".wc-field{display:flex;flex-direction:column;gap:4px}" +
@@ -207,9 +208,13 @@
     g.className = "wc-gate";
     var s = cloudState();
     var returning = !!(s.token && s.email);
+    // the real logo, picked to match the theme: light ink = dark background = white mark
+    var ink = 20;
+    try { ink = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--ink-rgb")) || 20; } catch (e) {}
+    var logo = ink > 127 ? "av%20assets/THECACHE_LOGO_WHITE.png" : "av%20assets/THECACHE_LOGO_BLACK.png";
     g.innerHTML =
       '<div class="wc-card">' +
-      '<div class="wc-brand">The Cache</div>' +
+      '<img class="wc-logo" src="' + logo + '" alt="THE CACHE">' +
       '<h1 class="wc-h">' + (returning ? "Welcome back" : "Open your cache") + '</h1>' +
       '<div class="wc-sub">' + (returning
         ? ("Signed in as " + esc(s.email) + ".")
@@ -228,7 +233,7 @@
       '<div class="wc-paths">' +
         '<a href="/demo/">try the demo</a><span>·</span>' +
         '<a href="/roadmap/">roadmap</a><span>·</span>' +
-        '<a href="https://cozyace.com/the-cache-app" target="_blank" rel="noreferrer">about &amp; download</a>' +
+        '<a href="https://cozyace.com/the-cache-app" target="_blank" rel="noreferrer">about the artist</a>' +
       '</div>' +
       '</div>';
     document.body.appendChild(g);
