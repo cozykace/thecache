@@ -33,9 +33,18 @@ cp "$HERE/av assets/shing.wav" "$DEST/av assets/shing.wav"
 cp "$HERE/av assets/warp.wav" "$DEST/av assets/warp.wav"
 find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECACHE_LOGO_BLACK.png" ! -name "goat-pixel.png" ! -name "shing.wav" ! -name "warp.wav" -delete
 
-# index.html = the real shell, with webcache.js injected before app.js
-sed 's#<script defer src="app.js"></script>#<script defer src="webcache.js"></script>\n    <script defer src="app.js"></script>#' \
+# index.html = the real shell, with webcache.js injected before app.js, and every LOCAL
+# asset stamped with a content-hash ?v= so a new deploy always busts the browser cache.
+# Without this, styles.css/app.js are cached by their (unchanging) URL, so a plain refresh
+# keeps serving the OLD build — the "I pulled to refresh AND hit update, still nothing"
+# trap. The hash only changes when the code changes, so unchanged assets stay cached.
+VER="$(cat "$HERE/app.js" "$HERE/styles.css" "$HERE/cursor.js" "$HERE/webcache.js" | shasum | cut -c1-10)"
+sed \
+  -e 's#href="styles\.css"#href="styles.css?v='"$VER"'"#' \
+  -e 's#src="cursor\.js"#src="cursor.js?v='"$VER"'"#' \
+  -e 's#<script defer src="app\.js"></script>#<script defer src="webcache.js?v='"$VER"'"></script>\n    <script defer src="app.js?v='"$VER"'"></script>#' \
   "$HERE/index.html" > "$DEST/index.html"
+echo "   cache-bust version: $VER"
 
 # roadmap source — the public roadmap page reads these from its OWN origin.
 # It used to fetch them from raw.githubusercontent.com, which breaks the instant the
