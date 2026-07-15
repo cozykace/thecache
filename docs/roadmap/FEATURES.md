@@ -4,7 +4,7 @@ A living, product-facing list of what THE CACHE does — kept current as we ship
 
 **The promise:** have a good time facing the skeletons in your closet. THE CACHE is a **free**, calm, playful, provably-private **life OS** — one secure home for the parts of your life you want to track, built from real research to work for brains that struggle with executive function (ADHD, autism, brain injury — and honestly, anyone overwhelmed). Your executive energy varies day to day; that's not a flaw. Cache exists to show you your own pattern and help you plan around it, instead of fighting it. Money is the first area of life it masters — because money has the highest stakes — and the same home is growing to hold your health, tasks, meals, and more.
 
-_Last updated: 2026-07-13_
+_Last updated: 2026-07-15_
 
 ## Log your life in one tap
 - **🃏 The deck** — the one button to remember. Always in the same spot on every device, it opens your day one card at a time: big friendly buttons, one question per screen, confetti and EXP when you finish. One minute keeps your whole cache fed — and a one-time coaching card teaches the habit the first day.
@@ -12,9 +12,16 @@ _Last updated: 2026-07-13_
 - **Tasks & subtasks** — add the things you need to do and remember, break any of them into subtasks as deep as you like, and check them off (a little EXP each time). Delete a whole branch and undo it with one tap. Every task syncs on its own, so two devices editing different parts both keep their work.
 - **Turn a task into a habit** — one tap makes a task something you track instead of finish: a simple yes/no you tick each day, or a number you log (minutes, reps, glasses of water). It resets clean every morning on its own, and your streak lives in the history — never a checkbox you have to remember to un-tick.
 - **Routines on your schedule** — group a few tasks into a routine you pull up daily, weekly (pick the days), monthly, or yearly. Its card shows today's progress at a glance (or "not today" when it's off-schedule), and every step resets fresh each day the routine comes due.
+- **Scroll through your days** — the deck opens on today, but a smooth day-wheel at the bottom lets you slide to yesterday, tomorrow, or any recent day. Checking a habit off saves to the day you're looking at, so your history stays honest — forgot to log yesterday? Scroll back and tick it. A day that isn't today is clearly greyed (still fully editable), and one tap returns you to today. Each device remembers its own place.
 - **The energy question** — "How's your energy right now?" on a one-tap 1–5 scale, from Drained to Charged. No wrong answer — Cache learns your pattern so you can plan around it.
 - **Your energy pattern, visible** — the Energy widget turns every answer into one bar per day across the last two weeks, with today's energy up top and your average below. It updates live the moment a check-in finishes. A missed day shows as a quiet dash — information, never a failure.
 - **Work / rest timer** — work a block, rest a block, with a longer rest every few blocks. The visible countdown does the time-keeping so your head doesn't have to, and gentle chimes mark the turns. All four numbers are yours to change, and pausing, skipping, or ending early is always one tap and never punished. Finishing a work block earns EXP.
+
+## See your whole month
+- **📅 A calendar built in** — a full-screen calendar, one tap from anywhere, that already knows your life: your tasks land on their due dates, your routines show on the days they run, and your events sit right alongside them. Nothing to copy over from another app — if it has a date in Cache, it's on the calendar. Switch between month, week, and a single-day agenda.
+- **Real events, made simple** — add an event to any day in seconds: name it, timed or all-day, a start and an optional end for things that span days, and where in your life it belongs. Make it repeat — every day, certain weekdays, monthly, or yearly — with an optional stop date. It spreads itself across the calendar for you.
+- **Do it from the calendar** — tap a day to see everything on it, check a task off without leaving, or tap anything to edit it. Your default view, whether the week starts Sunday or Monday, and how busy the month grid looks are all yours to set — and they follow you to every device.
+- **Calm on a phone** — on a small screen the month softens to quiet dots so nothing overflows; tap a day to open its full list. Big tap targets, no clutter.
 
 ## Build your life as a base
 - **The Base** — flip from the widget board to a full-screen city view of your life: place, name, and color-code buildings for your income, expenses, and home; drive around; merge related buildings into districts.

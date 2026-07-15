@@ -151,6 +151,7 @@ const visIds = (arr) => thingsVisible(arr).map(x=>x.id).sort().join(",");
     [ [{id:"x",updated:5,ord:3,ordAt:900}], [{id:"x",updated:5,ord:1,ordAt:900}] ],
     [ [{id:"t",updated:1,ord:0,ordAt:0,deleted:1}], [{id:"t",updated:1,ord:0,ordAt:0}] ],
     [ [{id:"e",updated:1,ord:0,ordAt:0,emoji:"⚡"}], [{id:"e",updated:1,ord:0,ordAt:0,emoji:"🔥"}] ],
+    [ [{id:"ev",updated:5,ord:0,ordAt:900,type:"event",start:"2026-07-15",startTime:"09:00"}], [{id:"ev",updated:5,ord:0,ordAt:900,type:"event",start:"2026-07-15",startTime:"10:00"}] ],
   ];
   let allEq = true;
   fixtures.forEach(([a,b]) => { if (JSON.stringify(mergeThings(a,b)) !== JSON.stringify(wMergeThings(a,b))) allEq = false; });
@@ -169,6 +170,29 @@ const visIds = (arr) => thingsVisible(arr).map(x=>x.id).sort().join(",");
   const sub = {id:"u1s",type:"subtask",parent:"u1",title:"scales",done:0,updated:300,ord:0,ordAt:0};
   const m2 = mergeThings([task, sub], [habit]);
   ok("upgrade: a concurrent subtask edit survives", !!m2.find(x=>x.id==="u1s") && m2.find(x=>x.id==="u1").type === "habit");
+}
+
+// ── 13. EVENTS (type:"event") ride the SAME per-item merge — start/end/time all participate ──
+{
+  const base = {id:"ev1",type:"event",title:"Call",start:"2026-07-15",end:null,allDay:0,startTime:"14:00",endTime:null,notes:"",area:null,sched:null,updated:100,ord:0,ordAt:0,deleted:0};
+  // two devices edit DIFFERENT fields; the newer edit wins, still one item (never delete+create)
+  const phone = Object.assign({}, base, {startTime:"15:00", updated:200});   // phone moves the time (newer)
+  const desk  = Object.assign({}, base, {notes:"bring notes", updated:150}); // desk adds a note (older)
+  const m = mergeThings([desk],[phone]);
+  ok("event: the newer field-edit wins (time)", m.find(x=>x.id==="ev1").startTime === "15:00");
+  ok("event: one item, never delete+create", m.filter(x=>x.id==="ev1").length === 1);
+  // a RESCHEDULE (change the date) is an EDIT — id stable, newer wins over a stale copy, not a resurrection
+  const moved = Object.assign({}, base, {start:"2026-07-20", updated:300});
+  const m2 = mergeThings([base],[moved]);
+  ok("event: reschedule is an edit (newer date wins, still live)", m2.find(x=>x.id==="ev1").start === "2026-07-20" && !m2.find(x=>x.id==="ev1").deleted);
+  // a CANCEL is a TOMBSTONE; a peer's older LIVE copy cannot resurrect it
+  const cancelled = thingsCascadeDelete([base], "ev1", 500);
+  ok("event: cancel tombstones the event", !!cancelled.find(x=>x.id==="ev1").deleted);
+  ok("event: a peer's older live copy can't resurrect a cancelled event", visIds(mergeThings(cancelled,[base])) === "");
+  // a multi-day span survives a merge with every field intact
+  const span = {id:"ev2",type:"event",title:"Trip",start:"2026-07-24",end:"2026-07-26",allDay:1,startTime:null,endTime:null,updated:1,ord:1,ordAt:0};
+  const r = mergeThings([span],[]).find(x=>x.id==="ev2");
+  ok("event: multi-day span survives the merge intact", r.start==="2026-07-24" && r.end==="2026-07-26" && r.allDay===1);
 }
 
 console.log(`\n${p} passed, ${f} failed`); process.exit(f?1:0);

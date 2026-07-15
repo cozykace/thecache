@@ -1951,7 +1951,7 @@ body.view-base #board { display: none; }               /* board hides while the 
    (fixed, flex column). A scrollable body holds the check-in entry + the mounted Tasks widget. */
 .deck-sp-title { flex: 1 1 auto; text-align: center; font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: 0.02em; }
 .deck-sp-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 560px; margin: 0 auto; box-sizing: border-box;
-  padding: 4px 16px calc(112px + env(safe-area-inset-bottom)); }   /* bottom room so the floating ＋ FAB never covers the last item */
+  padding: 4px 16px 80px; }   /* bottom room so the corner ＋ FAB never covers the last item; the day-wheel bar sits below and owns the safe-area */
 .deck-ci { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; min-height: 66px; padding: 13px 16px; margin: 4px 0 20px;
   border: 1px solid var(--edge); border-radius: 16px; background: var(--panel); color: var(--ink); cursor: pointer; text-align: left; transition: border-color .12s, transform .1s; }
 .deck-ci:hover { border-color: var(--accent); }
@@ -1965,14 +1965,15 @@ body.view-base #board { display: none; }               /* board hides while the 
 .deck-sp-tasks { width: 100%; }
 .deck-sec-h2 { margin-top: 22px; }
 /* the deck's ＋ FAB + spring-up bubble menu (Add task / habit / note / event / Go-to routine) */
-.deck-fab { position: absolute; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30;
-  width: 60px; height: 60px; border-radius: 50%; border: none; background: var(--accent); color: var(--paper);
-  font-size: 34px; font-weight: 300; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+/* the FAB sits bottom-RIGHT, ABOVE the day-wheel bar (which owns the full-width bottom strip) */
+.deck-fab { position: absolute; right: 18px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 30;
+  width: 58px; height: 58px; border-radius: 50%; border: none; background: var(--accent); color: var(--paper);
+  font-size: 32px; font-weight: 300; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 4px 0 rgba(0, 0, 0, 0.28), 0 6px 16px rgba(0, 0, 0, 0.18); transition: transform 0.12s ease; }
-.deck-fab.on { transform: translateX(-50%) rotate(45deg); }
-.deck-fab:active { transform: translateX(-50%) scale(0.94); }
-.deck-bubbles { position: absolute; left: 50%; bottom: calc(94px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30;
-  display: flex; flex-direction: column; gap: 8px; width: min(84vw, 300px); max-height: 62vh; overflow-y: auto; padding: 2px; }
+.deck-fab.on { transform: rotate(45deg); }
+.deck-fab:active { transform: scale(0.94); }
+.deck-bubbles { position: absolute; right: 18px; bottom: calc(154px + env(safe-area-inset-bottom)); z-index: 30;
+  display: flex; flex-direction: column; gap: 8px; width: min(78vw, 280px); max-height: 56vh; overflow-y: auto; padding: 2px; }
 .deck-bub { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; border: 1px solid var(--edge); border-radius: 14px;
   background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; cursor: pointer; text-align: left;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14); transition: border-color .12s, transform .1s; }
@@ -2921,3 +2922,107 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 @media (hover: none) {
   .sticker-close, .sticker-magnet, .widget-resize { opacity: 1; }
 }
+
+/* ── THE CALENDAR surface (Brick 1) — a full-screen lens over your dated life. Reuses
+   .daily-space (fixed, flex column) + .daily-top + .daily-icn + .td-seg. Own a query
+   container so a narrow surface (a phone) collapses month cells to calm dots. ── */
+.cal-space { container: cal / inline-size; }
+.cal-titlewrap { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; justify-content: center; min-width: 0; }
+.cal-nav { width: 44px; height: 44px; min-width: 44px; border: none; background: none; color: var(--ink); font-size: 22px; line-height: 1; cursor: pointer; border-radius: 11px; flex: 0 0 auto; }
+.cal-nav:hover { background: rgba(var(--ink-rgb), 0.07); }
+.cal-title { font-size: 16px; font-weight: 600; text-align: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-today { flex: 0 0 auto; height: 40px; padding: 0 14px; border: 1px solid var(--edge); border-radius: 20px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 12.5px; cursor: pointer; }
+.cal-today:hover { border-color: var(--accent); }
+.cal-viewbar { display: flex; justify-content: center; padding: 4px 14px 8px; flex: 0 0 auto; }
+.cal-seg { max-width: 100%; }
+.cal-headright { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.cal-gear { font-size: 17px; }
+.cal-gear.on { color: var(--accent); background: rgba(var(--ink-rgb), 0.06); }
+.cal-settings { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 560px; margin: 0 auto 4px; padding: 8px 14px 12px; box-sizing: border-box; }
+.cal-setrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cal-setlbl { font-size: 13px; color: rgba(var(--ink-rgb), 0.7); }
+.cal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 940px; margin: 0 auto; box-sizing: border-box; padding: 2px 10px calc(16px + env(safe-area-inset-bottom)); }
+
+/* month grid */
+.cal-month { min-height: 100%; display: flex; flex-direction: column; }
+.cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 0 2px 6px; }
+.cal-dow span { text-align: center; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); }
+.cal-grid { flex: 1 1 auto; display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: minmax(58px, 1fr); gap: 4px; }
+.cal-cell { display: flex; flex-direction: column; gap: 3px; align-items: stretch; text-align: left; min-width: 0; min-height: 58px; padding: 4px 4px 5px; border: 1px solid var(--edge-soft); border-radius: 10px; background: var(--panel); color: var(--ink); font-family: inherit; cursor: pointer; overflow: hidden; transition: border-color 0.12s; }
+.cal-cell:hover { border-color: var(--edge); }
+.cal-cell.other { opacity: 0.42; }
+.cal-daynum { font-size: 12.5px; font-weight: 600; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: 0 0 auto; }
+.cal-cell.today .cal-daynum { background: var(--accent); color: var(--paper); }
+.cal-items { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cal-chip { display: flex; align-items: center; gap: 3px; min-width: 0; font-size: 11px; line-height: 1.35; padding: 1px 5px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 15%, transparent); white-space: nowrap; overflow: hidden; }
+.cal-chip.task { background: rgba(var(--ink-rgb), 0.09); }
+.cal-chip.routine { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.cal-chip.done { opacity: 0.5; text-decoration: line-through; }
+.cal-chip .ci-em { flex: 0 0 auto; }
+.cal-chip .ci-tx { overflow: hidden; text-overflow: ellipsis; }
+.cal-dots { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 1px; }
+.cal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0.75; flex: 0 0 auto; }
+.cal-dot-i { background: rgba(var(--ink-rgb), 0.55); opacity: 1; }
+.cal-more { font-size: 10.5px; color: rgba(var(--ink-rgb), 0.55); padding-left: 2px; }
+.cal-dotsrow { display: none; align-items: center; gap: 3px; flex-wrap: wrap; justify-content: center; }
+
+/* day agenda */
+.cal-day { width: 100%; max-width: 560px; margin: 0 auto; padding-top: 4px; }
+.cal-addevent { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin: 2px 0 10px; padding: 0 18px; border: 1px solid var(--accent); border-radius: 22px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); font-family: inherit; font-size: 13.5px; cursor: pointer; }
+.cal-addevent:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.cal-agenda { display: flex; flex-direction: column; gap: 6px; }
+.cal-arow { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; min-height: 52px; padding: 8px 14px; border: 1px solid var(--edge-soft); border-radius: 13px; background: var(--panel); color: var(--ink); font-family: inherit; text-align: left; cursor: pointer; transition: border-color 0.12s; }
+.cal-arow:hover { border-color: var(--accent); }
+.cal-arow.done { opacity: 0.6; }
+.cal-arow.done .cal-arow-tx { text-decoration: line-through; }
+.cal-arow-em { flex: 0 0 auto; font-size: 20px; }
+.cal-arow-tx { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 14.5px; }
+.cal-arow-sub { font-size: 11.5px; color: rgba(var(--ink-rgb), 0.55); }
+.cal-arow-go { flex: 0 0 auto; color: var(--accent); font-size: 18px; }
+.cal-empty { padding: 40px 16px; text-align: center; }
+/* check a task off in place (day + week agendas) — a 40px tap target around a 22px circle */
+.cal-check { position: relative; width: 40px; height: 40px; min-width: 40px; border: none; background: none; cursor: pointer; flex: 0 0 auto; padding: 0; }
+.cal-check::before { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 22px; height: 22px; border: 2px solid var(--edge); border-radius: 50%; box-sizing: border-box; transition: background 0.12s, border-color 0.12s; }
+.cal-check.on::before { background: var(--accent); border-color: var(--accent); }
+.cal-check.on::after { content: "✓"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; font-weight: 700; color: var(--paper); }
+/* week view — a calm stacked 7-day agenda (same on desktop + phone; no cramped columns) */
+.cal-week { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 560px; margin: 0 auto; }
+.cal-wday { border-top: 1px solid var(--edge-soft); padding-top: 6px; }
+.cal-wday.today { border-top-color: var(--accent); }
+.cal-wday-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; border: none; background: none; color: var(--ink); font-family: inherit; cursor: pointer; padding: 0 2px 4px; text-align: left; }
+.cal-wday-head:hover .cal-wday-dow { color: var(--accent); }
+.cal-wday-dow { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.55); }
+.cal-wday-num { font-size: 15px; font-weight: 600; min-width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; padding: 0 5px; }
+.cal-wday.today .cal-wday-num { background: var(--accent); color: var(--paper); }
+.cal-wrows { display: flex; flex-direction: column; gap: 6px; }
+.cal-wempty { color: rgba(var(--ink-rgb), 0.3); font-size: 20px; line-height: 1; padding: 0 6px 4px; }
+
+/* narrow (a phone, or a shrunk surface): month cells become calm dots — tap a day for the list */
+@container cal (max-width: 560px) {
+  .cal-body { padding-left: 6px; padding-right: 6px; }
+  .cal-grid { gap: 3px; grid-auto-rows: minmax(50px, 1fr); }
+  .cal-cell { align-items: center; gap: 4px; padding: 4px 2px; }
+  .cal-items { display: none; }
+  .cal-dotsrow { display: flex; }
+  .cal-dow span { font-size: 10px; }
+}
+
+/* ── The DECK's date scrollwheel — the deck is a date-dependent scroller (Cozy 2026-07-15).
+   A snap-centered horizontal wheel of days at the bottom; the centered day is selected.
+   Yesterday / today / tomorrow are the primary three. Browsing a non-today day greys the
+   body (still fully editable) so it's unmistakable. ── */
+.deck-daybar { flex: 0 0 auto; position: relative; display: flex; align-items: center; gap: 4px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); border-top: 1px solid var(--edge-soft); background: var(--paper); }
+.deck-wheel-nav { flex: 0 0 auto; width: 40px; height: 44px; border: none; background: none; color: rgba(var(--ink-rgb), 0.5); font-size: 22px; line-height: 1; cursor: pointer; border-radius: 10px; }
+.deck-wheel-nav:hover { background: rgba(var(--ink-rgb), 0.06); color: var(--ink); }
+.deck-wheel { flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth; padding: 2px calc(50% - 30px); scrollbar-width: none; -ms-overflow-style: none; touch-action: pan-x; overscroll-behavior-x: contain; }
+.deck-wheel::-webkit-scrollbar { display: none; }
+.deck-day { flex: 0 0 auto; scroll-snap-align: center; width: 60px; min-height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; border: 1px solid transparent; border-radius: 13px; background: none; color: rgba(var(--ink-rgb), 0.5); font-family: inherit; cursor: pointer; transition: transform 0.14s cubic-bezier(0.16, 1, 0.3, 1), color 0.14s, background 0.14s, border-color 0.14s; }
+.deck-day-rel { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.85; white-space: nowrap; }
+.deck-day-num { font-size: 20px; font-weight: 600; line-height: 1.05; }
+.deck-day-mon { font-size: 9.5px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.03em; }
+.deck-day.on { color: var(--ink); background: var(--panel); border-color: var(--edge); transform: scale(1.12); }
+.deck-day.on .deck-day-num { color: var(--accent); }
+.deck-day.istoday:not(.on) .deck-day-rel { color: var(--accent); }
+.deck-today-jump { position: absolute; top: -34px; right: 12px; height: 30px; padding: 0 13px; border: 1px solid var(--accent); border-radius: 16px; background: var(--paper); color: var(--accent); font-family: inherit; font-size: 12px; cursor: pointer; opacity: 0; transform: translateY(6px); pointer-events: none; transition: opacity 0.16s, transform 0.16s; box-shadow: 0 3px 12px rgba(var(--ink-rgb), 0.16); }
+.deck-today-jump.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.deck-space.deck-not-today .deck-sp-scroll { opacity: 0.6; filter: grayscale(0.4); transition: opacity 0.18s, filter 0.18s; }

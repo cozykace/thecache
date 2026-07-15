@@ -1234,8 +1234,18 @@ const RENDERERS = {
     // undo, tap a title for the activity trail. Pure client-side through the per-item merge engine.
     // Routines (scheduling) and your own data fields are the next bricks.
     el.classList.add("is-tasks");
+    // date-nav CONTRACT (coordinate with the deck session): mounted INSIDE the deck (.deck-space)
+    // this renders for the deck's SELECTED day; on the board it's always today. Completion reads
+    // AND writes key off this one day, so "done" travels with the DAY, not the habit.
+    const viewDay = () => ((el.closest && el.closest(".deck-space") && typeof deckViewDay === "function") ? deckViewDay() : todayKey());
     let undo = null, selfSaving = false, panel = null;   // panel = {id, kind:"addsub"|"menu"|"amount"} — one inline row open at a time
-    const collapsed = new Set();   // ids whose subtree is hidden (ephemeral, per widget)
+    // Fold state PERSISTS across deck opens (bare key, like deckCiCollapsed → auto-excluded
+    // from the vault since only money.* syncs). Routines default COLLAPSED (neat accordions
+    // pinned at top); tasks with subtasks default expanded. An explicit toggle stores 0|1.
+    const FOLD_KEY = "deckFold";
+    let fold = {}; try { fold = JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {}; } catch (e) { fold = {}; }
+    const isOpen = (t) => (fold[t.id] === 0 || fold[t.id] === 1) ? fold[t.id] === 1 : (t.type !== "routine");
+    const setOpen = (id, open) => { fold[id] = open ? 1 : 0; try { localStorage.setItem(FOLD_KEY, JSON.stringify(fold)); } catch (e) {} };
     const clip = (s, n) => (s && s.length > n ? s.slice(0, n) + "…" : (s || ""));
     const save = (items) => { selfSaving = true; try { saveThings(items); } finally { selfSaving = false; } };
     const esc = (s) => escapeHtml(s || "");
@@ -1254,7 +1264,8 @@ const RENDERERS = {
       return { byParent, byRoutine, roots };
     }
     function render() {
-      const { byParent, byRoutine, roots } = model(), rows = [], log = loadLog(), today = todayKey();
+      try { fold = JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {}; } catch (e) {}   // re-read each render so "Go to routine" (an external open) is honored
+      const { byParent, byRoutine, roots } = model(), rows = [], log = loadLog(), today = viewDay();   // viewDay() = the deck's selected day when mounted there, else today
       const walk = (t, depth) => {   // uniform recursion — a subtask's children render exactly like a task's
         if (t.type === "routine") {   // a ROUTINE groups members (routine:<id>), shown when expanded; each member's "done today" is log-derived
           const members = sortSibs((byRoutine[t.id] || []).slice());
@@ -1262,15 +1273,16 @@ const RENDERERS = {
           const doneCt = members.filter((m) => thingDoneOn(log, m.id, today)).length;
           rows.push(routineRowHtml(t, depth, members.length, doneCt, due));
           if (panel && panel.id === t.id) rows.push(panelHtml(t, depth + 1));
-          if (!collapsed.has(t.id)) members.forEach((m) => rows.push(rowHtml(m, depth + 1, 0, log, today)));
+          if (isOpen(t)) members.forEach((m) => walk(m, depth + 1));   // walk (not bare rowHtml) so a member's ⋯ panel + any subtasks render too
           return;
         }
         const kids = sortSibs((byParent[t.id] || []).slice());
         rows.push(rowHtml(t, depth, kids.length, log, today));
         if (panel && panel.id === t.id) rows.push(panelHtml(t, depth + 1));
-        if (kids.length && !collapsed.has(t.id)) kids.forEach((k) => walk(k, depth + 1));
+        if (kids.length && isOpen(t)) kids.forEach((k) => walk(k, depth + 1));
       };
-      roots.forEach((r) => walk(r, 0));
+      roots.filter((t) => t.type === "routine").forEach((r) => walk(r, 0));   // routines pinned to the top as accordions
+      roots.filter((t) => t.type !== "routine").forEach((r) => walk(r, 0));   // then loose tasks + habits
       const flat = roots.filter((t) => t.type !== "routine");
       const open = flat.filter((t) => !doneState(t, log, today)).length, doneN = flat.length - open;
       el.innerHTML =
@@ -1283,7 +1295,7 @@ const RENDERERS = {
       wire();
     }
     function rowHtml(t, depth, nKids, log, today) {
-      const habit = isHabit(t), amount = isAmount(t), done = doneState(t, log, today), col = collapsed.has(t.id);
+      const habit = isHabit(t), amount = isAmount(t), done = doneState(t, log, today), col = !isOpen(t);
       const unit = t.unit ? " " + esc(t.unit) : "";
       const dayVal = amount ? thingAmountOn(log, t.id, today) : null;
       const control = amount   // amount habits show a tappable value chip instead of a checkbox
@@ -1301,7 +1313,7 @@ const RENDERERS = {
         "</div>";
     }
     function routineRowHtml(r, depth, nMembers, doneCt, due) {
-      const col = collapsed.has(r.id), allDone = nMembers > 0 && doneCt === nMembers;
+      const col = !isOpen(r), allDone = nMembers > 0 && doneCt === nMembers;
       return '<div class="tk-item tk-routine' + (allDone ? " done" : "") + (due ? "" : " tk-notdue") + '" style="margin-left:' + (depth * 15) + 'px">' +
         '<button class="tk-caret' + (col ? " col" : "") + '" data-act="caret" data-id="' + esc(r.id) + '" aria-label="' + (col ? "expand" : "collapse") + '">▾</button>' +
         '<span class="tk-remoji" aria-hidden="true">' + esc(r.emoji || "🔁") + "</span>" +
@@ -1316,13 +1328,21 @@ const RENDERERS = {
       if (panel.kind === "addsub") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a subtask…" maxlength="200" aria-label="add a subtask"><button class="tk-subgo" aria-label="add subtask">＋</button></div>';
       if (panel.kind === "addmember") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a step to this routine…" maxlength="200" aria-label="add a step"><button class="tk-subgo" aria-label="add step">＋</button></div>';
       if (panel.kind === "amount") { const u = t.unit ? " " + esc(t.unit) : ""; return '<div class="tk-subadd"' + ml + '><input class="tk-amtin" type="number" inputmode="decimal" placeholder="how many' + u + '…" aria-label="log amount"><button class="tk-subgo tk-amtgo" aria-label="log">✓</button></div>'; }
-      // the ⋯ menu — the habit upgrade/downgrade + tracking-mode actions
+      if (panel.kind === "move") {   // TAP-TO-MOVE: pick a routine (or make it loose) — reliable on touch, no drag fighting scroll
+        const routines = thingsVisible(loadThings()).filter((x) => x.type === "routine");
+        const cur = t.routine || null;
+        const btns = routines.map((r) => '<button class="tk-mbtn tk-movebtn' + (r.id === cur ? " on" : "") + '" data-act="moveto" data-id="' + esc(t.id) + '" data-rid="' + esc(r.id) + '">' + esc(r.emoji || "🔁") + " " + esc(r.name || "Routine") + (r.id === cur ? " ✓" : "") + "</button>");
+        btns.push('<button class="tk-mbtn tk-movebtn' + (!cur ? " on" : "") + '" data-act="moveto" data-id="' + esc(t.id) + '" data-rid="">↩ Loose (no routine)' + (!cur ? " ✓" : "") + "</button>");
+        return '<div class="tk-menu-row tk-moverow"' + ml + ">" + (routines.length ? "" : '<span class="sub tk-movehint">No routines yet — use “🔁 New routine” below first.</span>') + btns.join("") + "</div>";
+      }
+      // the ⋯ menu — the habit upgrade/downgrade + tracking-mode + move-to-routine actions
       const habit = isHabit(t), amount = isAmount(t), btns = [];
       if (!habit) btns.push('<button class="tk-mbtn" data-act="tohabit" data-id="' + esc(t.id) + '">↻ Make a habit</button>');
       else {
         btns.push('<button class="tk-mbtn" data-act="track" data-id="' + esc(t.id) + '" data-mode="' + (amount ? "check" : "amount") + '">' + (amount ? "✓ Just yes / no" : "🔢 Track a number") + "</button>");
         btns.push('<button class="tk-mbtn" data-act="totask" data-id="' + esc(t.id) + '">↩ Back to a task</button>');
       }
+      if (t.routine || thingsVisible(loadThings()).some((x) => x.type === "routine")) btns.push('<button class="tk-mbtn" data-act="movemenu" data-id="' + esc(t.id) + '">🔁 Move to routine…</button>');
       return '<div class="tk-menu-row"' + ml + ">" + btns.join("") + "</div>";
     }
     function addUnder(parentId, title, type) {
@@ -1345,6 +1365,21 @@ const RENDERERS = {
       save([{ id: id, type: "routine", name: "New routine", emoji: "🔁", sched: { freq: "daily", every: 1 }, active: 1, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }]);
       undo = null; render(); try { openRoutineDetail(id); } catch (e) {}
     }
+    function moveToRoutine(id, rid) {   // set/clear the `routine` link — a per-item edit that merges cleanly
+      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) { panel = null; render(); return; }
+      const target = rid || null;
+      if ((t.routine || null) === target) { panel = null; render(); return; }   // already there — no-op
+      const now = Date.now();
+      // INTO a routine → become a top-level member (clear parent so it isn't left nested under a task);
+      // OUT of a routine → routine:null, keep the parent it had (usually null → a loose root task).
+      const parent = target ? null : (t.parent || null);
+      const sibs = thingsVisible(all).filter((x) => x.id !== id && (target ? x.routine === target : ((x.parent || null) === parent && !x.routine)));
+      const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;   // drop it at the end of the destination group
+      save([Object.assign({}, t, { routine: target, parent: parent, ord: ord, ordAt: now, updated: now })]);
+      if (target) setOpen(target, true);   // open the destination routine so the moved item is visible right away
+      panel = null; undo = null; render();
+      try { flash(target ? "Moved to routine" : "Removed from routine"); } catch (e) {}
+    }
     function wire() {
       const inp = el.querySelector(".tk-in");
       const addTop = () => {
@@ -1360,10 +1395,12 @@ const RENDERERS = {
         else if (act === "del") del(id);
         else if (act === "detail") openTaskDetail(id);
         else if (act === "rdetail") { try { openRoutineDetail(id); } catch (e) {} }
-        else if (act === "caret") { collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); render(); }
-        else if (act === "addsub") { togglePanel(id, "addsub"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
-        else if (act === "addmember") { togglePanel(id, "addmember"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
+        else if (act === "caret") { const ct = loadThings().find((x) => x && x.id === id); setOpen(id, !(ct ? isOpen(ct) : false)); render(); }
+        else if (act === "addsub") { togglePanel(id, "addsub"); setOpen(id, true); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
+        else if (act === "addmember") { togglePanel(id, "addmember"); setOpen(id, true); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
         else if (act === "menu") { togglePanel(id, "menu"); render(); }
+        else if (act === "movemenu") { togglePanel(id, "move"); render(); }
+        else if (act === "moveto") { moveToRoutine(id, b.dataset.rid || ""); }
         else if (act === "amount") { togglePanel(id, "amount"); render(); const ai = el.querySelector(".tk-amtin"); if (ai) ai.focus(); }
         else if (act === "tohabit") { panel = null; thingSetType(id, "habit"); }   // re-renders via the cache:things listener
         else if (act === "totask") { panel = null; thingSetType(id, "task"); }
@@ -1393,24 +1430,24 @@ const RENDERERS = {
     function toggle(id) {
       const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
       if (isHabit(t) || t.routine) {
-        // habits AND routine members RECUR → "done today" is LOG-DERIVED (§3), never an object
-        // flag that would have to reset every morning and fight the merge. Toggle TODAY only.
-        const done = thingDoneOn(loadLog(), id, todayKey());
-        try { logThingEvent(id, done ? "undone" : "done", { items: all }); } catch (e) {}
+        // habits AND routine members RECUR → "done" is LOG-DERIVED per day (§3), never an object
+        // flag. Toggle the VIEWED day only, so completion travels with the DAY (date-nav).
+        const done = thingDoneOn(loadLog(), id, viewDay());
+        try { logThingEvent(id, done ? "undone" : "done", { items: all, ts: viewDay() }); } catch (e) {}
         if (!done) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit done · +2 EXP"); } catch (e) {} }
       } else {
         // a one-off task/subtask's done state is a flag ON the object; the log event feeds the
         // trail — root defaults to the TOP-level task, so a subtask's completion still shows there.
         const now = Date.now(), next = t.done ? 0 : 1;
         save([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]);
-        try { logThingEvent(id, next ? "done" : "undone", { items: all }); } catch (e) {}
+        try { logThingEvent(id, next ? "done" : "undone", { items: all, ts: viewDay() }); } catch (e) {}
         if (next) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Task done · +2 EXP"); } catch (e) {} }
       }
       undo = null; render();
     }
-    function logAmount(id, qty) {   // an amount habit's day value = the LATEST entry (never summed, §4), so re-logging just corrects today
+    function logAmount(id, qty) {   // an amount habit's day value = the LATEST entry for the VIEWED day (never summed, §4)
       if (!(qty >= 0)) { panel = null; render(); return; }
-      try { logThingEvent(id, "habit", { items: loadThings(), value: { done: 1, qty: qty } }); } catch (e) {}
+      try { logThingEvent(id, "habit", { items: loadThings(), value: { done: 1, qty: qty }, ts: viewDay() }); } catch (e) {}
       try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit logged · +2 EXP"); } catch (e) {}
       panel = null; render();
     }
@@ -1470,6 +1507,8 @@ const RENDERERS = {
       render();
     }
     document.addEventListener("cache:things", onThings);
+    function onDeckDay() { if (!el.isConnected) { document.removeEventListener("cache:deckday", onDeckDay); return; } if (el.closest(".deck-space")) render(); }   // date-nav: repaint for the newly-selected day (deck only)
+    document.addEventListener("cache:deckday", onDeckDay);
     render();
   },
   safe(el) {
@@ -3445,7 +3484,7 @@ async function cloudFindVaultId(s) {
 //              a fresher edit and the web app can't blind-adopt on every unlock.
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
-const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun"];
+const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay"];
 const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
@@ -7860,6 +7899,29 @@ function routineDueOn(sched, ymd) {
   if (freq === "yearly") { const y = sched.yearly || { month: start.getMonth() + 1, day: start.getDate() }; return (d.getMonth() + 1) === +y.month && d.getDate() === +y.day; }
   return true;
 }
+// ── Calendar occurrence EXPANSION (Brick 0) — the calendar's recurrence spine. routineDueOn
+//    is a per-DAY predicate; a calendar needs every day in a visible window a routine (or a
+//    recurring event) lands on. So we DRIVE the pure predicate across the range — never
+//    reimplement recurrence. Local-day throughout (matches the engine's local-midnight parse),
+//    bounded + capped so a runaway range can't hang a render. All pure: same JS-only ethos as
+//    routineDueOn, so it can't fork across runtimes.
+function ymdOf(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
+// every "YYYY-MM-DD" from startYmd..endYmd inclusive (local days). `new Date(y,m,d+1)` rolls
+// month/year over automatically, so short months / year boundaries just work. Capped (default
+// 400 ≈ a year + a month grid's overflow) so a bad range can't loop away.
+function calDaysInRange(startYmd, endYmd, cap) {
+  const s = _ymd2date(startYmd), e = _ymd2date(endYmd); if (!s || !e) return [];
+  cap = cap || 400; const out = [];
+  let d = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  while (d <= e && out.length < cap) { out.push(ymdOf(d)); d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1); }
+  return out;
+}
+// the days in [startYmd, endYmd] a schedule is due — routineDueOn per day. O(range); a month
+// grid (≤42 days) × N recurring things is trivial. A null sched (a plain always-available
+// routine) is due every day in range — the same contract routineDueOn(null) gives.
+function calOccurrencesInRange(sched, startYmd, endYmd, cap) {
+  return calDaysInRange(startYmd, endYmd, cap).filter((ymd) => routineDueOn(sched, ymd));
+}
 function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || []; } catch (e) { return []; } }
 function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); return true; } catch (e) { return false; } }
 function todayKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -8189,6 +8251,65 @@ function showDeckCoach() {
   card.querySelector(".dc-open").addEventListener("click", () => { done(); openDeck(); });
   card.querySelector(".dc-later").addEventListener("click", done);
 }
+// ── The DECK is a DATE-DEPENDENT scroller (Cozy 2026-07-15). Which day the deck is showing is
+//    per-DEVICE and SILOED — money.deckDay is DEVICE_LOCAL (never rides the vault), so each
+//    device keeps its own place and the UI can be customized per device. It restores the EXACT
+//    last-viewed day on reopen (defaults to today when unset/invalid). Completion travels with
+//    the DAY, not the habit: reads + writes key off deckViewDay(), and the completion log is
+//    already day-keyed, so scrolling to another day shows THAT day's history. `cache:deckday`
+//    is the change signal the deck body + the task/habit renderer listen for.
+const DECKDAY_KEY = "money.deckDay";
+function deckViewDay() {
+  let v = null; try { v = localStorage.getItem(DECKDAY_KEY); } catch (e) {}
+  return (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : todayKey();
+}
+function setDeckViewDay(ymd) {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) ymd = todayKey();
+  try { localStorage.setItem(DECKDAY_KEY, ymd); } catch (e) {}                                   // persist immediately (per-device)
+  try { document.dispatchEvent(new CustomEvent("cache:deckday", { detail: { ymd: ymd } })); } catch (e) {}
+}
+// The satisfying day SCROLLWHEEL at the bottom of the deck — yesterday / today / tomorrow sit
+// as the primary three, snap-centered; scroll (or ‹ ›, or tap a day) to travel through recent
+// days. The centered day is the selected day. Commits on settle (so the body doesn't thrash
+// mid-scroll); a live highlight tracks the finger. Built ONCE per open so the scroll position
+// is the user's to keep — selection updates a class, never a rebuild.
+function renderDeckDayWheel(host) {
+  if (!host) return;
+  const BACK = 45, FWD = 14;                          // recent-days emphasis (a bit of runway forward)
+  const t0 = _ymd2date(todayKey()) || new Date(), sel = deckViewDay(), cells = [];
+  for (let i = -BACK; i <= FWD; i++) {
+    const d = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + i), ymd = ymdOf(d), isToday = i === 0;
+    const rel = i === 0 ? "Today" : i === -1 ? "Yesterday" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-US", { weekday: "short" });
+    cells.push('<button class="deck-day' + (ymd === sel ? " on" : "") + (isToday ? " istoday" : "") + '" data-ymd="' + ymd + '" role="tab" aria-selected="' + (ymd === sel ? "true" : "false") + '">' +
+      '<span class="deck-day-rel">' + rel + "</span>" +
+      '<span class="deck-day-num">' + d.getDate() + "</span>" +
+      '<span class="deck-day-mon">' + d.toLocaleDateString("en-US", { month: "short" }) + "</span>" +
+      "</button>");
+  }
+  host.innerHTML =
+    '<button class="deck-wheel-nav" id="deckWheelPrev" aria-label="previous day">‹</button>' +
+    '<div class="deck-wheel" id="deckWheel" role="tablist" aria-label="pick a day">' + cells.join("") + "</div>" +
+    '<button class="deck-wheel-nav" id="deckWheelNext" aria-label="next day">›</button>' +
+    '<button class="deck-today-jump" id="deckTodayJump" aria-label="back to today">Today</button>';
+  const wheel = host.querySelector("#deckWheel"), dayCells = Array.prototype.slice.call(wheel.querySelectorAll(".deck-day"));
+  const centerOf = (el) => { const r = el.getBoundingClientRect(); return r.left + r.width / 2; };
+  const centerCell = (el, smooth) => { if (el) wheel.scrollTo({ left: el.offsetLeft - (wheel.clientWidth - el.clientWidth) / 2, behavior: smooth ? "smooth" : "auto" }); };
+  const nearest = () => { const wr = wheel.getBoundingClientRect(), cx = wr.left + wr.width / 2; let best = null, bd = Infinity; dayCells.forEach((c) => { const dd = Math.abs(centerOf(c) - cx); if (dd < bd) { bd = dd; best = c; } }); return best; };
+  const highlight = (cell) => dayCells.forEach((c) => { const on = c === cell; c.classList.toggle("on", on); c.setAttribute("aria-selected", on ? "true" : "false"); });
+  const jump = host.querySelector("#deckTodayJump"), updJump = (ymd) => { if (jump) jump.classList.toggle("show", ymd !== todayKey()); };
+  centerCell(dayCells.filter((c) => c.dataset.ymd === sel)[0] || dayCells.filter((c) => c.classList.contains("istoday"))[0], false);
+  updJump(sel);
+  let raf = 0, settle = 0;
+  wheel.addEventListener("scroll", () => {
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; const c = nearest(); if (c) highlight(c); });   // live highlight tracks the scroll
+    clearTimeout(settle);
+    settle = setTimeout(() => { const c = nearest(); if (c && c.dataset.ymd !== deckViewDay()) { setDeckViewDay(c.dataset.ymd); updJump(c.dataset.ymd); } }, 110);   // commit once it settles
+  });
+  dayCells.forEach((c) => c.addEventListener("click", () => centerCell(c, true)));
+  host.querySelector("#deckWheelPrev").addEventListener("click", () => { const i = dayCells.indexOf(nearest()); if (i > 0) centerCell(dayCells[i - 1], true); });
+  host.querySelector("#deckWheelNext").addEventListener("click", () => { const i = dayCells.indexOf(nearest()); if (i >= 0 && i < dayCells.length - 1) centerCell(dayCells[i + 1], true); });
+  if (jump) jump.addEventListener("click", () => centerCell(dayCells.filter((c) => c.classList.contains("istoday"))[0], true));
+}
 // ── The DECK — the full-screen front door the action button opens (mobile AND desktop). It
 //    holds "every kind of thing you want to track": today's check-in, and your tasks + habits
 //    (the SAME responsive widget, mounted here so your one CTA reaches it without touching the
@@ -8205,7 +8326,7 @@ function openDeck() {
     '<span class="deck-q-emoji" aria-hidden="true">' + escapeHtml(q.emoji || "🃏") + "</span>" +
     '<span class="deck-q-txt">' + escapeHtml(q.prompt || "") + "</span>" +
     '<span class="deck-q-kind">' + escapeHtml(DECK_INPUT_HINT[q.input] || "") + "</span></button>").join("");
-  let ciOpen = true; try { ciOpen = localStorage.getItem("deckCiCollapsed") !== "1"; } catch (e) {}   // remembered per device (non-money key → not synced)
+  let ciOpen = false; try { ciOpen = localStorage.getItem("deckCiCollapsed") === "0"; } catch (e) {}   // DEFAULT collapsed — only the header shows until you expand; remembered per device (non-money key → not synced)
   root.innerHTML =
     '<div class="daily-top">' +
       '<button class="daily-icn" id="deckSpClose" aria-label="close">✕</button>' +
@@ -8227,11 +8348,19 @@ function openDeck() {
       "</div>" +
       '<div class="deck-sec-h deck-sec-h2">Tasks &amp; habits</div>' +
       '<div class="deck-sp-tasks" id="deckSpTasks"></div>' +
-    "</div>";
+      '<div class="deck-sec-h deck-sec-h2">📝 Notes</div>' +
+      '<div class="deck-notes" id="deckNotes"></div>' +
+    "</div>" +
+    '<div class="deck-daybar" id="deckDayBar"></div>' +   // date-nav: the day scrollwheel lives at the bottom
+    '<button class="deck-fab" id="deckFab" aria-label="add to your deck" title="add to your deck">＋</button>' +
+    '<div class="deck-bubbles" id="deckBubbles" hidden></div>';
   document.body.appendChild(root);
-  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  const onDeckThings = () => { const a = document.activeElement; if (a && a.classList && a.classList.contains("deck-note-t")) return; renderNotes(); };   // refresh notes on external change, but never yank focus while a note is being edited
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); document.removeEventListener("cache:things", onDeckThings); document.removeEventListener("cache:deckday", onDeckDay); };
   function onKey(e) { if (e.key === "Escape" && !document.getElementById("dailySpace")) close(); }   // if the check-in is open on top, its own Escape handles it first
   document.addEventListener("keydown", onKey);
+  function onDeckDay() { root.classList.toggle("deck-not-today", deckViewDay() !== todayKey()); }   // grey the deck when browsing a non-today day (still fully editable)
+  document.addEventListener("cache:deckday", onDeckDay);
   root.querySelector("#deckSpClose").addEventListener("click", close);
   root.querySelector("#deckSpGear").addEventListener("click", () => { try { openSettings(); } catch (e) {} });   // DECK-level settings (overall) — separate from the check-in form builder
   root.querySelector("#deckCiEdit").addEventListener("click", () => { try { openDeckEditor(); } catch (e) {} });   // CHECK-IN level — the form builder (add / reorder / manage questions), where it belongs
@@ -8245,6 +8374,80 @@ function openDeck() {
     try { localStorage.setItem("deckCiCollapsed", collapsed ? "1" : "0"); } catch (e) {}
   });
   try { if (typeof RENDERERS === "object" && RENDERERS.tasks) RENDERERS.tasks(root.querySelector("#deckSpTasks")); } catch (e) {}   // the real Tasks/Habits widget, mounted full-screen
+
+  // ── Notes — synced memory items (money.things, type "note"), deck-scoped so they never leak
+  //    onto the board's Tasks widget. A note is a first-class Thing → merges per-item, tombstone
+  //    delete, works offline on web (no server). Values are the text itself, not a log event.
+  function renderNotes() {
+    const host = root.querySelector("#deckNotes"); if (!host) return;
+    const notes = thingsVisible(loadThings()).filter((x) => x.type === "note").sort((a, b) => (+b.ordAt || 0) - (+a.ordAt || 0));   // newest first
+    host.innerHTML = notes.length
+      ? notes.map((n) => '<div class="deck-note"><textarea class="deck-note-t" data-nid="' + escapeHtml(n.id) + '" rows="1" placeholder="a thought…" aria-label="note">' + escapeHtml(n.text || "") + "</textarea><button class=\"deck-note-x\" data-nid=\"" + escapeHtml(n.id) + "\" aria-label=\"delete note\">✕</button></div>").join("")
+      : '<div class="sub deck-note-empty">Quick thoughts you want to hold — add one with ＋ → Note.</div>';
+    host.querySelectorAll(".deck-note-t").forEach((ta) => {
+      const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 240) + "px"; };
+      grow(); ta.addEventListener("input", grow);
+      ta.addEventListener("blur", () => {   // save on blur; a blank/cleared note tidies itself away
+        const n = loadThings().find((x) => x && x.id === ta.dataset.nid); if (!n) return;
+        const v = ta.value.trim() ? ta.value : "";
+        if (!v) { if (!n.deleted) { saveThings([Object.assign({}, n, { deleted: 1, updated: Date.now() })]); const row = ta.closest(".deck-note"); if (row) row.remove(); } return; }
+        if ((n.text || "") !== v) { saveThings([Object.assign({}, n, { text: v, updated: Date.now() })]); try { flash("Saved"); } catch (e) {} }
+      });
+    });
+    host.querySelectorAll(".deck-note-x").forEach((b) => b.addEventListener("click", () => {
+      const n = loadThings().find((x) => x && x.id === b.dataset.nid); if (!n) return;
+      saveThings([Object.assign({}, n, { deleted: 1, updated: Date.now() })]);   // notes have no children → a plain tombstone
+      renderNotes(); try { flash("Note deleted"); } catch (e) {}
+    }));
+  }
+  function mkThing(extra) {   // a new top-level Thing with a collision-proof id + real stamps (deck contract)
+    const now = Date.now(), roots = thingsVisible(loadThings()).filter((x) => !x.parent && !x.routine);
+    const ord = roots.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+    const t = Object.assign({ id: thingId(), updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }, extra);
+    saveThings([t]); return t.id;
+  }
+  function gotoRoutine(rid) {   // open + scroll to a routine in the mounted tasks widget
+    try { const f = JSON.parse(localStorage.getItem("deckFold") || "{}") || {}; f[rid] = 1; localStorage.setItem("deckFold", JSON.stringify(f)); } catch (e) {}
+    try { document.dispatchEvent(new CustomEvent("cache:things")); } catch (e) {}   // widget re-renders, re-reads fold → routine now open
+    setTimeout(() => {
+      const sel = (window.CSS && CSS.escape) ? CSS.escape(rid) : rid;
+      const el = root.querySelector('#deckSpTasks [data-id="' + sel + '"]'), row = el && el.closest(".tk-item");
+      if (row) row.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+  }
+  let bubblesOpen = false;
+  function renderBubbles() {
+    const bub = root.querySelector("#deckBubbles"); if (!bub) return;
+    const routines = thingsVisible(loadThings()).filter((x) => x.type === "routine").sort((a, b) => (+a.ord || 0) - (+b.ord || 0));
+    bub.innerHTML =
+      '<button class="deck-bub" data-add="task"><span class="db-i">✅</span> Add task</button>' +
+      '<button class="deck-bub" data-add="habit"><span class="db-i">↻</span> Add habit</button>' +
+      '<button class="deck-bub" data-add="note"><span class="db-i">📝</span> Add note</button>' +
+      '<button class="deck-bub" data-add="event"><span class="db-i">📅</span> Add event</button>' +
+      (routines.length ? '<div class="deck-bub-sep">Go to routine</div>' + routines.map((r) => '<button class="deck-bub deck-bub-goto" data-goto="' + escapeHtml(r.id) + '"><span class="db-i">' + escapeHtml(r.emoji || "🔁") + "</span> " + escapeHtml(r.name || "Routine") + "</button>").join("") : "");
+  }
+  function toggleBubbles(open) {
+    const bub = root.querySelector("#deckBubbles"), fab = root.querySelector("#deckFab");
+    bubblesOpen = (open == null) ? !bubblesOpen : !!open;
+    if (bubblesOpen) renderBubbles();
+    bub.hidden = !bubblesOpen; fab.classList.toggle("on", bubblesOpen);
+  }
+  root.querySelector("#deckFab").addEventListener("click", (e) => { e.stopPropagation(); toggleBubbles(); });
+  root.querySelector("#deckBubbles").addEventListener("click", (e) => {
+    const b = e.target.closest(".deck-bub"); if (!b) return; e.stopPropagation();
+    if (b.dataset.goto) { toggleBubbles(false); gotoRoutine(b.dataset.goto); return; }
+    toggleBubbles(false);
+    const add = b.dataset.add;
+    if (add === "task") { const nid = mkThing({ type: "task", title: "New task", done: 0, doneAt: null }); try { openTaskDetail(nid); } catch (e) {} }
+    else if (add === "habit") { const nid = mkThing({ type: "habit", title: "New habit", track: "check", done: 0, doneAt: null }); try { openTaskDetail(nid); } catch (e) {} }
+    else if (add === "note") { const nid = mkThing({ type: "note", text: "" }); renderNotes(); setTimeout(() => { const ta = root.querySelector('.deck-note-t[data-nid="' + ((window.CSS && CSS.escape) ? CSS.escape(nid) : nid) + '"]'); if (ta) { ta.scrollIntoView({ block: "center" }); ta.focus(); } }, 40); }
+    else if (add === "event") { try { if (typeof calAddEvent === "function") calAddEvent(deckViewDay()); else flash("Events arrive with the calendar"); } catch (e) {} }   // create an event on the day you're viewing + open its editor
+  });
+  root.addEventListener("click", (e) => { if (bubblesOpen && !e.target.closest("#deckBubbles") && !e.target.closest("#deckFab")) toggleBubbles(false); });
+  document.addEventListener("cache:things", onDeckThings);
+  renderNotes();
+  root.classList.toggle("deck-not-today", deckViewDay() !== todayKey());   // date-nav: obvious at a glance when you're not on today
+  try { renderDeckDayWheel(root.querySelector("#deckDayBar")); } catch (e) {}   // the satisfying day scrollwheel at the bottom
 }
 // ── Task / habit DETAIL — tap a row's bar to open the full editor, like any task manager:
 //    rename, notes, due date + time, task↔habit + how it's tracked, the life AREA it belongs
@@ -8274,7 +8477,7 @@ function openTaskDetail(id) {
   document.body.appendChild(root);
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
   const get = () => loadThings().find((x) => x && x.id === id) || t0;   // always read the freshest copy
-  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); try { flash("Saved"); } catch (e) {} };   // a quick bottom toast so autosave is never silent
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
   document.addEventListener("keydown", onKey);
@@ -8292,6 +8495,10 @@ function openTaskDetail(id) {
     };
     const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (t.area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("") +
       (t.area ? '<button class="td-area td-area-clear" data-area="">✕ clear</button>' : "");
+    const routines = loadThings().filter((x) => x && x.type === "routine" && !x.deleted);
+    const curRt = t.routine || null;
+    const rtChips = routines.map((r) => '<button class="td-rt' + (r.id === curRt ? " on" : "") + '" data-rt="' + esc(r.id) + '">' + esc(r.emoji || "🔁") + " " + esc(r.name || "Routine") + "</button>").join("") +
+      '<button class="td-rt' + (!curRt ? " on" : "") + '" data-rt="">↩ None</button>';
     root.innerHTML =
       '<div class="daily-top">' +
         '<button class="daily-icn" id="tdClose" aria-label="close">✕</button>' +
@@ -8314,7 +8521,7 @@ function openTaskDetail(id) {
         "</div></div>" +
         '<div class="td-field"><label>Area — where it belongs</label><div class="td-areas">' + areaChips + "</div></div>" +
         '<div class="td-field"><label>Notes</label><textarea class="td-notes" id="tdNotes" placeholder="anything to remember…" aria-label="notes">' + esc(t.notes) + "</textarea></div>" +
-        '<div class="td-field td-soon"><label>Routine</label><div class="td-soon-txt">Add to a saved routine — coming with routines.</div></div>' +
+        '<div class="td-field"><label>Routine — part of a saved routine?</label><div class="td-areas td-rtrow">' + (routines.length ? rtChips : '<span class="td-soon-txt" style="margin-right:8px">No routines yet — make one in your deck.</span><button class="td-rt on" data-rt="">↩ None</button>') + "</div></div>" +
         '<div class="td-field"><label>Activity</label>' + (trail.length ? '<div class="td-trail">' + trail.map(trailRow).join("") + "</div>" : '<div class="tkt-empty">No activity yet — check it off and it shows here.</div>') + "</div>" +
       "</div>";
     wire();
@@ -8335,6 +8542,16 @@ function openTaskDetail(id) {
     root.querySelector("#tdDue").addEventListener("change", (e) => patch({ due: e.target.value || null }));
     root.querySelector("#tdDueTime").addEventListener("change", (e) => patch({ dueTime: e.target.value || null }));
     root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { patch({ area: b.dataset.area || null }); render(); }));
+    root.querySelectorAll(".td-rt").forEach((b) => b.addEventListener("click", () => {   // move in/out of a routine — same per-item edit as the deck's ⋯ picker
+      const rid = b.dataset.rt || null, cur = get();
+      if ((cur.routine || null) === rid) { render(); return; }   // already there — no-op
+      const nowm = Date.now(), parent = rid ? null : (cur.parent || null);   // into a routine → top-level member; out → keep parent (usually null)
+      const sibs = loadThings().filter((x) => x && !x.deleted && x.id !== id && (rid ? x.routine === rid : ((x.parent || null) === parent && !x.routine)));
+      const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+      saveThings([Object.assign({}, cur, { routine: rid, parent: parent, ord: ord, ordAt: nowm, updated: nowm })]);
+      try { flash(rid ? "Moved to routine" : "Removed from routine"); } catch (e) {}
+      render();
+    }));
     const notes = root.querySelector("#tdNotes"); notes.addEventListener("change", () => patch({ notes: notes.value }));
   }
   render();
@@ -8369,7 +8586,7 @@ function openQuestionDetail(qid) {
   document.body.appendChild(root);
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
   const get = () => (loadDeck() || []).find((x) => x && x.id === qid) || q0;
-  const save = (p) => { const q = get(); saveDeck([Object.assign({}, q, p, { updated: deckNow() })]); };   // stamp AT the edit; saveDeck merges per-item
+  const save = (p) => { const q = get(); saveDeck([Object.assign({}, q, p, { updated: deckNow() })]); try { if (!p.deleted) flash("Saved"); } catch (e) {} };   // stamp AT the edit; saveDeck merges per-item
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
   document.addEventListener("keydown", onKey);
@@ -8417,7 +8634,7 @@ function openRoutineDetail(id) {
   document.body.appendChild(root);
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
   const get = () => loadThings().find((x) => x && x.id === id) || r0;
-  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); try { flash("Saved"); } catch (e) {} };   // a quick bottom toast so autosave is never silent
   const sched = (p) => { const t = get(); patch({ sched: Object.assign({}, t.sched || {}, p) }); };
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
@@ -8492,6 +8709,290 @@ function actionButtonRun() {
     else if (_apT) autoPushNow();   // leaving the tab with a push pending → flush it now
   });
 })();
+
+// ── THE CALENDAR — a full-screen SURFACE (a lens, NOT a 13th area; areas are fixed at 12).
+//    It reads date-bearing data from across your cache and lays it on a month / day grid:
+//    dated tasks (t.due), routine occurrences (routineDueOn driven across the visible range,
+//    §Brick 0), and events (type:"event", added in a later brick). It is a LENS — tapping any
+//    item opens THAT item's own editor; the calendar never owns the data. Its own launcher
+//    (📅) sits by the action button and NEVER touches it (openDeck/actionButtonRun are the
+//    parallel session's). Local-day throughout, matching the recurrence engine.
+function calWeekdayLabels(weekStart) {
+  const base = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]; weekStart = weekStart || 0;
+  return base.slice(weekStart).concat(base.slice(0, weekStart));
+}
+// the 6×7 month grid for the month containing anchorYmd, aligned to weekStart. Always 42 cells
+// (stable height); leading/trailing days from adjacent months are flagged inMonth:false.
+function calMonthGrid(anchorYmd, weekStart) {
+  weekStart = weekStart || 0;
+  const a = _ymd2date(anchorYmd) || new Date(), y = a.getFullYear(), m = a.getMonth();
+  const lead = (new Date(y, m, 1).getDay() - weekStart + 7) % 7;
+  const gs = new Date(y, m, 1 - lead), cells = [];
+  for (let i = 0; i < 42; i++) { const d = new Date(gs.getFullYear(), gs.getMonth(), gs.getDate() + i); cells.push({ ymd: ymdOf(d), inMonth: d.getMonth() === m, day: d.getDate() }); }
+  return cells;
+}
+// The day-JOIN: every live Thing landing on one local day, split by kind. Tasks land on their
+// due date; a non-recurring event spans start..end (inclusive); a recurring event or a routine
+// matches via routineDueOn. Routine MEMBERS (routine:<id>) are not standalone items here — the
+// routine container carries the occurrence. Pass thingsVisible(loadThings()) so tombstoned /
+// dangling subtrees are already filtered (same liveness rule as the Tasks widget).
+function calThingsOnDay(things, ymd) {
+  const tasks = [], events = [], routines = [];
+  (things || []).forEach((t) => {
+    if (!t || t.deleted) return;
+    if (t.type === "task" && !t.routine) { if (t.due === ymd) tasks.push(t); }
+    else if (t.type === "event") {
+      if (t.sched) { if (routineDueOn(t.sched, ymd)) events.push(t); }
+      else { const s = t.start, e = t.end || t.start; if (s && ymd >= s && ymd <= e) events.push(t); }
+    } else if (t.type === "routine") { if (routineDueOn(t.sched, ymd)) routines.push(t); }
+  });
+  return { tasks: tasks, events: events, routines: routines };
+}
+// the 7 local days of the week (aligned to weekStart) containing anchorYmd.
+function calWeekDays(anchorYmd, weekStart) {
+  weekStart = weekStart || 0;
+  const d = _ymd2date(anchorYmd) || new Date(), off = (d.getDay() - weekStart + 7) % 7;
+  const s = new Date(d.getFullYear(), d.getMonth(), d.getDate() - off), out = [];
+  for (let i = 0; i < 7; i++) { const dd = new Date(s.getFullYear(), s.getMonth(), s.getDate() + i); out.push(ymdOf(dd)); }
+  return out;
+}
+// Check a ONE-OFF task off from the calendar — same rule as the Tasks widget: a plain task's
+// done is a flag ON the object (routine members / habits recur and are log-derived, never shown
+// as checkable here). Logs the completion + awards EXP so the calendar and the deck agree.
+function calToggleTask(id) {
+  const all = loadThings(), t = all.find((x) => x && x.id === id);
+  if (!t || t.type !== "task" || t.routine) return;
+  const now = Date.now(), next = t.done ? 0 : 1;
+  saveThings([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]);
+  try { logThingEvent(id, next ? "done" : "undone", { items: all }); } catch (e) {}
+  if (next) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Task done · +2 EXP"); } catch (e) {} }
+}
+function openCalendar() {
+  if (document.getElementById("calSpace")) return;
+  const root = document.createElement("div"); root.id = "calSpace"; root.className = "daily-space cal-space";
+  document.body.appendChild(root);
+  // durable, SYNCED prefs (money.calview) — a GENERIC key: default view, week-start, and how
+  // the month grid paints routines. Auto-classified GENERIC (per-key newest-wins), so it rides
+  // the vault with no merge/registration code. The transient cursor stays in memory.
+  let prefs = {}; try { prefs = JSON.parse(localStorage.getItem("money.calview") || "{}") || {}; } catch (e) {}
+  let weekStart = prefs.weekStart === 1 ? 1 : 0;                                  // 0 = Sunday (default), 1 = Monday
+  let view = (prefs.view === "day" || prefs.view === "week") ? prefs.view : "month";
+  let density = prefs.density === "chips" ? "chips" : "dots";                     // month grid: routines as dots (calm) or names
+  let settingsOpen = false;
+  let cursor = todayKey();                // the focused day (its month/week, in those views)
+  const savePrefs = () => { try { localStorage.setItem("money.calview", JSON.stringify({ view: view, weekStart: weekStart, density: density })); } catch (e) {} };
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const onKey = (e) => { if (e.key === "Escape" && !document.getElementById("taskDetail")) close(); };   // a detail sheet open on top handles its own Escape first
+  const onCache = () => { if (root.isConnected) render(); else cleanup(); };   // a peer's sync landed → repaint
+  const cleanup = () => { document.removeEventListener("keydown", onKey); document.removeEventListener("cache:things", onCache); document.removeEventListener("cache:logged", onCache); };
+  const close = () => { root.remove(); cleanup(); };
+  document.addEventListener("keydown", onKey);
+  document.addEventListener("cache:things", onCache);
+  document.addEventListener("cache:logged", onCache);
+  const monthTitle = (ymd) => { const d = _ymd2date(ymd); return d ? d.toLocaleDateString("en-US", { month: "long", year: "numeric" }) : ""; };
+  const dayTitle = (ymd) => { const d = _ymd2date(ymd); return d ? d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : ""; };
+  const chipsOf = (j) => {              // discrete, high-signal items → text chips (events first, then dated tasks)
+    const out = [];
+    j.events.forEach((e) => out.push({ cls: "event", em: e.emoji || "📌", tx: (!e.allDay && e.startTime ? e.startTime + " " : "") + (e.title || "Event") }));
+    j.tasks.forEach((t) => out.push({ cls: "task" + (t.done ? " done" : ""), em: t.emoji || "✅", tx: t.title || "Task" }));
+    return out;
+  };
+  function renderMonth() {
+    const cells = calMonthGrid(cursor, weekStart), things = thingsVisible(loadThings()), today = todayKey();
+    const dow = calWeekdayLabels(weekStart).map((d) => "<span>" + d + "</span>").join("");
+    const cellHtml = cells.map((c) => {
+      const j = calThingsOnDay(things, c.ymd), et = chipsOf(j);   // events + dated tasks → chips
+      const chips = density === "chips" ? et.concat(j.routines.map((r) => ({ cls: "routine", em: r.emoji || "🔁", tx: r.name || "Routine" }))) : et;
+      const shown = chips.slice(0, 3), extra = chips.length - shown.length;
+      const chipsH = shown.map((ch) => '<span class="cal-chip ' + ch.cls + '"><span class="ci-em" aria-hidden="true">' + ch.em + '</span><span class="ci-tx">' + esc(ch.tx) + "</span></span>").join("");
+      const rdots = density === "dots" ? j.routines.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || "routine") + '"></span>').join("") : "";
+      const nDots = (et.length ? '<span class="cal-dot cal-dot-i"></span>' : "") + j.routines.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || "routine") + '"></span>').join("");   // narrow: always dots
+      return '<button class="cal-cell' + (c.inMonth ? "" : " other") + (c.ymd === today ? " today" : "") + '" data-ymd="' + c.ymd + '" aria-label="' + esc(dayTitle(c.ymd)) + '">' +
+        '<span class="cal-daynum">' + c.day + "</span>" +
+        '<div class="cal-items">' + chipsH + (extra > 0 ? '<span class="cal-more">+' + extra + " more</span>" : "") + (rdots ? '<div class="cal-dots">' + rdots + "</div>" : "") + "</div>" +
+        '<div class="cal-dotsrow">' + nDots + (extra > 0 ? '<span class="cal-more">+' + extra + "</span>" : "") + "</div>" +
+        "</button>";
+    }).join("");
+    return '<div class="cal-month"><div class="cal-dow">' + dow + '</div><div class="cal-grid">' + cellHtml + "</div></div>";
+  }
+  function itemRow(act, id, em, tx, sub, done, checkable) {
+    return '<div class="cal-arow' + (done ? " done" : "") + '" data-act="' + act + '" data-id="' + esc(id) + '" role="button" tabindex="0">' +
+      (checkable
+        ? '<button class="cal-check' + (done ? " on" : "") + '" data-check="' + esc(id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>'
+        : '<span class="cal-arow-em" aria-hidden="true">' + em + "</span>") +
+      '<span class="cal-arow-tx">' + esc(tx) + (sub ? '<span class="cal-arow-sub">' + esc(sub) + "</span>" : "") + "</span>" +
+      '<span class="cal-arow-go" aria-hidden="true">›</span></div>';
+  }
+  function renderDay() {
+    const log = loadLog(), things = thingsVisible(loadThings()), j = calThingsOnDay(things, cursor), rows = [];
+    j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime + (e.endTime ? "–" + e.endTime : "") : e.allDay ? "all day" : ""), false, false)));
+    j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "due", !!t.done, true)));
+    j.routines.forEach((r) => {
+      const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, cursor)).length;
+      rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length + " done" : "routine", members.length > 0 && doneCt === members.length, false));
+    });
+    return '<div class="cal-day"><button class="cal-addevent" id="calAddEvent">＋ New event</button>' +
+      (rows.length ? '<div class="cal-agenda">' + rows.join("") + "</div>" : '<div class="cal-empty sub">Nothing on the calendar for this day yet.</div>') + "</div>";
+  }
+  function renderWeek() {
+    const log = loadLog(), things = thingsVisible(loadThings()), today = todayKey(), days = calWeekDays(cursor, weekStart);
+    const blocks = days.map((ymd) => {
+      const j = calThingsOnDay(things, ymd), d = _ymd2date(ymd), rows = [];
+      j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime : e.allDay ? "all day" : ""), false, false)));
+      j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "", !!t.done, true)));
+      j.routines.forEach((r) => { const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, ymd)).length; rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length : "", members.length > 0 && doneCt === members.length, false)); });
+      return '<div class="cal-wday' + (ymd === today ? " today" : "") + '"><button class="cal-wday-head" data-ymd="' + ymd + '"><span class="cal-wday-dow">' + d.toLocaleDateString("en-US", { weekday: "short" }) + '</span><span class="cal-wday-num">' + d.getDate() + "</span></button>" +
+        (rows.length ? '<div class="cal-wrows">' + rows.join("") + "</div>" : '<div class="cal-wempty" aria-hidden="true">·</div>') + "</div>";
+    }).join("");
+    return '<div class="cal-week">' + blocks + "</div>";
+  }
+  function calTitle() {
+    if (view === "day") return dayTitle(cursor);
+    if (view === "week") { const w = calWeekDays(cursor, weekStart), a = _ymd2date(w[0]), b = _ymd2date(w[6]); return a.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " – " + b.toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
+    return monthTitle(cursor);
+  }
+  function settingsHtml() {
+    if (!settingsOpen) return "";
+    return '<div class="cal-settings">' +
+      '<div class="cal-setrow"><span class="cal-setlbl">Week starts</span><div class="td-seg" id="calWeekStart"><button data-ws="0"' + (weekStart === 0 ? ' class="on"' : "") + ">Sun</button><button data-ws=\"1\"" + (weekStart === 1 ? ' class="on"' : "") + ">Mon</button></div></div>" +
+      '<div class="cal-setrow"><span class="cal-setlbl">Month grid routines as</span><div class="td-seg" id="calDensity"><button data-den="dots"' + (density === "dots" ? ' class="on"' : "") + ">Dots</button><button data-den=\"chips\"" + (density === "chips" ? ' class="on"' : "") + ">Names</button></div></div>" +
+    "</div>";
+  }
+  function render() {
+    root.innerHTML =
+      '<div class="daily-top">' +
+        '<button class="daily-icn" id="calClose" aria-label="close">✕</button>' +
+        '<div class="cal-titlewrap"><button class="cal-nav" id="calPrev" aria-label="previous">‹</button><div class="cal-title">' + esc(calTitle()) + '</div><button class="cal-nav" id="calNext" aria-label="next">›</button></div>' +
+        '<div class="cal-headright"><button class="cal-today" id="calToday">Today</button><button class="daily-icn cal-gear' + (settingsOpen ? " on" : "") + '" id="calGear" aria-label="calendar settings" title="week start &amp; density">⚙</button></div>' +
+      "</div>" +
+      '<div class="cal-viewbar"><div class="td-seg cal-seg" id="calSeg">' +
+        '<button data-view="month"' + (view === "month" ? ' class="on"' : "") + ">Month</button>" +
+        '<button data-view="week"' + (view === "week" ? ' class="on"' : "") + ">Week</button>" +
+        '<button data-view="day"' + (view === "day" ? ' class="on"' : "") + ">Day</button>" +
+      "</div></div>" +
+      settingsHtml() +
+      '<div class="cal-body">' + (view === "day" ? renderDay() : view === "week" ? renderWeek() : renderMonth()) + "</div>";
+    wire();
+  }
+  function step(dir) {
+    const d = _ymd2date(cursor) || new Date();
+    if (view === "day") cursor = ymdOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + dir));
+    else if (view === "week") cursor = ymdOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + dir * 7));
+    else cursor = ymdOf(new Date(d.getFullYear(), d.getMonth() + dir, 1));
+    render();
+  }
+  function wire() {
+    root.querySelector("#calClose").addEventListener("click", close);
+    root.querySelector("#calPrev").addEventListener("click", () => step(-1));
+    root.querySelector("#calNext").addEventListener("click", () => step(1));
+    root.querySelector("#calToday").addEventListener("click", () => { cursor = todayKey(); render(); });
+    root.querySelectorAll("#calSeg button").forEach((b) => b.addEventListener("click", () => { view = b.dataset.view; savePrefs(); render(); }));
+    const gear = root.querySelector("#calGear"); if (gear) gear.addEventListener("click", () => { settingsOpen = !settingsOpen; render(); });
+    root.querySelectorAll("#calWeekStart button").forEach((b) => b.addEventListener("click", () => { weekStart = b.dataset.ws === "1" ? 1 : 0; savePrefs(); render(); }));
+    root.querySelectorAll("#calDensity button").forEach((b) => b.addEventListener("click", () => { density = b.dataset.den === "chips" ? "chips" : "dots"; savePrefs(); render(); }));
+    root.querySelectorAll(".cal-cell").forEach((c) => c.addEventListener("click", () => { cursor = c.dataset.ymd; view = "day"; render(); }));   // tap a day → that day's agenda
+    root.querySelectorAll(".cal-wday-head").forEach((h) => h.addEventListener("click", () => { cursor = h.dataset.ymd; view = "day"; render(); }));   // tap a week-day header → its agenda
+    root.querySelectorAll(".cal-check").forEach((c) => c.addEventListener("click", (e) => { e.stopPropagation(); try { calToggleTask(c.dataset.check); } catch (er) {} }));   // check a task off in place; onCache repaints
+    root.querySelectorAll(".cal-arow").forEach((r) => {
+      const openRow = () => { const id = r.dataset.id, act = r.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); } catch (e) {} };
+      r.addEventListener("click", openRow);
+      r.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openRow(); } });
+    });
+    const ae = root.querySelector("#calAddEvent"); if (ae) ae.addEventListener("click", () => { try { calAddEvent(cursor); } catch (e) {} });   // new event, prefilled with this day
+  }
+  render();
+}
+// ── EVENTS (type:"event") — a first-class Thing on money.things, so it inherits the ENTIRE
+//    proven per-item merge / tombstone / sync stack for free (no backend, no webcache, no
+//    store.py change). An event is a SPAN (start..end) with an optional time, distinct from a
+//    task's `due` (a deadline). Recurrence via `sched` (reusing routineDueOn) arrives in the
+//    next brick. Non-negotiables (deck contract): a stable id minted ONCE by thingId(); a
+//    reschedule is an EDIT (same id, bump updated); a cancel is a TOMBSTONE, never array removal.
+function calAddEvent(ymd) {
+  const now = Date.now(), id = thingId();
+  const sibs = thingsVisible(loadThings()).filter((x) => x && x.type === "event");
+  const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+  saveThings([{ id: id, type: "event", title: "", emoji: "📌", start: ymd || todayKey(), end: null, allDay: 0, startTime: null, endTime: null, area: null, notes: "", sched: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }]);
+  try { openEventDetail(id); } catch (e) {}
+}
+// An event's detail sheet — cloned from openTaskDetail (td-space shell): emoji + title, timed
+// vs all-day, start/end date + time (native inputs → correct mobile keyboards), the shared
+// 12-area picker, notes, delete. Every edit merges per-item through saveThings (vault-only).
+function openEventDetail(id) {
+  const e0 = loadThings().find((x) => x && x.id === id && x.type === "event");
+  if (!e0 || e0.deleted) return;
+  const ex = document.getElementById("taskDetail"); if (ex) ex.remove();
+  const root = document.createElement("div"); root.id = "taskDetail"; root.className = "daily-space td-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const get = () => loadThings().find((x) => x && x.id === id) || e0;
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const onKey = (ev) => { if (ev.key === "Escape") close(); };
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  document.addEventListener("keydown", onKey);
+  const setSched = (p) => { const cur = get(); patch({ sched: Object.assign({}, cur.sched || {}, p) }); };   // merge a patch into the event's sched
+  function render() {
+    const t = get(), allDay = !!t.allDay, s = t.sched, recurring = !!s, freq = s ? (s.freq || "daily") : "daily";
+    const days = s && Array.isArray(s.days) ? s.days.map(String) : [];
+    const FREQS = [["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]];
+    const DOW = [["0", "S"], ["1", "M"], ["2", "T"], ["3", "W"], ["4", "T"], ["5", "F"], ["6", "S"]];
+    const everyUnit = freq === "weekly" ? "week(s)" : freq === "monthly" ? "month(s)" : freq === "yearly" ? "year(s)" : "day(s)";
+    const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (t.area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("") +
+      (t.area ? '<button class="td-area td-area-clear" data-area="">✕ clear</button>' : "");
+    const timeStart = (!allDay ? '<input type="time" class="td-due" id="edStartTime" value="' + esc(t.startTime) + '" aria-label="start time">' : "");
+    const recurFields = recurring
+      ? '<div class="td-field"><label>Repeats</label><div class="td-seg" id="edFreq">' + FREQS.map((fq) => '<button data-freq="' + fq[0] + '"' + (freq === fq[0] ? ' class="on"' : "") + ">" + fq[1] + "</button>").join("") + "</div></div>"
+        + (freq === "weekly" ? '<div class="td-field"><label>On these days</label><div class="rd-days" id="edDays">' + DOW.map((d) => '<button class="rd-day' + (days.indexOf(d[0]) !== -1 ? " on" : "") + '" data-dow="' + d[0] + '">' + d[1] + "</button>").join("") + "</div></div>" : "")
+        + '<div class="td-field"><label>Every</label><div class="rd-every"><input type="number" inputmode="numeric" class="rd-everyin" id="edEvery" value="' + esc(s.every || 1) + '" min="1"><span class="rd-everylbl">' + everyUnit + "</span></div></div>"
+        + '<div class="td-field"><label>Until (optional)</label><input type="date" class="td-due" id="edUntil" value="' + esc(s.end) + '" aria-label="repeat until"></div>'
+      : "";
+    root.innerHTML =
+      '<div class="daily-top"><button class="daily-icn" id="edClose" aria-label="close">✕</button><div class="td-htitle">📅 Event</div><button class="daily-icn td-del" id="edDel" aria-label="delete" title="delete">🗑</button></div>' +
+      '<div class="td-scroll">' +
+        '<div class="qd-titlerow"><input class="qd-emoji" id="edEmoji" value="' + esc(t.emoji) + '" maxlength="4" aria-label="emoji"><input class="td-title" id="edTitle" value="' + esc(t.title) + '" placeholder="what is it…" aria-label="title"></div>' +
+        '<div class="td-field"><label>Kind</label><div class="td-seg" id="edAllday"><button data-allday="0"' + (!allDay ? ' class="on"' : "") + ">Timed</button><button data-allday=\"1\"" + (allDay ? ' class="on"' : "") + ">All day</button></div></div>" +
+        '<div class="td-field"><label>' + (recurring ? "First on" : "Starts") + '</label><div class="td-due-row"><input type="date" class="td-due" id="edStart" value="' + esc(t.start) + '" aria-label="start date">' + timeStart + "</div></div>" +
+        (recurring ? "" : '<div class="td-field"><label>Ends (optional)</label><div class="td-due-row"><input type="date" class="td-due" id="edEnd" value="' + esc(t.end) + '" aria-label="end date">' + (!allDay ? '<input type="time" class="td-due" id="edEndTime" value="' + esc(t.endTime) + '" aria-label="end time">' : "") + "</div></div>") +
+        '<div class="td-field rd-pausefield"><label class="rd-pauselbl"><input type="checkbox" id="edRepeat"' + (recurring ? " checked" : "") + "> Repeat this event</label></div>" +
+        recurFields +
+        '<div class="td-field"><label>Area — where it belongs</label><div class="td-areas">' + areaChips + "</div></div>" +
+        '<div class="td-field"><label>Notes</label><textarea class="td-notes" id="edNotes" placeholder="anything to remember…" aria-label="notes">' + esc(t.notes) + "</textarea></div>" +
+      "</div>";
+    wire();
+  }
+  function wire() {
+    root.querySelector("#edClose").addEventListener("click", close);
+    root.querySelector("#edDel").addEventListener("click", () => {
+      const all = loadThings(), now = Date.now(), liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+      saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));
+      close();
+    });
+    const em = root.querySelector("#edEmoji"); em.addEventListener("change", () => patch({ emoji: em.value }));
+    const ti = root.querySelector("#edTitle"); ti.addEventListener("change", () => { const v = ti.value.trim(); if (v) patch({ title: v }); });
+    root.querySelectorAll("#edAllday button").forEach((b) => b.addEventListener("click", () => { patch({ allDay: b.dataset.allday === "1" ? 1 : 0 }); render(); }));
+    root.querySelector("#edStart").addEventListener("change", (e) => {   // keep the recurrence anchor in step with the start date
+      const v = e.target.value || todayKey(), cur = get(), p = { start: v };
+      if (cur.sched) p.sched = Object.assign({}, cur.sched, { start: v });
+      patch(p);
+    });
+    const st = root.querySelector("#edStartTime"); if (st) st.addEventListener("change", (e) => patch({ startTime: e.target.value || null }));
+    const en = root.querySelector("#edEnd"); if (en) en.addEventListener("change", (e) => patch({ end: e.target.value || null }));
+    const et = root.querySelector("#edEndTime"); if (et) et.addEventListener("change", (e) => patch({ endTime: e.target.value || null }));
+    const rep = root.querySelector("#edRepeat"); rep.addEventListener("change", () => {
+      if (rep.checked) { const t = get(), d = _ymd2date(t.start) || new Date(); patch({ sched: { freq: "weekly", every: 1, days: [d.getDay()], start: t.start } }); }   // sensible default: weekly on the start weekday
+      else patch({ sched: null });
+      render();
+    });
+    root.querySelectorAll("#edFreq button").forEach((b) => b.addEventListener("click", () => { setSched({ freq: b.dataset.freq }); render(); }));
+    root.querySelectorAll(".rd-day").forEach((b) => b.addEventListener("click", () => { const s = get().sched || {}, days = Array.isArray(s.days) ? s.days.map(Number) : [], d = +b.dataset.dow, i = days.indexOf(d); if (i === -1) days.push(d); else days.splice(i, 1); setSched({ days: days.sort((x, y) => x - y) }); render(); }));
+    const ev = root.querySelector("#edEvery"); if (ev) ev.addEventListener("change", () => setSched({ every: Math.max(1, parseInt(ev.value) || 1) }));
+    const un = root.querySelector("#edUntil"); if (un) un.addEventListener("change", (e) => setSched({ end: e.target.value || null }));
+    root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { patch({ area: b.dataset.area || null }); render(); }));
+    const nt = root.querySelector("#edNotes"); nt.addEventListener("change", () => patch({ notes: nt.value }));
+  }
+  render();
+}
+(function () { const b = document.getElementById("calBtn"); if (b) b.addEventListener("click", openCalendar); })();   // the calendar's OWN launcher — never the action button
 
 // ── Setup wizard — coached first-run screens (design locked 2026-07-13, Working Docs/3_ROADMAP.md).
 //    A coached version of the check-in experience: one question per screen, chunky one-tap
