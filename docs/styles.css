@@ -2165,6 +2165,11 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
   color: var(--ink); font-family: inherit; font-size: 12.5px; cursor: pointer; transition: border-color .12s, transform .1s; }
 .tk-mbtn:hover { border-color: var(--accent); }
 .tk-mbtn:active { transform: scale(0.96); }
+/* the tap-to-move routine picker — a readable column (each routine its own row), current one marked */
+.tk-moverow { flex-direction: column; align-items: stretch; max-height: 240px; overflow-y: auto; }
+.tk-moverow .tk-mbtn { justify-content: flex-start; text-align: left; }
+.tk-movebtn.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--panel)); font-weight: 600; }
+.tk-movehint { padding: 4px 2px 6px; }
 .tk-title[data-act="trail"] { cursor: pointer; }
 .tk-title[data-act="trail"]:hover { text-decoration: underline; text-decoration-color: rgba(var(--ink-rgb), 0.3); text-underline-offset: 2px; }
 /* Task activity-trail modal (rides the shared .cat-modal shell) */

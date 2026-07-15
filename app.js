@@ -1268,7 +1268,7 @@ const RENDERERS = {
           const doneCt = members.filter((m) => thingDoneOn(log, m.id, today)).length;
           rows.push(routineRowHtml(t, depth, members.length, doneCt, due));
           if (panel && panel.id === t.id) rows.push(panelHtml(t, depth + 1));
-          if (isOpen(t)) members.forEach((m) => rows.push(rowHtml(m, depth + 1, 0, log, today)));
+          if (isOpen(t)) members.forEach((m) => walk(m, depth + 1));   // walk (not bare rowHtml) so a member's ⋯ panel + any subtasks render too
           return;
         }
         const kids = sortSibs((byParent[t.id] || []).slice());
@@ -1323,13 +1323,21 @@ const RENDERERS = {
       if (panel.kind === "addsub") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a subtask…" maxlength="200" aria-label="add a subtask"><button class="tk-subgo" aria-label="add subtask">＋</button></div>';
       if (panel.kind === "addmember") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a step to this routine…" maxlength="200" aria-label="add a step"><button class="tk-subgo" aria-label="add step">＋</button></div>';
       if (panel.kind === "amount") { const u = t.unit ? " " + esc(t.unit) : ""; return '<div class="tk-subadd"' + ml + '><input class="tk-amtin" type="number" inputmode="decimal" placeholder="how many' + u + '…" aria-label="log amount"><button class="tk-subgo tk-amtgo" aria-label="log">✓</button></div>'; }
-      // the ⋯ menu — the habit upgrade/downgrade + tracking-mode actions
+      if (panel.kind === "move") {   // TAP-TO-MOVE: pick a routine (or make it loose) — reliable on touch, no drag fighting scroll
+        const routines = thingsVisible(loadThings()).filter((x) => x.type === "routine");
+        const cur = t.routine || null;
+        const btns = routines.map((r) => '<button class="tk-mbtn tk-movebtn' + (r.id === cur ? " on" : "") + '" data-act="moveto" data-id="' + esc(t.id) + '" data-rid="' + esc(r.id) + '">' + esc(r.emoji || "🔁") + " " + esc(r.name || "Routine") + (r.id === cur ? " ✓" : "") + "</button>");
+        btns.push('<button class="tk-mbtn tk-movebtn' + (!cur ? " on" : "") + '" data-act="moveto" data-id="' + esc(t.id) + '" data-rid="">↩ Loose (no routine)' + (!cur ? " ✓" : "") + "</button>");
+        return '<div class="tk-menu-row tk-moverow"' + ml + ">" + (routines.length ? "" : '<span class="sub tk-movehint">No routines yet — use “🔁 New routine” below first.</span>') + btns.join("") + "</div>";
+      }
+      // the ⋯ menu — the habit upgrade/downgrade + tracking-mode + move-to-routine actions
       const habit = isHabit(t), amount = isAmount(t), btns = [];
       if (!habit) btns.push('<button class="tk-mbtn" data-act="tohabit" data-id="' + esc(t.id) + '">↻ Make a habit</button>');
       else {
         btns.push('<button class="tk-mbtn" data-act="track" data-id="' + esc(t.id) + '" data-mode="' + (amount ? "check" : "amount") + '">' + (amount ? "✓ Just yes / no" : "🔢 Track a number") + "</button>");
         btns.push('<button class="tk-mbtn" data-act="totask" data-id="' + esc(t.id) + '">↩ Back to a task</button>');
       }
+      if (t.routine || thingsVisible(loadThings()).some((x) => x.type === "routine")) btns.push('<button class="tk-mbtn" data-act="movemenu" data-id="' + esc(t.id) + '">🔁 Move to routine…</button>');
       return '<div class="tk-menu-row"' + ml + ">" + btns.join("") + "</div>";
     }
     function addUnder(parentId, title, type) {
@@ -1352,6 +1360,21 @@ const RENDERERS = {
       save([{ id: id, type: "routine", name: "New routine", emoji: "🔁", sched: { freq: "daily", every: 1 }, active: 1, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }]);
       undo = null; render(); try { openRoutineDetail(id); } catch (e) {}
     }
+    function moveToRoutine(id, rid) {   // set/clear the `routine` link — a per-item edit that merges cleanly
+      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) { panel = null; render(); return; }
+      const target = rid || null;
+      if ((t.routine || null) === target) { panel = null; render(); return; }   // already there — no-op
+      const now = Date.now();
+      // INTO a routine → become a top-level member (clear parent so it isn't left nested under a task);
+      // OUT of a routine → routine:null, keep the parent it had (usually null → a loose root task).
+      const parent = target ? null : (t.parent || null);
+      const sibs = thingsVisible(all).filter((x) => x.id !== id && (target ? x.routine === target : ((x.parent || null) === parent && !x.routine)));
+      const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;   // drop it at the end of the destination group
+      save([Object.assign({}, t, { routine: target, parent: parent, ord: ord, ordAt: now, updated: now })]);
+      if (target) setOpen(target, true);   // open the destination routine so the moved item is visible right away
+      panel = null; undo = null; render();
+      try { flash(target ? "Moved to routine" : "Removed from routine"); } catch (e) {}
+    }
     function wire() {
       const inp = el.querySelector(".tk-in");
       const addTop = () => {
@@ -1371,6 +1394,8 @@ const RENDERERS = {
         else if (act === "addsub") { togglePanel(id, "addsub"); setOpen(id, true); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
         else if (act === "addmember") { togglePanel(id, "addmember"); setOpen(id, true); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
         else if (act === "menu") { togglePanel(id, "menu"); render(); }
+        else if (act === "movemenu") { togglePanel(id, "move"); render(); }
+        else if (act === "moveto") { moveToRoutine(id, b.dataset.rid || ""); }
         else if (act === "amount") { togglePanel(id, "amount"); render(); const ai = el.querySelector(".tk-amtin"); if (ai) ai.focus(); }
         else if (act === "tohabit") { panel = null; thingSetType(id, "habit"); }   // re-renders via the cache:things listener
         else if (act === "totask") { panel = null; thingSetType(id, "task"); }
