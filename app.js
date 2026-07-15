@@ -7860,6 +7860,29 @@ function routineDueOn(sched, ymd) {
   if (freq === "yearly") { const y = sched.yearly || { month: start.getMonth() + 1, day: start.getDate() }; return (d.getMonth() + 1) === +y.month && d.getDate() === +y.day; }
   return true;
 }
+// ── Calendar occurrence EXPANSION (Brick 0) — the calendar's recurrence spine. routineDueOn
+//    is a per-DAY predicate; a calendar needs every day in a visible window a routine (or a
+//    recurring event) lands on. So we DRIVE the pure predicate across the range — never
+//    reimplement recurrence. Local-day throughout (matches the engine's local-midnight parse),
+//    bounded + capped so a runaway range can't hang a render. All pure: same JS-only ethos as
+//    routineDueOn, so it can't fork across runtimes.
+function ymdOf(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
+// every "YYYY-MM-DD" from startYmd..endYmd inclusive (local days). `new Date(y,m,d+1)` rolls
+// month/year over automatically, so short months / year boundaries just work. Capped (default
+// 400 ≈ a year + a month grid's overflow) so a bad range can't loop away.
+function calDaysInRange(startYmd, endYmd, cap) {
+  const s = _ymd2date(startYmd), e = _ymd2date(endYmd); if (!s || !e) return [];
+  cap = cap || 400; const out = [];
+  let d = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  while (d <= e && out.length < cap) { out.push(ymdOf(d)); d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1); }
+  return out;
+}
+// the days in [startYmd, endYmd] a schedule is due — routineDueOn per day. O(range); a month
+// grid (≤42 days) × N recurring things is trivial. A null sched (a plain always-available
+// routine) is due every day in range — the same contract routineDueOn(null) gives.
+function calOccurrencesInRange(sched, startYmd, endYmd, cap) {
+  return calDaysInRange(startYmd, endYmd, cap).filter((ymd) => routineDueOn(sched, ymd));
+}
 function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || []; } catch (e) { return []; } }
 function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); return true; } catch (e) { return false; } }
 function todayKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -8492,6 +8515,138 @@ function actionButtonRun() {
     else if (_apT) autoPushNow();   // leaving the tab with a push pending → flush it now
   });
 })();
+
+// ── THE CALENDAR — a full-screen SURFACE (a lens, NOT a 13th area; areas are fixed at 12).
+//    It reads date-bearing data from across your cache and lays it on a month / day grid:
+//    dated tasks (t.due), routine occurrences (routineDueOn driven across the visible range,
+//    §Brick 0), and events (type:"event", added in a later brick). It is a LENS — tapping any
+//    item opens THAT item's own editor; the calendar never owns the data. Its own launcher
+//    (📅) sits by the action button and NEVER touches it (openDeck/actionButtonRun are the
+//    parallel session's). Local-day throughout, matching the recurrence engine.
+function calWeekdayLabels(weekStart) {
+  const base = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]; weekStart = weekStart || 0;
+  return base.slice(weekStart).concat(base.slice(0, weekStart));
+}
+// the 6×7 month grid for the month containing anchorYmd, aligned to weekStart. Always 42 cells
+// (stable height); leading/trailing days from adjacent months are flagged inMonth:false.
+function calMonthGrid(anchorYmd, weekStart) {
+  weekStart = weekStart || 0;
+  const a = _ymd2date(anchorYmd) || new Date(), y = a.getFullYear(), m = a.getMonth();
+  const lead = (new Date(y, m, 1).getDay() - weekStart + 7) % 7;
+  const gs = new Date(y, m, 1 - lead), cells = [];
+  for (let i = 0; i < 42; i++) { const d = new Date(gs.getFullYear(), gs.getMonth(), gs.getDate() + i); cells.push({ ymd: ymdOf(d), inMonth: d.getMonth() === m, day: d.getDate() }); }
+  return cells;
+}
+// The day-JOIN: every live Thing landing on one local day, split by kind. Tasks land on their
+// due date; a non-recurring event spans start..end (inclusive); a recurring event or a routine
+// matches via routineDueOn. Routine MEMBERS (routine:<id>) are not standalone items here — the
+// routine container carries the occurrence. Pass thingsVisible(loadThings()) so tombstoned /
+// dangling subtrees are already filtered (same liveness rule as the Tasks widget).
+function calThingsOnDay(things, ymd) {
+  const tasks = [], events = [], routines = [];
+  (things || []).forEach((t) => {
+    if (!t || t.deleted) return;
+    if (t.type === "task" && !t.routine) { if (t.due === ymd) tasks.push(t); }
+    else if (t.type === "event") {
+      if (t.sched) { if (routineDueOn(t.sched, ymd)) events.push(t); }
+      else { const s = t.start, e = t.end || t.start; if (s && ymd >= s && ymd <= e) events.push(t); }
+    } else if (t.type === "routine") { if (routineDueOn(t.sched, ymd)) routines.push(t); }
+  });
+  return { tasks: tasks, events: events, routines: routines };
+}
+function openCalendar() {
+  if (document.getElementById("calSpace")) return;
+  const root = document.createElement("div"); root.id = "calSpace"; root.className = "daily-space cal-space";
+  document.body.appendChild(root);
+  const weekStart = 0;                    // Sunday for v1; a synced pref (money.calview) lands in a later brick
+  let view = "month";                     // "month" | "day"  (week view is a later brick)
+  let cursor = todayKey();                // the focused day (its month, in month view)
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const onCache = () => { if (root.isConnected) render(); else cleanup(); };   // a peer's sync landed → repaint
+  const cleanup = () => { document.removeEventListener("keydown", onKey); document.removeEventListener("cache:things", onCache); document.removeEventListener("cache:logged", onCache); };
+  const close = () => { root.remove(); cleanup(); };
+  document.addEventListener("keydown", onKey);
+  document.addEventListener("cache:things", onCache);
+  document.addEventListener("cache:logged", onCache);
+  const monthTitle = (ymd) => { const d = _ymd2date(ymd); return d ? d.toLocaleDateString("en-US", { month: "long", year: "numeric" }) : ""; };
+  const dayTitle = (ymd) => { const d = _ymd2date(ymd); return d ? d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : ""; };
+  const chipsOf = (j) => {              // discrete, high-signal items → text chips (events first, then dated tasks)
+    const out = [];
+    j.events.forEach((e) => out.push({ cls: "event", em: e.emoji || "📌", tx: (!e.allDay && e.startTime ? e.startTime + " " : "") + (e.title || "Event") }));
+    j.tasks.forEach((t) => out.push({ cls: "task" + (t.done ? " done" : ""), em: t.emoji || "✅", tx: t.title || "Task" }));
+    return out;
+  };
+  function renderMonth() {
+    const cells = calMonthGrid(cursor, weekStart), things = thingsVisible(loadThings()), today = todayKey();
+    const dow = calWeekdayLabels(weekStart).map((d) => "<span>" + d + "</span>").join("");
+    const cellHtml = cells.map((c) => {
+      const j = calThingsOnDay(things, c.ymd), chips = chipsOf(j), shown = chips.slice(0, 3), extra = chips.length - shown.length;
+      const chipsH = shown.map((ch) => '<span class="cal-chip ' + ch.cls + '"><span class="ci-em" aria-hidden="true">' + ch.em + '</span><span class="ci-tx">' + esc(ch.tx) + "</span></span>").join("");
+      const rdots = j.routines.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || "routine") + '"></span>').join("");
+      const nDots = (chips.length ? '<span class="cal-dot cal-dot-i"></span>' : "") + rdots;   // narrow mode: one item-dot + routine dots
+      return '<button class="cal-cell' + (c.inMonth ? "" : " other") + (c.ymd === today ? " today" : "") + '" data-ymd="' + c.ymd + '" aria-label="' + esc(dayTitle(c.ymd)) + '">' +
+        '<span class="cal-daynum">' + c.day + "</span>" +
+        '<div class="cal-items">' + chipsH + (extra > 0 ? '<span class="cal-more">+' + extra + " more</span>" : "") + (rdots ? '<div class="cal-dots">' + rdots + "</div>" : "") + "</div>" +
+        '<div class="cal-dotsrow">' + nDots + (extra > 0 ? '<span class="cal-more">+' + extra + "</span>" : "") + "</div>" +
+        "</button>";
+    }).join("");
+    return '<div class="cal-month"><div class="cal-dow">' + dow + '</div><div class="cal-grid">' + cellHtml + "</div></div>";
+  }
+  function itemRow(act, id, em, tx, sub, done) {
+    return '<button class="cal-arow' + (done ? " done" : "") + '" data-act="' + act + '" data-id="' + esc(id) + '">' +
+      '<span class="cal-arow-em" aria-hidden="true">' + em + "</span>" +
+      '<span class="cal-arow-tx">' + esc(tx) + (sub ? '<span class="cal-arow-sub">' + esc(sub) + "</span>" : "") + "</span>" +
+      '<span class="cal-arow-go" aria-hidden="true">›</span></button>';
+  }
+  function renderDay() {
+    const log = loadLog(), things = thingsVisible(loadThings()), j = calThingsOnDay(things, cursor), rows = [];
+    j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime + (e.endTime ? "–" + e.endTime : "") : e.allDay ? "all day" : ""), false)));
+    j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "due", !!t.done)));
+    j.routines.forEach((r) => {
+      const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, cursor)).length;
+      rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length + " done" : "routine", members.length > 0 && doneCt === members.length));
+    });
+    return '<div class="cal-day">' + (rows.length ? '<div class="cal-agenda">' + rows.join("") + "</div>" : '<div class="cal-empty sub">Nothing on the calendar for this day.</div>') + "</div>";
+  }
+  function render() {
+    root.innerHTML =
+      '<div class="daily-top">' +
+        '<button class="daily-icn" id="calClose" aria-label="close">✕</button>' +
+        '<div class="cal-titlewrap"><button class="cal-nav" id="calPrev" aria-label="previous">‹</button><div class="cal-title">' + esc(view === "day" ? dayTitle(cursor) : monthTitle(cursor)) + '</div><button class="cal-nav" id="calNext" aria-label="next">›</button></div>' +
+        '<button class="cal-today" id="calToday">Today</button>' +
+      "</div>" +
+      '<div class="cal-viewbar"><div class="td-seg cal-seg" id="calSeg">' +
+        '<button data-view="month"' + (view === "month" ? ' class="on"' : "") + ">Month</button>" +
+        '<button data-view="day"' + (view === "day" ? ' class="on"' : "") + ">Day</button>" +
+      "</div></div>" +
+      '<div class="cal-body">' + (view === "day" ? renderDay() : renderMonth()) + "</div>";
+    wire();
+  }
+  function step(dir) {
+    const d = _ymd2date(cursor) || new Date();
+    cursor = view === "day" ? ymdOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + dir)) : ymdOf(new Date(d.getFullYear(), d.getMonth() + dir, 1));
+    render();
+  }
+  function wire() {
+    root.querySelector("#calClose").addEventListener("click", close);
+    root.querySelector("#calPrev").addEventListener("click", () => step(-1));
+    root.querySelector("#calNext").addEventListener("click", () => step(1));
+    root.querySelector("#calToday").addEventListener("click", () => { cursor = todayKey(); render(); });
+    root.querySelectorAll("#calSeg button").forEach((b) => b.addEventListener("click", () => { view = b.dataset.view; render(); }));
+    root.querySelectorAll(".cal-cell").forEach((c) => c.addEventListener("click", () => { cursor = c.dataset.ymd; view = "day"; render(); }));   // tap a day → that day's agenda
+    root.querySelectorAll(".cal-arow").forEach((r) => r.addEventListener("click", () => {
+      const id = r.dataset.id, act = r.dataset.act;
+      try {
+        if (act === "detail") openTaskDetail(id);
+        else if (act === "rdetail") openRoutineDetail(id);
+        else if (act === "event" && typeof openEventDetail === "function") openEventDetail(id);
+      } catch (e) {}
+    }));
+  }
+  render();
+}
+(function () { const b = document.getElementById("calBtn"); if (b) b.addEventListener("click", openCalendar); })();   // the calendar's OWN launcher — never the action button
 
 // ── Setup wizard — coached first-run screens (design locked 2026-07-13, Working Docs/3_ROADMAP.md).
 //    A coached version of the check-in experience: one question per screen, chunky one-tap
