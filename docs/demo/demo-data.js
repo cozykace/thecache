@@ -18,6 +18,25 @@
   seed("money.need", "2600");
   seed("money.reserve", "400");
   seed("money.forecastGoal", "4000");
+  // a few Things (routines / tasks / events) so the deck AND the calendar demo full — dates
+  // ride the visitor's current month so the calendar always looks alive. All made up.
+  (function () {
+    var dd = new Date(), Y = dd.getFullYear(), M = dd.getMonth();
+    function ymd(day) { return Y + "-" + String(M + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0"); }
+    function mk(o) { return Object.assign({ updated: Date.now(), ord: 0, ordAt: 0, deleted: 0, parent: null, routine: null }, o); }
+    var things = [
+      mk({ id: "demo-r1", type: "routine", name: "Morning routine", emoji: "🌅", sched: { freq: "daily", every: 1 } }),
+      mk({ id: "demo-r2", type: "routine", name: "Laundry", emoji: "🧺", sched: { freq: "weekly", days: [0] } }),
+      mk({ id: "demo-m1", type: "task", title: "Feed the cat", routine: "demo-r1" }),
+      mk({ id: "demo-m2", type: "task", title: "Meditate", routine: "demo-r1" }),
+      mk({ id: "demo-t1", type: "task", title: "Dentist appointment", emoji: "🦷", due: ymd(9), dueTime: "10:30", done: 0 }),
+      mk({ id: "demo-t2", type: "task", title: "Renew library books", emoji: "📚", due: ymd(15), done: 0 }),
+      mk({ id: "demo-e1", type: "event", title: "Coffee with Sam", emoji: "☕", start: ymd(12), end: null, allDay: 0, startTime: "15:00", endTime: null }),
+      mk({ id: "demo-e2", type: "event", title: "Weekend trip", emoji: "✈️", start: ymd(20), end: ymd(22), allDay: 1, startTime: null, endTime: null }),
+      mk({ id: "demo-e3", type: "event", title: "Team standup", emoji: "📞", start: ymd(1), end: null, allDay: 0, startTime: "09:00", endTime: "09:15", sched: { freq: "weekly", days: [1], start: ymd(1) } }),
+    ];
+    seed("money.things", JSON.stringify(things));
+  })();
   // a curated board (key order = stack order on narrow screens)
   var LAYOUT = {
     balance:        { type: "balance",        x: 30,  y: 30,  w: 300, h: 190 },
