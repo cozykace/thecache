@@ -1951,7 +1951,7 @@ body.view-base #board { display: none; }               /* board hides while the 
    (fixed, flex column). A scrollable body holds the check-in entry + the mounted Tasks widget. */
 .deck-sp-title { flex: 1 1 auto; text-align: center; font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: 0.02em; }
 .deck-sp-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 560px; margin: 0 auto; box-sizing: border-box;
-  padding: 4px 16px calc(28px + env(safe-area-inset-bottom)); }
+  padding: 4px 16px calc(112px + env(safe-area-inset-bottom)); }   /* bottom room so the floating ＋ FAB never covers the last item */
 .deck-ci { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; min-height: 66px; padding: 13px 16px; margin: 4px 0 20px;
   border: 1px solid var(--edge); border-radius: 16px; background: var(--panel); color: var(--ink); cursor: pointer; text-align: left; transition: border-color .12s, transform .1s; }
 .deck-ci:hover { border-color: var(--accent); }
@@ -1964,6 +1964,32 @@ body.view-base #board { display: none; }               /* board hides while the 
 .deck-sec-h { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); margin: 0 0 10px 4px; font-weight: 600; }
 .deck-sp-tasks { width: 100%; }
 .deck-sec-h2 { margin-top: 22px; }
+/* the deck's ＋ FAB + spring-up bubble menu (Add task / habit / note / event / Go-to routine) */
+.deck-fab { position: absolute; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30;
+  width: 60px; height: 60px; border-radius: 50%; border: none; background: var(--accent); color: var(--paper);
+  font-size: 34px; font-weight: 300; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.28), 0 6px 16px rgba(0, 0, 0, 0.18); transition: transform 0.12s ease; }
+.deck-fab.on { transform: translateX(-50%) rotate(45deg); }
+.deck-fab:active { transform: translateX(-50%) scale(0.94); }
+.deck-bubbles { position: absolute; left: 50%; bottom: calc(94px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30;
+  display: flex; flex-direction: column; gap: 8px; width: min(84vw, 300px); max-height: 62vh; overflow-y: auto; padding: 2px; }
+.deck-bub { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; border: 1px solid var(--edge); border-radius: 14px;
+  background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; cursor: pointer; text-align: left;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14); transition: border-color .12s, transform .1s; }
+.deck-bub:hover { border-color: var(--accent); }
+.deck-bub:active { transform: scale(0.98); }
+.deck-bub .db-i { flex: 0 0 auto; width: 22px; text-align: center; font-size: 18px; }
+.deck-bub-sep { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(var(--ink-rgb), 0.5); padding: 6px 6px 2px; }
+.deck-bub-goto .db-i { font-size: 16px; }
+/* deck Notes — synced quick thoughts (money.things type "note") */
+.deck-notes { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.deck-note { display: flex; gap: 6px; align-items: flex-start; }
+.deck-note-t { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 12px;
+  background: var(--panel); color: var(--ink); font-family: inherit; font-size: 14px; line-height: 1.4; resize: none; box-sizing: border-box; overflow: hidden; }
+.deck-note-t:focus { outline: none; border-color: var(--accent); }
+.deck-note-x { flex: 0 0 auto; min-width: 40px; min-height: 40px; border: none; background: none; color: rgba(var(--ink-rgb), 0.42); font-size: 15px; cursor: pointer; }
+.deck-note-x:hover { color: var(--accent); }
+.deck-note-empty { padding: 4px 2px; }
 /* Check-in question cards on the deck view: a run button + the questions as tappable cards. */
 .deck-ci-run { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; min-height: 56px; padding: 12px 16px; margin: 2px 0 10px;
   border: 1px solid var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); cursor: pointer; font-family: inherit; text-align: left; transition: background .12s, transform .1s; }

@@ -1260,6 +1260,7 @@ const RENDERERS = {
       return { byParent, byRoutine, roots };
     }
     function render() {
+      try { fold = JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {}; } catch (e) {}   // re-read each render so "Go to routine" (an external open) is honored
       const { byParent, byRoutine, roots } = model(), rows = [], log = loadLog(), today = todayKey();
       const walk = (t, depth) => {   // uniform recursion — a subtask's children render exactly like a task's
         if (t.type === "routine") {   // a ROUTINE groups members (routine:<id>), shown when expanded; each member's "done today" is log-derived
@@ -8259,9 +8260,14 @@ function openDeck() {
       "</div>" +
       '<div class="deck-sec-h deck-sec-h2">Tasks &amp; habits</div>' +
       '<div class="deck-sp-tasks" id="deckSpTasks"></div>' +
-    "</div>";
+      '<div class="deck-sec-h deck-sec-h2">📝 Notes</div>' +
+      '<div class="deck-notes" id="deckNotes"></div>' +
+    "</div>" +
+    '<button class="deck-fab" id="deckFab" aria-label="add to your deck" title="add to your deck">＋</button>' +
+    '<div class="deck-bubbles" id="deckBubbles" hidden></div>';
   document.body.appendChild(root);
-  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  const onDeckThings = () => { const a = document.activeElement; if (a && a.classList && a.classList.contains("deck-note-t")) return; renderNotes(); };   // refresh notes on external change, but never yank focus while a note is being edited
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); document.removeEventListener("cache:things", onDeckThings); };
   function onKey(e) { if (e.key === "Escape" && !document.getElementById("dailySpace")) close(); }   // if the check-in is open on top, its own Escape handles it first
   document.addEventListener("keydown", onKey);
   root.querySelector("#deckSpClose").addEventListener("click", close);
@@ -8277,6 +8283,78 @@ function openDeck() {
     try { localStorage.setItem("deckCiCollapsed", collapsed ? "1" : "0"); } catch (e) {}
   });
   try { if (typeof RENDERERS === "object" && RENDERERS.tasks) RENDERERS.tasks(root.querySelector("#deckSpTasks")); } catch (e) {}   // the real Tasks/Habits widget, mounted full-screen
+
+  // ── Notes — synced memory items (money.things, type "note"), deck-scoped so they never leak
+  //    onto the board's Tasks widget. A note is a first-class Thing → merges per-item, tombstone
+  //    delete, works offline on web (no server). Values are the text itself, not a log event.
+  function renderNotes() {
+    const host = root.querySelector("#deckNotes"); if (!host) return;
+    const notes = thingsVisible(loadThings()).filter((x) => x.type === "note").sort((a, b) => (+b.ordAt || 0) - (+a.ordAt || 0));   // newest first
+    host.innerHTML = notes.length
+      ? notes.map((n) => '<div class="deck-note"><textarea class="deck-note-t" data-nid="' + escapeHtml(n.id) + '" rows="1" placeholder="a thought…" aria-label="note">' + escapeHtml(n.text || "") + "</textarea><button class=\"deck-note-x\" data-nid=\"" + escapeHtml(n.id) + "\" aria-label=\"delete note\">✕</button></div>").join("")
+      : '<div class="sub deck-note-empty">Quick thoughts you want to hold — add one with ＋ → Note.</div>';
+    host.querySelectorAll(".deck-note-t").forEach((ta) => {
+      const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 240) + "px"; };
+      grow(); ta.addEventListener("input", grow);
+      ta.addEventListener("blur", () => {   // save on blur; a blank/cleared note tidies itself away
+        const n = loadThings().find((x) => x && x.id === ta.dataset.nid); if (!n) return;
+        const v = ta.value.trim() ? ta.value : "";
+        if (!v) { if (!n.deleted) { saveThings([Object.assign({}, n, { deleted: 1, updated: Date.now() })]); const row = ta.closest(".deck-note"); if (row) row.remove(); } return; }
+        if ((n.text || "") !== v) { saveThings([Object.assign({}, n, { text: v, updated: Date.now() })]); try { flash("Saved"); } catch (e) {} }
+      });
+    });
+    host.querySelectorAll(".deck-note-x").forEach((b) => b.addEventListener("click", () => {
+      const n = loadThings().find((x) => x && x.id === b.dataset.nid); if (!n) return;
+      saveThings([Object.assign({}, n, { deleted: 1, updated: Date.now() })]);   // notes have no children → a plain tombstone
+      renderNotes(); try { flash("Note deleted"); } catch (e) {}
+    }));
+  }
+  function mkThing(extra) {   // a new top-level Thing with a collision-proof id + real stamps (deck contract)
+    const now = Date.now(), roots = thingsVisible(loadThings()).filter((x) => !x.parent && !x.routine);
+    const ord = roots.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+    const t = Object.assign({ id: thingId(), updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }, extra);
+    saveThings([t]); return t.id;
+  }
+  function gotoRoutine(rid) {   // open + scroll to a routine in the mounted tasks widget
+    try { const f = JSON.parse(localStorage.getItem("deckFold") || "{}") || {}; f[rid] = 1; localStorage.setItem("deckFold", JSON.stringify(f)); } catch (e) {}
+    try { document.dispatchEvent(new CustomEvent("cache:things")); } catch (e) {}   // widget re-renders, re-reads fold → routine now open
+    setTimeout(() => {
+      const sel = (window.CSS && CSS.escape) ? CSS.escape(rid) : rid;
+      const el = root.querySelector('#deckSpTasks [data-id="' + sel + '"]'), row = el && el.closest(".tk-item");
+      if (row) row.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+  }
+  let bubblesOpen = false;
+  function renderBubbles() {
+    const bub = root.querySelector("#deckBubbles"); if (!bub) return;
+    const routines = thingsVisible(loadThings()).filter((x) => x.type === "routine").sort((a, b) => (+a.ord || 0) - (+b.ord || 0));
+    bub.innerHTML =
+      '<button class="deck-bub" data-add="task"><span class="db-i">✅</span> Add task</button>' +
+      '<button class="deck-bub" data-add="habit"><span class="db-i">↻</span> Add habit</button>' +
+      '<button class="deck-bub" data-add="note"><span class="db-i">📝</span> Add note</button>' +
+      '<button class="deck-bub" data-add="event"><span class="db-i">📅</span> Add event</button>' +
+      (routines.length ? '<div class="deck-bub-sep">Go to routine</div>' + routines.map((r) => '<button class="deck-bub deck-bub-goto" data-goto="' + escapeHtml(r.id) + '"><span class="db-i">' + escapeHtml(r.emoji || "🔁") + "</span> " + escapeHtml(r.name || "Routine") + "</button>").join("") : "");
+  }
+  function toggleBubbles(open) {
+    const bub = root.querySelector("#deckBubbles"), fab = root.querySelector("#deckFab");
+    bubblesOpen = (open == null) ? !bubblesOpen : !!open;
+    if (bubblesOpen) renderBubbles();
+    bub.hidden = !bubblesOpen; fab.classList.toggle("on", bubblesOpen);
+  }
+  root.querySelector("#deckFab").addEventListener("click", (e) => { e.stopPropagation(); toggleBubbles(); });
+  root.querySelector("#deckBubbles").addEventListener("click", (e) => {
+    const b = e.target.closest(".deck-bub"); if (!b) return; e.stopPropagation();
+    if (b.dataset.goto) { toggleBubbles(false); gotoRoutine(b.dataset.goto); return; }
+    toggleBubbles(false);
+    const add = b.dataset.add;
+    if (add === "task") { const nid = mkThing({ type: "task", title: "New task", done: 0, doneAt: null }); try { openTaskDetail(nid); } catch (e) {} }
+    else if (add === "habit") { const nid = mkThing({ type: "habit", title: "New habit", track: "check", done: 0, doneAt: null }); try { openTaskDetail(nid); } catch (e) {} }
+    else if (add === "note") { const nid = mkThing({ type: "note", text: "" }); renderNotes(); setTimeout(() => { const ta = root.querySelector('.deck-note-t[data-nid="' + ((window.CSS && CSS.escape) ? CSS.escape(nid) : nid) + '"]'); if (ta) { ta.scrollIntoView({ block: "center" }); ta.focus(); } }, 40); }
+    else if (add === "event") { try { if (typeof deckAddEvent === "function") deckAddEvent(); else flash("Events arrive with the calendar"); } catch (e) {} }
+  });
+  root.addEventListener("click", (e) => { if (bubblesOpen && !e.target.closest("#deckBubbles") && !e.target.closest("#deckFab")) toggleBubbles(false); });
+  document.addEventListener("cache:things", onDeckThings);
+  renderNotes();
 }
 // ── Task / habit DETAIL — tap a row's bar to open the full editor, like any task manager:
 //    rename, notes, due date + time, task↔habit + how it's tracked, the life AREA it belongs
