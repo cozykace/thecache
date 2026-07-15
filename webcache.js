@@ -130,7 +130,7 @@
   // cloud/identity internals + device-ergonomic geometry (never synced — keeps the
   // phone from snapping to desktop-pixel zoom / sidebar / modal layout on unlock)
   var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckRev"];   // deckRev RETIRED — must match app.js or it'd sync as a generic key and churn
-  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
+  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.things", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
   // ── deck per-item merge — MUST stay byte-identical to app.js mergeDecks/deckCanon/
   //    deckCap, or the phone and desktop settle on different decks. Same rules:
   //    newer `updated` wins · exact tie → tombstone wins · still tied → canonical
@@ -178,6 +178,49 @@
       return dx !== dy ? dx - dy : (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
     });
     return wDeckCap(items);
+  }
+  // ── money.things per-item merge — MUST stay byte-identical to app.js mergeThings/
+  //    thingCanon, or the phone and desktop settle on different Things. Same rules as the
+  //    deck (newer `updated` · tombstone wins a tie · canonical STRING compare) with the
+  //    two spec changes: a SYMMETRIC ord tie-break and NO live cap (live structure is
+  //    durable; tombstones GC'd by age only). VAULT-ONLY, JS-merged — never in store.py.
+  function wThingCanon(it) {
+    var skip = { updated: 1, ord: 1, ordAt: 1 };
+    var walk = function (v) {
+      if (v === true) return 1; if (v === false) return 0;
+      if (Array.isArray(v)) return v.map(walk);
+      if (v && typeof v === "object") { var o = {}; Object.keys(v).sort().forEach(function (k) { if (!skip[k]) o[k] = walk(v[k]); }); return o; }
+      return v;
+    };
+    try { return JSON.stringify(walk(it || {})); } catch (e) { return ""; }
+  }
+  function wMergeThings(a, b) {
+    var out = {};
+    var take = function (arr) {
+      (Array.isArray(arr) ? arr : []).forEach(function (raw) {
+        if (!raw || !raw.id) return;
+        var it = Object.assign({}, raw), cur = out[it.id];
+        if (!cur) { out[it.id] = it; return; }
+        var cu = +cur.updated || 0, iu = +it.updated || 0, win = cur;
+        if (iu > cu) win = it;
+        else if (iu === cu) {
+          var cd = !!cur.deleted, idl = !!it.deleted;
+          if (idl !== cd) win = idl ? it : cur;
+          else if (wThingCanon(it) > wThingCanon(cur)) win = it;
+        }
+        var lose = win === cur ? it : cur, merged = Object.assign({}, win);
+        var lo = +lose.ordAt || 0, wo = +win.ordAt || 0;
+        if (lo > wo || (lo === wo && (+lose.ord || 0) < (+win.ord || 0))) { merged.ord = lose.ord; merged.ordAt = lose.ordAt; }
+        out[it.id] = merged;
+      });
+    };
+    take(a); take(b);
+    var items = Object.keys(out).map(function (k) { return out[k]; });
+    items.sort(function (x, y) {
+      var dx = +x.ord || 0, dy = +y.ord || 0;
+      return dx !== dy ? dx - dy : (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+    });
+    return items;   // NO cap — live structure durable; tombstones uncapped in v1
   }
   function wIsGeneric(k) { return k.indexOf("money.") === 0 && W_INTERNAL.indexOf(k) === -1 && W_SPECIAL.indexOf(k) === -1; }
   function wStampGeneric(lm) {
@@ -285,6 +328,19 @@
             }
           }
           localStorage.removeItem("money.deckRev");   // retired — per-item `updated` replaced it
+        } catch (e) {}
+        try {
+          // money.things: PER-ITEM merge — must be byte-identical to app.js's mergeThings
+          // or the phone and desktop converge on different Things. Written verbatim.
+          if (lo["money.things"] != null) {
+            var remT = JSON.parse(lo["money.things"] || "[]");
+            if (Array.isArray(remT)) {
+              var curRawT = localStorage.getItem("money.things") || "[]";
+              var locT = []; try { locT = JSON.parse(curRawT) || []; } catch (e) {}
+              var mgT = JSON.stringify(wMergeThings(locT, remT));
+              if (mgT !== curRawT) { localStorage.setItem("money.things", mgT); changed++; }
+            }
+          }
         } catch (e) {}
         try {
           if (lo["money.profile"] != null) {

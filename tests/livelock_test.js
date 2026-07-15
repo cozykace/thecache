@@ -51,6 +51,22 @@ ok("L1 deck: a real reorder (changed ord) IS detected",
 ok("L1 deck: a content edit IS detected",
    authoredHash({"money.deck":dA},{}) !== authoredHash({"money.deck":dD},{}));
 
+// money.things is a PER-ITEM merge exactly like the deck — the witness must be
+// array-order-INsensitive (else two converged devices read as forever "ahead" → the
+// infinite corrective-push livelock) but still catch a real reorder (a changed `ord`)
+// and any content change. Without an id-sorted _authoredProject branch it would fall
+// through to the order-sensitive canonicalizer and ping-pong forever.
+const tA = JSON.stringify([{id:"t1",type:"task",title:"one",ord:0,updated:5},{id:"t2",type:"subtask",parent:"t1",title:"two",ord:1,updated:5}]);
+const tB = JSON.stringify([{id:"t2",type:"subtask",parent:"t1",title:"two",ord:1,updated:5},{id:"t1",type:"task",title:"one",ord:0,updated:5}]); // reversed
+const tC = JSON.stringify([{id:"t1",type:"task",title:"one",ord:9,updated:5},{id:"t2",type:"subtask",parent:"t1",title:"two",ord:1,updated:5}]); // t1 reordered
+const tD = JSON.stringify([{id:"t1",type:"task",title:"CHANGED",ord:0,updated:9},{id:"t2",type:"subtask",parent:"t1",title:"two",ord:1,updated:5}]); // content edit
+ok("L1 things: array order ignored (no livelock between converged devices)",
+   authoredHash({"money.things":tA},{}) === authoredHash({"money.things":tB},{}));
+ok("L1 things: a real reorder (changed ord) IS detected",
+   authoredHash({"money.things":tA},{}) !== authoredHash({"money.things":tC},{}));
+ok("L1 things: a content edit IS detected",
+   authoredHash({"money.things":tA},{}) !== authoredHash({"money.things":tD},{}));
+
 // ── LIVELOCK 2: generic mtime tie tie-break is a symmetric total order ──
 // _valWins(a,b) XOR _valWins(b,a) for a!==b, and both devices pick the SAME winner
 function pickWinner(a,b){ // device with local=a adopts b iff _valWins(b,a); device with local=b adopts a iff _valWins(a,b)

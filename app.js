@@ -3198,7 +3198,7 @@ async function cloudFindVaultId(s) {
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
 const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun"];
-const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
+const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
 // bundle is engine-computed and travels whole-file. catmeta.json (your category
@@ -3294,6 +3294,11 @@ function _authoredProject(k, str) {
     // devices that converged on the same items can't read as forever "ahead" of each
     // other over array order (the livelock class this codebase keeps rediscovering)
     if (k === "money.deck" && Array.isArray(v)) return _sortBy(v.filter((q) => q && q.id), (q) => q.id).map(_canonVal);
+    // money.things — per-item merge like the deck: hash by id (array-order-insensitive so
+    // two converged devices don't read as forever "ahead"), and via _canonVal it includes
+    // `ord`, so a REAL reorder still registers. Without this branch a SPECIAL key falls
+    // through to the order-sensitive canonicalizer → infinite corrective-push ping-pong.
+    if (k === "money.things" && Array.isArray(v)) return _sortBy(v.filter((q) => q && q.id), (q) => q.id).map(_canonVal);
   } catch (e) {}
   return _canonStr(str);
 }
@@ -3697,6 +3702,19 @@ function mergeRemoteLocal(lo, meta) {
         // adopts, or two devices bump each other's stamps forever
         const merged = JSON.stringify(deckCap(mergeDecks(loc, rem.some((q) => q && q.updated == null) ? deckMigrate(rem) : rem)));
         if (merged !== cur) { localStorage.setItem("money.deck", merged); changed = true; try { document.dispatchEvent(new CustomEvent("cache:deck")); } catch (e) {} }
+      }
+    }
+  } catch (e) {}
+  try {
+    if (lo["money.things"] != null) {
+      const rem = JSON.parse(lo["money.things"] || "[]");
+      if (Array.isArray(rem)) {
+        const cur = localStorage.getItem("money.things") || "[]";
+        let loc = []; try { loc = JSON.parse(cur) || []; } catch (e) {}
+        // per-item merge, written VERBATIM — an adoption must never restamp what it adopts,
+        // or two devices bump each other's stamps forever
+        const merged = JSON.stringify(mergeThings(loc, rem));
+        if (merged !== cur) { localStorage.setItem("money.things", merged); changed = true; try { document.dispatchEvent(new CustomEvent("cache:things")); } catch (e) {} }
       }
     }
   } catch (e) {}
@@ -7293,6 +7311,222 @@ function saveDeck(d) {
   putDeck(mergeDecks(stored, d));
   ckPushDeckSoon();
 }
+
+// ── THE DECK, fully realized — money.things ──────────────────────────────────────────
+// Routines / tasks / subtasks / habits / fields, per the signed-off data-model spec
+// (2026-07-14, hardened by a 4-agent adversarial review). Every object is a FLAT,
+// id-keyed, first-class item that merges INDEPENDENTLY; structure is a PARENT-ID
+// REFERENCE, never containment — nesting would let whole-document last-writer-wins sneak
+// back in (phone checks off subtask A, desktop renames subtask B, both save the parent
+// task, per-item merge sees one id, one edit is silently gone).
+//
+// VAULT-ONLY, merged by the two JS runtimes ONLY (app.js + webcache.js) — deliberately
+// NOT routed through store.py. Python serializes 72.0 where JS writes 72, and native `>`
+// picks OPPOSITE winners on emoji (UTF-16 code-unit vs code-point order) — and emoji is a
+// required field. Two byte-identical JS runtimes can't fork; a Python third runtime with
+// those two latent bugs would. If a server feature ever needs Things, its merge is added
+// THEN, with the unicode/float fixes.
+//
+// Reuses the deck's proven per-item algorithm with two spec changes: a SYMMETRIC ord
+// tie-break (§6) and NO live cap (§5 — live structure is durable, never an ephemeral card).
+const THINGS_KEY = "money.things";
+// A stable, globally-unique id, minted ONCE and NEVER changed: base36 time + a 4-char
+// device fingerprint + 6 chars of entropy. NOT Date.now()+small-random, which two devices
+// can collide on in the same millisecond — and an id collision silently FUSES two
+// different objects into one, destroying data. An id that changed on edit would read as a
+// delete + a new object.
+function thingId() {
+  const d = (typeof devId === "function" ? devId() : "") || "";
+  let r = ""; while (r.length < 6) r += Math.random().toString(36).slice(2);
+  return "t" + Date.now().toString(36) + "-" + (d + "xxxx").slice(0, 4) + "-" + r.slice(0, 6);
+}
+// canonical CONTENT form — excludes the stamps (updated/ord/ordAt), sorts keys, normalizes
+// booleans to 0|1 (a stray true/false can never fork the tie-break), emits as a STRING.
+// Compared as a string, never hashed — a djb2 would have to agree across runtimes' int math.
+function thingCanon(it) {
+  const skip = { updated: 1, ord: 1, ordAt: 1 };
+  const walk = (v) => {
+    if (v === true) return 1; if (v === false) return 0;
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") { const o = {}; Object.keys(v).sort().forEach((k) => { if (!skip[k]) o[k] = walk(v[k]); }); return o; }
+    return v;
+  };
+  try { return JSON.stringify(walk(it || {})); } catch (e) { return ""; }
+}
+// Merge two Thing arrays per id. Winner: newer `updated` → exact tie: tombstone wins →
+// still tied: canonical-content STRING compare (deterministic on every runtime). Position
+// (`ord`/`ordAt`) merges on its OWN clock so a drag never reverts a text edit.
+function mergeThings(a, b) {
+  const out = {};
+  const take = (arr) => (Array.isArray(arr) ? arr : []).forEach((raw) => {
+    if (!raw || !raw.id) return;
+    const it = Object.assign({}, raw);
+    const cur = out[it.id];
+    if (!cur) { out[it.id] = it; return; }
+    const cu = +cur.updated || 0, iu = +it.updated || 0;
+    let win = cur;
+    if (iu > cu) win = it;
+    else if (iu === cu) {
+      const cd = !!cur.deleted, id_ = !!it.deleted;
+      if (id_ !== cd) win = id_ ? it : cur;                      // tombstone wins an exact tie
+      else if (thingCanon(it) > thingCanon(cur)) win = it;       // deterministic on every runtime
+    }
+    const lose = win === cur ? it : cur;
+    const merged = Object.assign({}, win);
+    // position is its OWN field on its OWN clock. SYMMETRIC tie-break: newer ordAt wins;
+    // on an EQUAL ordAt with differing ord the SMALLER ord wins regardless of which side is
+    // `win`, so two devices that reordered the same item concurrently converge in one pass
+    // instead of each keeping its own (whole-document LWW sneaking back through position).
+    const lo = +lose.ordAt || 0, wo = +win.ordAt || 0;
+    if (lo > wo || (lo === wo && (+lose.ord || 0) < (+win.ord || 0))) { merged.ord = lose.ord; merged.ordAt = lose.ordAt; }
+    out[it.id] = merged;
+  });
+  take(a); take(b);
+  const items = Object.keys(out).map((k) => out[k]);
+  // stable global sort (by ord, then id). `ord` is scoped to the sibling group; rendering
+  // re-groups by parent/routine, so a single global storage order is fine.
+  items.sort((x, y) => {
+    const dx = +x.ord || 0, dy = +y.ord || 0;
+    return dx !== dy ? dx - dy : (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+  });
+  return items;   // NO cap — live structure is durable; tombstones are GC'd by age only (uncapped in v1)
+}
+function thingsLive(items) { return (items || []).filter((i) => i && !i.deleted); }
+// Read-time LIVENESS filter — render a Thing only if its WHOLE ancestor chain (following
+// BOTH parent and routine) is live; a missing/absent referenced id is treated as deleted
+// (hidden, never resurrected). A pure read filter, identical in both JS runtimes, so it
+// can't diverge at merge time. Depth-capped against reference cycles.
+function thingsVisible(items) {
+  const by = {}; (items || []).forEach((i) => { if (i && i.id) by[i.id] = i; });
+  const liveChain = (it) => {
+    let cur = it, depth = 0;
+    while (cur && depth++ < 64) {
+      if (cur.deleted) return false;
+      const pid = cur.parent || cur.routine;
+      if (!pid) return true;
+      cur = by[pid];
+      if (!cur) return false;   // dangling ref → treat as deleted (hidden, not resurrected)
+    }
+    return true;   // cycle → depth-capped; treat as visible rather than hang
+  };
+  return (items || []).filter((i) => i && i.id && !i.deleted && liveChain(i));
+}
+// Cascade delete — stamp a fresh tombstone (deleted:1, updated:now) on the container AND
+// every descendant (walk parent + routine) at delete time. Each object's death is
+// self-contained: no tombstone's meaning depends on another item still existing, so a
+// GC'd ancestor can never resurrect or orphan a subtree. Mirrors how delete_txn keeps the
+// whole txn in its tombstone.
+function thingsCascadeDelete(items, id, now) {
+  now = now || Date.now();
+  const list = (items || []).slice();
+  const kids = {};   // parentId → [childId]
+  list.forEach((i) => { if (!i || !i.id) return; const p = i.parent || i.routine; if (p) (kids[p] = kids[p] || []).push(i.id); });
+  const doomed = {}; const stack = [id];
+  while (stack.length) { const cur = stack.pop(); if (doomed[cur]) continue; doomed[cur] = 1; (kids[cur] || []).forEach((k) => stack.push(k)); }
+  return list.map((i) => (i && i.id && doomed[i.id]) ? Object.assign({}, i, { deleted: 1, updated: now }) : i);
+}
+function loadThings() { try { return JSON.parse(localStorage.getItem(THINGS_KEY) || "[]") || []; } catch (e) { return []; } }
+// write VERBATIM — every adoption path uses this and NEVER restamps, or two devices bump
+// each other's stamps forever. (mergeThings with an empty second arg just dedups + sorts.)
+function putThings(items) {
+  try { localStorage.setItem(THINGS_KEY, JSON.stringify(mergeThings(items || [], []))); } catch (e) {}
+  try { document.dispatchEvent(new CustomEvent("cache:things")); } catch (e) {}
+}
+// the USER-EDIT path — merges into what's stored (so a Thing another device added while
+// this array was held survives) but NEVER stamps; the editor stamps the item it touched.
+// Vault-only, so it arms the encrypted push — no server call (unlike saveDeck).
+function saveThings(items) {
+  let stored = []; try { stored = JSON.parse(localStorage.getItem(THINGS_KEY) || "[]") || []; } catch (e) {}
+  putThings(mergeThings(stored, items));
+  try { if (typeof autoPushSoon === "function") autoPushSoon(); } catch (e) {}
+}
+
+// ── Thing EVENTS → the check-in log (§4) ─────────────────────────────────────────────
+// Completions, habit occurrences, and field values are NOT stored on the Thing — they are
+// append-only LOG events. Why: a `done` flag never resets, so it can't express "checked
+// EVERY morning" for a recurring item, and resetting it would mutate the template and fight
+// the merge. So "done today" is DERIVED from the log per (item, day). The log is the ONE
+// source of truth for events; it round-trips through store.py's checkin-log.jsonl, whose
+// whitelist was grown to carry root/kind/field (a field not on that whitelist is silently
+// dropped on the first sync). `done`/`doneAt` ON the object are valid ONLY for a true one-off
+// task (routine==null, no schedule); everything recurring derives from here.
+//
+// Entry: { ts:<device-local day>, at:<ms, monotonic per itemId>, itemId, root:<top-level id>,
+//          kind:"done"|"undone"|"habit"|"fieldval"|"fielddel", value:<any>, field:<id|null> }.
+// `root` is DENORMALIZED at write time so a task's activity trail is a flat filter (root==T)
+// that survives an interior subtask being deleted or GC'd — no graph walk to sever.
+
+// monotonic `at` per itemId — dedup is by (at,itemId), so two toggles of ONE item in the
+// same millisecond would collide and the second would be silently dropped. Bump past the
+// item's latest logged `at` so every toggle survives (the audit trail keeps them all).
+function _thingEventAt(itemId, log) {
+  const now = Date.now(); let max = 0;
+  (log || []).forEach((e) => { if (e && e.itemId === itemId && (+e.at || 0) > max) max = +e.at; });
+  return now > max ? now : max + 1;
+}
+// resolve a Thing's top-level ancestor id (walk parent → routine), depth-capped for cycles.
+function thingRoot(items, id) {
+  const by = {}; (items || []).forEach((i) => { if (i && i.id) by[i.id] = i; });
+  let cur = by[id], depth = 0;
+  while (cur && depth++ < 64) {
+    const pid = cur.parent || cur.routine;
+    if (!pid || !by[pid]) return cur.id;   // top-level, or chain broken → the deepest resolvable id
+    cur = by[pid];
+  }
+  return id;
+}
+// Append a Thing event to the log and push it to the cache (same path as a check-in answer:
+// offline it queues in money.logPending and retries, never lost). Returns the entry.
+function logThingEvent(itemId, kind, opts) {
+  opts = opts || {};
+  const items = opts.items || loadThings();
+  const log = loadLog();
+  const entry = { ts: opts.ts || todayKey(), at: _thingEventAt(itemId, log), itemId: itemId,
+                  root: opts.root || thingRoot(items, itemId), kind: kind };
+  if (opts.value !== undefined) entry.value = opts.value;
+  if (opts.field !== undefined) entry.field = opts.field;
+  log.push(entry);
+  if (saveLog(log)) { try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {} ckPush([entry]); }
+  return entry;
+}
+// The LATEST log entry for (itemId, day) by `at` — the single winner the derives read.
+function thingDayEntry(log, itemId, day) {
+  let best = null;
+  (log || []).forEach((e) => { if (e && e.itemId === itemId && e.ts === day && (!best || (+e.at || 0) > (+best.at || 0))) best = e; });
+  return best;
+}
+// Derived "done today" for a recurring item = latest entry for (itemId, day); kind:"undone"
+// un-checks. Multiple toggles all survive in the log (audit); the derive is latest-wins.
+function thingDoneOn(log, itemId, day) {
+  const e = thingDayEntry(log, itemId, day);
+  return !!(e && e.kind !== "undone" && e.kind !== "fielddel");
+}
+// An amount habit's value for a day = the latest entry's value, NOT a sum of the day's
+// entries (editing a reading logs a new entry; summing would double-count).
+function thingAmountOn(log, itemId, day) {
+  const e = thingDayEntry(log, itemId, day);
+  return e && e.kind !== "undone" ? e.value : null;
+}
+// Activity trail for a task/routine T = every log entry with root==T, oldest→newest.
+// Reconstructable from the LOG ALONE (no graph walk), so a deleted interior subtask can't
+// sever it.
+function thingTrail(log, rootId) {
+  return (log || []).filter((e) => e && e.root === rootId).sort((a, b) => (+a.at || 0) - (+b.at || 0));
+}
+// Field values over time = kind:"fieldval" entries for that field, one per day (latest per
+// (field,day) wins), oldest→newest; a fielddel tombstone removes that day. So fields are
+// editable, not write-only.
+function fieldValues(log, fieldId) {
+  const byDay = {};
+  (log || []).forEach((e) => {
+    if (!e || e.field !== fieldId || (e.kind !== "fieldval" && e.kind !== "fielddel")) return;
+    const cur = byDay[e.ts];
+    if (!cur || (+e.at || 0) > (+cur.at || 0)) byDay[e.ts] = e;
+  });
+  return Object.keys(byDay).map((d) => byDay[d]).filter((e) => e.kind === "fieldval")
+    .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+}
+
 function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || []; } catch (e) { return []; } }
 function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); return true; } catch (e) { return false; } }
 function todayKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }

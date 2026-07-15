@@ -204,7 +204,14 @@ def _checkin_union(entries):
         if k in have:
             continue
         have.add(k)
-        slim = {x: e.get(x) for x in ("ts", "at", "itemId", "prompt", "input", "value", "dest") if x in e}
+        # ⚠️ This whitelist is a HARD CROSS-DEVICE CONTRACT. Any field NOT listed here is
+        # silently dropped the moment an entry hits the server OR a merged restore — passes
+        # single-device, dies cross-device. `root`/`kind`/`field` carry the deck-fully-
+        # realized events (task/subtask completions, habit occurrences, field values): `kind`
+        # names the event, `root` is the denormalized top-level id so an item's activity
+        # trail survives an interior subtask being deleted/GC'd, `field` ties a value to its
+        # field definition. `value` stays rich (a qty, a reading, an object) — do not slim it.
+        slim = {x: e.get(x) for x in ("ts", "at", "itemId", "prompt", "input", "value", "dest", "root", "kind", "field") if x in e}
         new_lines.append(json.dumps(slim))
     if new_lines:
         _append_lines(CHECKIN_LOG, new_lines)   # torn-tail-safe append

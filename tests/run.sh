@@ -33,12 +33,12 @@ run() { # run <cmd...>
 }
 
 echo "── JS (client merge engine) ──"
-for t in merge_test authored_test livelock_test profile_test timer_test deck_test; do
+for t in merge_test authored_test livelock_test profile_test timer_test deck_test things_test logderive_test; do
   run "$t" node "tests/$t.js"
 done
 
 echo "── Python (backend merge engine) ──"
-for t in map_test roundtrip_test maptie_test restore_test rev_test catmeta_test tomb_test deck_parity; do
+for t in map_test roundtrip_test maptie_test restore_test rev_test catmeta_test tomb_test deck_parity checkinlog_test; do
   run "$t" env PYTHONPATH="$PWD" python3 "tests/$t.py"
 done
 
