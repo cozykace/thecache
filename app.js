@@ -3663,7 +3663,14 @@ async function cloudWipe() {
 function autoPushSoon() {
   if (!cloudReady()) return;
   clearTimeout(_apT);
-  _apT = setTimeout(autoPushNow, 9000);   // generous window — a push seals + uploads the whole vault
+  // The FIRST backup fires fast, not on the 9s window. A brand-new (especially phone-only)
+  // user who signs up, does one thing, and closes the tab must not lose that first session —
+  // AND the escrow keybox rides that first push, so a lost first push = a key that only ever
+  // existed in a browser that's now closed. Once a push has landed, keep the generous debounce.
+  // (A short timeout, never a direct autoPushNow() call: when busy it re-queues via
+  // autoPushSoon, which would recurse synchronously.)
+  const wait = cloudState().lastPush ? 9000 : 800;
+  _apT = setTimeout(autoPushNow, wait);
 }
 async function autoPushNow() {
   clearTimeout(_apT); _apT = null;
