@@ -72,6 +72,13 @@ ok("fixture sanity: 2026-07-20 is Monday", _ymd2date("2026-07-20").getDay() === 
 ok("join: recurring event due on its weekday", day("2026-07-20").events.some((e) => e.id === "e3"));
 ok("join: recurring event not due off its weekday", !wed.events.some((e) => e.id === "e3"));
 
+// ── week days (Brick 4) ──
+const wkd = calWeekDays("2026-07-15", 0);
+ok("weekDays: 7 aligned days", wkd.length === 7 && _ymd2date(wkd[0]).getDay() === 0);
+ok("weekDays: contains the anchor day", wkd.indexOf("2026-07-15") !== -1);
+ok("weekDays: contiguous", (function () { const a = _ymd2date(wkd[0]), b = _ymd2date(wkd[6]); return Math.round((b - a) / 86400000) === 6; })());
+ok("weekDays: Monday start aligns to Monday", _ymd2date(calWeekDays("2026-07-15", 1)[0]).getDay() === 1);
+
 // a recurring event with an Until date (sched.end) stops after it — inclusive on the last day.
 const e4 = [{ id: "e4", type: "event", title: "Standup", sched: { freq: "weekly", days: [1], end: "2026-07-20" } }];
 ok("join: recurring event honors Until (on the last day)", calThingsOnDay(e4, "2026-07-20").events.some((e) => e.id === "e4"));

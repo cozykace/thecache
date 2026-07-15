@@ -2918,6 +2918,22 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 .cal-arow-sub { font-size: 11.5px; color: rgba(var(--ink-rgb), 0.55); }
 .cal-arow-go { flex: 0 0 auto; color: var(--accent); font-size: 18px; }
 .cal-empty { padding: 40px 16px; text-align: center; }
+/* check a task off in place (day + week agendas) — a 40px tap target around a 22px circle */
+.cal-check { position: relative; width: 40px; height: 40px; min-width: 40px; border: none; background: none; cursor: pointer; flex: 0 0 auto; padding: 0; }
+.cal-check::before { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 22px; height: 22px; border: 2px solid var(--edge); border-radius: 50%; box-sizing: border-box; transition: background 0.12s, border-color 0.12s; }
+.cal-check.on::before { background: var(--accent); border-color: var(--accent); }
+.cal-check.on::after { content: "✓"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; font-weight: 700; color: var(--paper); }
+/* week view — a calm stacked 7-day agenda (same on desktop + phone; no cramped columns) */
+.cal-week { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 560px; margin: 0 auto; }
+.cal-wday { border-top: 1px solid var(--edge-soft); padding-top: 6px; }
+.cal-wday.today { border-top-color: var(--accent); }
+.cal-wday-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; border: none; background: none; color: var(--ink); font-family: inherit; cursor: pointer; padding: 0 2px 4px; text-align: left; }
+.cal-wday-head:hover .cal-wday-dow { color: var(--accent); }
+.cal-wday-dow { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.55); }
+.cal-wday-num { font-size: 15px; font-weight: 600; min-width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; padding: 0 5px; }
+.cal-wday.today .cal-wday-num { background: var(--accent); color: var(--paper); }
+.cal-wrows { display: flex; flex-direction: column; gap: 6px; }
+.cal-wempty { color: rgba(var(--ink-rgb), 0.3); font-size: 20px; line-height: 1; padding: 0 6px 4px; }
 
 /* narrow (a phone, or a shrunk surface): month cells become calm dots — tap a day for the list */
 @container cal (max-width: 560px) {

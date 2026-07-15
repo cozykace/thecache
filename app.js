@@ -8554,6 +8554,25 @@ function calThingsOnDay(things, ymd) {
   });
   return { tasks: tasks, events: events, routines: routines };
 }
+// the 7 local days of the week (aligned to weekStart) containing anchorYmd.
+function calWeekDays(anchorYmd, weekStart) {
+  weekStart = weekStart || 0;
+  const d = _ymd2date(anchorYmd) || new Date(), off = (d.getDay() - weekStart + 7) % 7;
+  const s = new Date(d.getFullYear(), d.getMonth(), d.getDate() - off), out = [];
+  for (let i = 0; i < 7; i++) { const dd = new Date(s.getFullYear(), s.getMonth(), s.getDate() + i); out.push(ymdOf(dd)); }
+  return out;
+}
+// Check a ONE-OFF task off from the calendar — same rule as the Tasks widget: a plain task's
+// done is a flag ON the object (routine members / habits recur and are log-derived, never shown
+// as checkable here). Logs the completion + awards EXP so the calendar and the deck agree.
+function calToggleTask(id) {
+  const all = loadThings(), t = all.find((x) => x && x.id === id);
+  if (!t || t.type !== "task" || t.routine) return;
+  const now = Date.now(), next = t.done ? 0 : 1;
+  saveThings([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]);
+  try { logThingEvent(id, next ? "done" : "undone", { items: all }); } catch (e) {}
+  if (next) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Task done · +2 EXP"); } catch (e) {} }
+}
 function openCalendar() {
   if (document.getElementById("calSpace")) return;
   const root = document.createElement("div"); root.id = "calSpace"; root.className = "daily-space cal-space";
@@ -8593,40 +8612,62 @@ function openCalendar() {
     }).join("");
     return '<div class="cal-month"><div class="cal-dow">' + dow + '</div><div class="cal-grid">' + cellHtml + "</div></div>";
   }
-  function itemRow(act, id, em, tx, sub, done) {
-    return '<button class="cal-arow' + (done ? " done" : "") + '" data-act="' + act + '" data-id="' + esc(id) + '">' +
-      '<span class="cal-arow-em" aria-hidden="true">' + em + "</span>" +
+  function itemRow(act, id, em, tx, sub, done, checkable) {
+    return '<div class="cal-arow' + (done ? " done" : "") + '" data-act="' + act + '" data-id="' + esc(id) + '" role="button" tabindex="0">' +
+      (checkable
+        ? '<button class="cal-check' + (done ? " on" : "") + '" data-check="' + esc(id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>'
+        : '<span class="cal-arow-em" aria-hidden="true">' + em + "</span>") +
       '<span class="cal-arow-tx">' + esc(tx) + (sub ? '<span class="cal-arow-sub">' + esc(sub) + "</span>" : "") + "</span>" +
-      '<span class="cal-arow-go" aria-hidden="true">›</span></button>';
+      '<span class="cal-arow-go" aria-hidden="true">›</span></div>';
   }
   function renderDay() {
     const log = loadLog(), things = thingsVisible(loadThings()), j = calThingsOnDay(things, cursor), rows = [];
-    j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime + (e.endTime ? "–" + e.endTime : "") : e.allDay ? "all day" : ""), false)));
-    j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "due", !!t.done)));
+    j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime + (e.endTime ? "–" + e.endTime : "") : e.allDay ? "all day" : ""), false, false)));
+    j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "due", !!t.done, true)));
     j.routines.forEach((r) => {
       const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, cursor)).length;
-      rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length + " done" : "routine", members.length > 0 && doneCt === members.length));
+      rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length + " done" : "routine", members.length > 0 && doneCt === members.length, false));
     });
     return '<div class="cal-day"><button class="cal-addevent" id="calAddEvent">＋ New event</button>' +
       (rows.length ? '<div class="cal-agenda">' + rows.join("") + "</div>" : '<div class="cal-empty sub">Nothing on the calendar for this day yet.</div>') + "</div>";
+  }
+  function renderWeek() {
+    const log = loadLog(), things = thingsVisible(loadThings()), today = todayKey(), days = calWeekDays(cursor, weekStart);
+    const blocks = days.map((ymd) => {
+      const j = calThingsOnDay(things, ymd), d = _ymd2date(ymd), rows = [];
+      j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime : e.allDay ? "all day" : ""), false, false)));
+      j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "", !!t.done, true)));
+      j.routines.forEach((r) => { const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, ymd)).length; rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length : "", members.length > 0 && doneCt === members.length, false)); });
+      return '<div class="cal-wday' + (ymd === today ? " today" : "") + '"><button class="cal-wday-head" data-ymd="' + ymd + '"><span class="cal-wday-dow">' + d.toLocaleDateString("en-US", { weekday: "short" }) + '</span><span class="cal-wday-num">' + d.getDate() + "</span></button>" +
+        (rows.length ? '<div class="cal-wrows">' + rows.join("") + "</div>" : '<div class="cal-wempty" aria-hidden="true">·</div>') + "</div>";
+    }).join("");
+    return '<div class="cal-week">' + blocks + "</div>";
+  }
+  function calTitle() {
+    if (view === "day") return dayTitle(cursor);
+    if (view === "week") { const w = calWeekDays(cursor, weekStart), a = _ymd2date(w[0]), b = _ymd2date(w[6]); return a.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " – " + b.toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
+    return monthTitle(cursor);
   }
   function render() {
     root.innerHTML =
       '<div class="daily-top">' +
         '<button class="daily-icn" id="calClose" aria-label="close">✕</button>' +
-        '<div class="cal-titlewrap"><button class="cal-nav" id="calPrev" aria-label="previous">‹</button><div class="cal-title">' + esc(view === "day" ? dayTitle(cursor) : monthTitle(cursor)) + '</div><button class="cal-nav" id="calNext" aria-label="next">›</button></div>' +
+        '<div class="cal-titlewrap"><button class="cal-nav" id="calPrev" aria-label="previous">‹</button><div class="cal-title">' + esc(calTitle()) + '</div><button class="cal-nav" id="calNext" aria-label="next">›</button></div>' +
         '<button class="cal-today" id="calToday">Today</button>' +
       "</div>" +
       '<div class="cal-viewbar"><div class="td-seg cal-seg" id="calSeg">' +
         '<button data-view="month"' + (view === "month" ? ' class="on"' : "") + ">Month</button>" +
+        '<button data-view="week"' + (view === "week" ? ' class="on"' : "") + ">Week</button>" +
         '<button data-view="day"' + (view === "day" ? ' class="on"' : "") + ">Day</button>" +
       "</div></div>" +
-      '<div class="cal-body">' + (view === "day" ? renderDay() : renderMonth()) + "</div>";
+      '<div class="cal-body">' + (view === "day" ? renderDay() : view === "week" ? renderWeek() : renderMonth()) + "</div>";
     wire();
   }
   function step(dir) {
     const d = _ymd2date(cursor) || new Date();
-    cursor = view === "day" ? ymdOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + dir)) : ymdOf(new Date(d.getFullYear(), d.getMonth() + dir, 1));
+    if (view === "day") cursor = ymdOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + dir));
+    else if (view === "week") cursor = ymdOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + dir * 7));
+    else cursor = ymdOf(new Date(d.getFullYear(), d.getMonth() + dir, 1));
     render();
   }
   function wire() {
@@ -8636,14 +8677,13 @@ function openCalendar() {
     root.querySelector("#calToday").addEventListener("click", () => { cursor = todayKey(); render(); });
     root.querySelectorAll("#calSeg button").forEach((b) => b.addEventListener("click", () => { view = b.dataset.view; render(); }));
     root.querySelectorAll(".cal-cell").forEach((c) => c.addEventListener("click", () => { cursor = c.dataset.ymd; view = "day"; render(); }));   // tap a day → that day's agenda
-    root.querySelectorAll(".cal-arow").forEach((r) => r.addEventListener("click", () => {
-      const id = r.dataset.id, act = r.dataset.act;
-      try {
-        if (act === "detail") openTaskDetail(id);
-        else if (act === "rdetail") openRoutineDetail(id);
-        else if (act === "event") openEventDetail(id);
-      } catch (e) {}
-    }));
+    root.querySelectorAll(".cal-wday-head").forEach((h) => h.addEventListener("click", () => { cursor = h.dataset.ymd; view = "day"; render(); }));   // tap a week-day header → its agenda
+    root.querySelectorAll(".cal-check").forEach((c) => c.addEventListener("click", (e) => { e.stopPropagation(); try { calToggleTask(c.dataset.check); } catch (er) {} }));   // check a task off in place; onCache repaints
+    root.querySelectorAll(".cal-arow").forEach((r) => {
+      const openRow = () => { const id = r.dataset.id, act = r.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); } catch (e) {} };
+      r.addEventListener("click", openRow);
+      r.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openRow(); } });
+    });
     const ae = root.querySelector("#calAddEvent"); if (ae) ae.addEventListener("click", () => { try { calAddEvent(cursor); } catch (e) {} });   // new event, prefilled with this day
   }
   render();
