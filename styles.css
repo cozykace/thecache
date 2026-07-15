@@ -1087,7 +1087,7 @@ body.panning .cursor-ball { display: none !important; }
   box-shadow: 0 4px 0 rgba(0, 0, 0, 0.28), 0 6px 14px rgba(0, 0, 0, 0.16);
   transition: transform 0.09s ease, box-shadow 0.09s ease;
 }
-.ledger-pill.deck-cta .deck-plus { color: var(--ink); font-size: 30px; font-weight: 300; line-height: 1; }
+.ledger-pill.deck-cta .deck-plus { color: var(--paper); font-size: 30px; font-weight: 300; line-height: 1; }
 .ledger-pill.deck-cta:hover { transform: scale(1.06); filter: none; }
 .ledger-pill.deck-cta:hover .deck-plus { animation: none; }
 .ledger-pill.deck-cta:active {
