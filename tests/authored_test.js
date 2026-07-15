@@ -42,4 +42,9 @@ ok("converged: identical authored => equal", authoredHash(ourLocal, files1) === 
 // 8. plain non-JSON string values compared as-is (note text)
 ok("plain string compare", authoredHash({"money.note":"abc"}, {}) !== authoredHash({"money.note":"abd"}, {}));
 
+// 9. money.calview (calendar prefs) is a SYNCED generic key — included in the authored hash so an
+// edit arms a push (were it internal/device-local it would be ignored and these would be EQUAL).
+ok("calview: an edit is detected → it follows you across devices",
+   authoredHash({"money.calview":'{"view":"month","weekStart":0}'}, {}) !== authoredHash({"money.calview":'{"view":"week","weekStart":1}'}, {}));
+
 console.log(`\n${p} passed, ${f} failed`); process.exit(f?1:0);

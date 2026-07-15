@@ -8577,9 +8577,16 @@ function openCalendar() {
   if (document.getElementById("calSpace")) return;
   const root = document.createElement("div"); root.id = "calSpace"; root.className = "daily-space cal-space";
   document.body.appendChild(root);
-  const weekStart = 0;                    // Sunday for v1; a synced pref (money.calview) lands in a later brick
-  let view = "month";                     // "month" | "day"  (week view is a later brick)
-  let cursor = todayKey();                // the focused day (its month, in month view)
+  // durable, SYNCED prefs (money.calview) — a GENERIC key: default view, week-start, and how
+  // the month grid paints routines. Auto-classified GENERIC (per-key newest-wins), so it rides
+  // the vault with no merge/registration code. The transient cursor stays in memory.
+  let prefs = {}; try { prefs = JSON.parse(localStorage.getItem("money.calview") || "{}") || {}; } catch (e) {}
+  let weekStart = prefs.weekStart === 1 ? 1 : 0;                                  // 0 = Sunday (default), 1 = Monday
+  let view = (prefs.view === "day" || prefs.view === "week") ? prefs.view : "month";
+  let density = prefs.density === "chips" ? "chips" : "dots";                     // month grid: routines as dots (calm) or names
+  let settingsOpen = false;
+  let cursor = todayKey();                // the focused day (its month/week, in those views)
+  const savePrefs = () => { try { localStorage.setItem("money.calview", JSON.stringify({ view: view, weekStart: weekStart, density: density })); } catch (e) {} };
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
   const onKey = (e) => { if (e.key === "Escape" && !document.getElementById("taskDetail")) close(); };   // a detail sheet open on top handles its own Escape first
   const onCache = () => { if (root.isConnected) render(); else cleanup(); };   // a peer's sync landed → repaint
@@ -8600,10 +8607,12 @@ function openCalendar() {
     const cells = calMonthGrid(cursor, weekStart), things = thingsVisible(loadThings()), today = todayKey();
     const dow = calWeekdayLabels(weekStart).map((d) => "<span>" + d + "</span>").join("");
     const cellHtml = cells.map((c) => {
-      const j = calThingsOnDay(things, c.ymd), chips = chipsOf(j), shown = chips.slice(0, 3), extra = chips.length - shown.length;
+      const j = calThingsOnDay(things, c.ymd), et = chipsOf(j);   // events + dated tasks → chips
+      const chips = density === "chips" ? et.concat(j.routines.map((r) => ({ cls: "routine", em: r.emoji || "🔁", tx: r.name || "Routine" }))) : et;
+      const shown = chips.slice(0, 3), extra = chips.length - shown.length;
       const chipsH = shown.map((ch) => '<span class="cal-chip ' + ch.cls + '"><span class="ci-em" aria-hidden="true">' + ch.em + '</span><span class="ci-tx">' + esc(ch.tx) + "</span></span>").join("");
-      const rdots = j.routines.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || "routine") + '"></span>').join("");
-      const nDots = (chips.length ? '<span class="cal-dot cal-dot-i"></span>' : "") + rdots;   // narrow mode: one item-dot + routine dots
+      const rdots = density === "dots" ? j.routines.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || "routine") + '"></span>').join("") : "";
+      const nDots = (et.length ? '<span class="cal-dot cal-dot-i"></span>' : "") + j.routines.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || "routine") + '"></span>').join("");   // narrow: always dots
       return '<button class="cal-cell' + (c.inMonth ? "" : " other") + (c.ymd === today ? " today" : "") + '" data-ymd="' + c.ymd + '" aria-label="' + esc(dayTitle(c.ymd)) + '">' +
         '<span class="cal-daynum">' + c.day + "</span>" +
         '<div class="cal-items">' + chipsH + (extra > 0 ? '<span class="cal-more">+' + extra + " more</span>" : "") + (rdots ? '<div class="cal-dots">' + rdots + "</div>" : "") + "</div>" +
@@ -8648,18 +8657,26 @@ function openCalendar() {
     if (view === "week") { const w = calWeekDays(cursor, weekStart), a = _ymd2date(w[0]), b = _ymd2date(w[6]); return a.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " – " + b.toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
     return monthTitle(cursor);
   }
+  function settingsHtml() {
+    if (!settingsOpen) return "";
+    return '<div class="cal-settings">' +
+      '<div class="cal-setrow"><span class="cal-setlbl">Week starts</span><div class="td-seg" id="calWeekStart"><button data-ws="0"' + (weekStart === 0 ? ' class="on"' : "") + ">Sun</button><button data-ws=\"1\"" + (weekStart === 1 ? ' class="on"' : "") + ">Mon</button></div></div>" +
+      '<div class="cal-setrow"><span class="cal-setlbl">Month grid routines as</span><div class="td-seg" id="calDensity"><button data-den="dots"' + (density === "dots" ? ' class="on"' : "") + ">Dots</button><button data-den=\"chips\"" + (density === "chips" ? ' class="on"' : "") + ">Names</button></div></div>" +
+    "</div>";
+  }
   function render() {
     root.innerHTML =
       '<div class="daily-top">' +
         '<button class="daily-icn" id="calClose" aria-label="close">✕</button>' +
         '<div class="cal-titlewrap"><button class="cal-nav" id="calPrev" aria-label="previous">‹</button><div class="cal-title">' + esc(calTitle()) + '</div><button class="cal-nav" id="calNext" aria-label="next">›</button></div>' +
-        '<button class="cal-today" id="calToday">Today</button>' +
+        '<div class="cal-headright"><button class="cal-today" id="calToday">Today</button><button class="daily-icn cal-gear' + (settingsOpen ? " on" : "") + '" id="calGear" aria-label="calendar settings" title="week start &amp; density">⚙</button></div>' +
       "</div>" +
       '<div class="cal-viewbar"><div class="td-seg cal-seg" id="calSeg">' +
         '<button data-view="month"' + (view === "month" ? ' class="on"' : "") + ">Month</button>" +
         '<button data-view="week"' + (view === "week" ? ' class="on"' : "") + ">Week</button>" +
         '<button data-view="day"' + (view === "day" ? ' class="on"' : "") + ">Day</button>" +
       "</div></div>" +
+      settingsHtml() +
       '<div class="cal-body">' + (view === "day" ? renderDay() : view === "week" ? renderWeek() : renderMonth()) + "</div>";
     wire();
   }
@@ -8675,7 +8692,10 @@ function openCalendar() {
     root.querySelector("#calPrev").addEventListener("click", () => step(-1));
     root.querySelector("#calNext").addEventListener("click", () => step(1));
     root.querySelector("#calToday").addEventListener("click", () => { cursor = todayKey(); render(); });
-    root.querySelectorAll("#calSeg button").forEach((b) => b.addEventListener("click", () => { view = b.dataset.view; render(); }));
+    root.querySelectorAll("#calSeg button").forEach((b) => b.addEventListener("click", () => { view = b.dataset.view; savePrefs(); render(); }));
+    const gear = root.querySelector("#calGear"); if (gear) gear.addEventListener("click", () => { settingsOpen = !settingsOpen; render(); });
+    root.querySelectorAll("#calWeekStart button").forEach((b) => b.addEventListener("click", () => { weekStart = b.dataset.ws === "1" ? 1 : 0; savePrefs(); render(); }));
+    root.querySelectorAll("#calDensity button").forEach((b) => b.addEventListener("click", () => { density = b.dataset.den === "chips" ? "chips" : "dots"; savePrefs(); render(); }));
     root.querySelectorAll(".cal-cell").forEach((c) => c.addEventListener("click", () => { cursor = c.dataset.ymd; view = "day"; render(); }));   // tap a day → that day's agenda
     root.querySelectorAll(".cal-wday-head").forEach((h) => h.addEventListener("click", () => { cursor = h.dataset.ymd; view = "day"; render(); }));   // tap a week-day header → its agenda
     root.querySelectorAll(".cal-check").forEach((c) => c.addEventListener("click", (e) => { e.stopPropagation(); try { calToggleTask(c.dataset.check); } catch (er) {} }));   // check a task off in place; onCache repaints
