@@ -8144,6 +8144,7 @@ function openDeck() {
     '<span class="deck-q-emoji" aria-hidden="true">' + escapeHtml(q.emoji || "🃏") + "</span>" +
     '<span class="deck-q-txt">' + escapeHtml(q.prompt || "") + "</span>" +
     '<span class="deck-q-kind">' + escapeHtml(DECK_INPUT_HINT[q.input] || "") + "</span></button>").join("");
+  let ciOpen = true; try { ciOpen = localStorage.getItem("deckCiCollapsed") !== "1"; } catch (e) {}   // remembered per device (non-money key → not synced)
   root.innerHTML =
     '<div class="daily-top">' +
       '<button class="daily-icn" id="deckSpClose" aria-label="close">✕</button>' +
@@ -8151,9 +8152,15 @@ function openDeck() {
       '<button class="daily-icn" id="deckSpGear" aria-label="customize your check-in deck" title="customize your check-in deck">⚙</button>' +
     '</div>' +
     '<div class="deck-sp-scroll">' +
-      '<div class="deck-sec-h">Today’s check-in</div>' +
-      '<button class="deck-ci-run" id="deckCiRun"><span class="deck-ci-emoji" aria-hidden="true">☀️</span><span class="deck-ci-run-t">Run today’s check-in</span><span class="deck-ci-go" aria-hidden="true">▶</span></button>' +
-      (qCards ? '<div class="deck-q-list">' + qCards + "</div>" : '<div class="deck-q-empty sub">No questions yet — tap ⚙ to build your check-in deck.</div>') +
+      '<div class="deck-ci-sec' + (ciOpen ? "" : " collapsed") + '" id="deckCiSec">' +
+        '<button class="deck-ci-head" id="deckCiHead" aria-expanded="' + (ciOpen ? "true" : "false") + '">' +
+          '<span class="deck-ci-caret" aria-hidden="true">▾</span>' +
+          '<span class="deck-ci-label">Today’s check-in</span>' +
+          '<span class="deck-ci-count">' + qs.length + "</span>" +
+        "</button>" +
+        '<button class="deck-ci-run" id="deckCiRun"><span class="deck-ci-emoji" aria-hidden="true">☀️</span><span class="deck-ci-run-t">Run today’s check-in</span><span class="deck-ci-go" aria-hidden="true">▶</span></button>' +
+        (qCards ? '<div class="deck-q-list">' + qCards + "</div>" : '<div class="deck-q-empty sub">No questions yet — tap ⚙ to build your check-in deck.</div>') +
+      "</div>" +
       '<div class="deck-sec-h deck-sec-h2">Tasks &amp; habits</div>' +
       '<div class="deck-sp-tasks" id="deckSpTasks"></div>' +
     "</div>";
@@ -8165,6 +8172,13 @@ function openDeck() {
   root.querySelector("#deckSpGear").addEventListener("click", openDeckEditor);
   root.querySelector("#deckCiRun").addEventListener("click", () => { try { openDaily(); } catch (e) {} });   // the check-in opens on top; the deck stays behind it
   root.querySelectorAll(".deck-q").forEach((c) => c.addEventListener("click", () => { try { openDaily(); } catch (e) {} }));
+  const ciHead = root.querySelector("#deckCiHead"), ciSec = root.querySelector("#deckCiSec");
+  if (ciHead && ciSec) ciHead.addEventListener("click", () => {   // toggle: collapse to a compact entry, or expand to see every question at a glance
+    const collapsed = !ciSec.classList.contains("collapsed");
+    ciSec.classList.toggle("collapsed", collapsed);
+    ciHead.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    try { localStorage.setItem("deckCiCollapsed", collapsed ? "1" : "0"); } catch (e) {}
+  });
   try { if (typeof RENDERERS === "object" && RENDERERS.tasks) RENDERERS.tasks(root.querySelector("#deckSpTasks")); } catch (e) {}   // the real Tasks/Habits widget, mounted full-screen
 }
 // ── Task / habit DETAIL — tap a row's bar to open the full editor, like any task manager:
