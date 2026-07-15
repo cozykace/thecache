@@ -2056,6 +2056,22 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .tk-subgo { width: 40px; min-height: 40px; flex: 0 0 auto; border: 1.5px solid var(--accent); border-radius: 10px;
   background: none; color: var(--ink); font-size: 17px; line-height: 1; cursor: pointer; transition: transform .1s; }
 .tk-subgo:active { transform: scale(0.94); }
+/* Habits: a ↻ badge on the title, a value chip for "amount" habits, a ⋯ options button + its inline menu row. */
+.tk-hbadge { color: var(--accent); font-size: 12px; margin-right: 4px; opacity: 0.85; }
+.tk-amt { flex: 0 0 auto; min-width: 40px; min-height: 40px; padding: 0 9px; border: 1.5px solid rgba(var(--ink-rgb), 0.25); border-radius: 9px;
+  background: none; color: rgba(var(--ink-rgb), 0.7); font-family: ui-monospace, Menlo, monospace; font-size: 12px; cursor: pointer; transition: border-color .12s, background .12s, color .12s; }
+.tk-amt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); }
+.tk-amt:active { transform: scale(0.95); }
+.tk-menu { min-width: 34px; min-height: 40px; flex: 0 0 auto; border: none; background: none; color: rgba(var(--ink-rgb), 0.4);
+  font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; transition: transform .1s, color .12s, opacity .12s; }
+.tk-item:hover .tk-menu { opacity: 1; }
+.tk-menu:hover { color: var(--ink); }
+@media (hover: none) { .tk-menu { opacity: 1; } }   /* touch has no hover — never hide an essential control */
+.tk-menu-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 6px 30px; }
+.tk-mbtn { min-height: 38px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 9px; background: var(--panel);
+  color: var(--ink); font-family: inherit; font-size: 12.5px; cursor: pointer; transition: border-color .12s, transform .1s; }
+.tk-mbtn:hover { border-color: var(--accent); }
+.tk-mbtn:active { transform: scale(0.96); }
 .tk-title[data-act="trail"] { cursor: pointer; }
 .tk-title[data-act="trail"]:hover { text-decoration: underline; text-decoration-color: rgba(var(--ink-rgb), 0.3); text-underline-offset: 2px; }
 /* Task activity-trail modal (rides the shared .cat-modal shell) */
