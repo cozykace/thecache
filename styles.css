@@ -2056,6 +2056,17 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .tk-subgo { width: 40px; min-height: 40px; flex: 0 0 auto; border: 1.5px solid var(--accent); border-radius: 10px;
   background: none; color: var(--ink); font-size: 17px; line-height: 1; cursor: pointer; transition: transform .1s; }
 .tk-subgo:active { transform: scale(0.94); }
+.tk-title[data-act="trail"] { cursor: pointer; }
+.tk-title[data-act="trail"]:hover { text-decoration: underline; text-decoration-color: rgba(var(--ink-rgb), 0.3); text-underline-offset: 2px; }
+/* Task activity-trail modal (rides the shared .cat-modal shell) */
+.tkt-modal { max-width: 420px; }
+.tkt-body { max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 4px 2px; }
+.tkt-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 10px; border-radius: 9px; }
+.tkt-row:nth-child(odd) { background: rgba(var(--ink-rgb), 0.035); }
+.tkt-what { font-size: 13.5px; color: var(--ink); min-width: 0; line-height: 1.4; }
+.tkt-what b { color: var(--accent); font-weight: 700; }
+.tkt-when { flex: 0 0 auto; font-size: 11.5px; color: rgba(var(--ink-rgb), 0.5); font-variant-numeric: tabular-nums; }
+.tkt-empty { padding: 22px 14px; text-align: center; font-size: 13px; color: rgba(var(--ink-rgb), 0.55); line-height: 1.5; }
 
 .daily-input { margin-top: auto; }
 .daily-opts { display: flex; flex-direction: column; gap: 11px; }

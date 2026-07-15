@@ -1270,7 +1270,7 @@ const RENDERERS = {
           ? '<button class="tk-caret' + (col ? " col" : "") + '" data-act="caret" data-id="' + esc(t.id) + '" aria-label="' + (col ? "expand" : "collapse") + '">▾</button>'
           : '<span class="tk-caret-sp"></span>') +
         '<button class="tk-check' + (done ? " on" : "") + '" data-act="toggle" data-id="' + esc(t.id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>' +
-        '<span class="tk-title">' + esc(t.title) + "</span>" +
+        '<span class="tk-title" data-act="trail" data-id="' + esc(t.id) + '" role="button" tabindex="0" title="see activity">' + esc(t.title) + "</span>" +
         '<button class="tk-addsub" data-act="addsub" data-id="' + esc(t.id) + '" aria-label="add a subtask" title="add a subtask">＋</button>' +
         '<button class="tk-x" data-act="del" data-id="' + esc(t.id) + '" aria-label="delete">✕</button>' +
         "</div>";
@@ -1300,9 +1300,11 @@ const RENDERERS = {
         const id = b.dataset.id;
         if (b.dataset.act === "toggle") toggle(id);
         else if (b.dataset.act === "del") del(id);
+        else if (b.dataset.act === "trail") openTrail(id);
         else if (b.dataset.act === "caret") { collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); render(); }
         else if (b.dataset.act === "addsub") { addingUnder = id; collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
       }));
+      el.querySelectorAll('.tk-title[data-act="trail"]').forEach((s) => s.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTrail(s.dataset.id); } }));
       const subin = el.querySelector(".tk-subin");
       const commitSub = () => {
         if (!subin || addingUnder == null) return;
@@ -1345,6 +1347,36 @@ const RENDERERS = {
       const now = Math.max(Date.now(), undo.at + 1);   // strictly newer than the delete stamp, or an exact tie lets the tombstone win
       save(all.filter((x) => x && undo.ids.indexOf(x.id) !== -1).map((x) => Object.assign({}, x, { deleted: 0, updated: now })));
       undo = null; render();
+    }
+    // The Asana-style ACTIVITY TRAIL (§4) — every completion/uncheck for a task AND its whole
+    // subtree, newest first. Reconstructed from the LOG alone (each event carries a denormalized
+    // `root`), so a deleted interior subtask can't sever it; titles resolve from the Things
+    // (tombstones keep their title), so a deleted subtask's events still read clearly.
+    function openTrail(id) {
+      const all = loadThings(), log = loadLog(), byId = {};
+      all.forEach((t) => { if (t && t.id) byId[t.id] = t; });
+      const rootId = typeof thingRoot === "function" ? thingRoot(all, id) : id, root = byId[rootId];
+      const trail = (typeof thingTrail === "function" ? thingTrail(log, rootId) : []).slice().reverse();   // newest first
+      const now = Date.now();
+      const label = (e) => {
+        const it = byId[e.itemId], name = it ? "“" + esc(it.title) + "”" : "an item", self = e.itemId === rootId;
+        if (e.kind === "done") return "<b>✓</b> completed " + (self ? "this task" : name);
+        if (e.kind === "undone") return "<b>↩</b> un-checked " + (self ? "this task" : name);
+        if (e.kind === "habit") return "<b>◆</b> logged " + name + (e.value && e.value.qty != null ? " · " + esc(String(e.value.qty)) : "");
+        return esc(e.kind) + " " + name;
+      };
+      const body = trail.length
+        ? trail.map((e) => '<div class="tkt-row"><span class="tkt-what">' + label(e) + '</span><span class="tkt-when">' + esc(ageStr(now - (+e.at || 0))) + "</span></div>").join("")
+        : '<div class="tkt-empty">No activity yet — check this off (or one of its subtasks) and it shows up here.</div>';
+      closeCategorizer();
+      const back = document.createElement("div"); back.className = "cat-backdrop"; back.id = "catBackdrop";
+      back.addEventListener("pointerdown", (e) => { if (e.target === back) closeCategorizer(); });
+      const modal = document.createElement("div"); modal.className = "cat-modal tkt-modal";
+      modal.innerHTML =
+        '<div class="cat-head"><span>🕘 ' + (root ? esc(root.title) : "Activity") + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+        '<div class="tkt-body">' + body + "</div>";
+      document.body.appendChild(back); document.body.appendChild(modal);
+      modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer());
     }
     function onThings() {
       if (!el.isConnected) { document.removeEventListener("cache:things", onThings); return; }
