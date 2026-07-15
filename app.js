@@ -7784,6 +7784,40 @@ function fieldValues(log, fieldId) {
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }
 
+// ── Routine recurrence engine (§3 sched) — PURE: is a routine scheduled for a given local
+//    day? Daily (every N days), weekly (days-of-week, every N weeks), monthly (days-of-month
+//    OR nth-weekday), yearly (month/day), honoring start/end and pause. "Due today" is the
+//    VIEWING device's local day; a member's completion stays LOG-derived per (member, day).
+function _ymd2date(ymd) { const p = String(ymd || "").split("-"); return p.length === 3 ? new Date(+p[0], +p[1] - 1, +p[2]) : null; }
+function _weekStart(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()); }
+function _nthWeekdayOfMonth(d, nth, weekday) {
+  if (d.getDay() !== weekday) return false;
+  const dom = d.getDate();
+  if (nth === -1) return new Date(d.getFullYear(), d.getMonth(), dom + 7).getMonth() !== d.getMonth();   // the LAST such weekday
+  return Math.floor((dom - 1) / 7) + 1 === nth;
+}
+function routineDueOn(sched, ymd) {
+  if (!sched) return true;                        // no schedule → always available
+  if (sched.paused) return false;
+  const d = _ymd2date(ymd); if (!d) return false;
+  if (sched.start && ymd < sched.start) return false;
+  if (sched.end && ymd > sched.end) return false;
+  const every = Math.max(1, +sched.every || 1), freq = sched.freq || "daily", start = sched.start ? _ymd2date(sched.start) : d;
+  if (freq === "daily") { if (every === 1) return true; const n = Math.round((d - start) / 86400000); return n >= 0 && n % every === 0; }
+  if (freq === "weekly") {
+    const dow = d.getDay(), days = (Array.isArray(sched.days) && sched.days.length) ? sched.days : [dow];
+    if (days.indexOf(dow) === -1) return false;
+    if (every === 1) return true;
+    const wk = Math.round((_weekStart(d) - _weekStart(start)) / 604800000); return wk >= 0 && wk % every === 0;
+  }
+  if (freq === "monthly") {
+    if (Array.isArray(sched.monthly) && sched.monthly.length) return sched.monthly.indexOf(d.getDate()) !== -1;
+    if (sched.monthly && sched.monthly.weekday != null) return _nthWeekdayOfMonth(d, sched.monthly.nth, sched.monthly.weekday);
+    return d.getDate() === start.getDate();
+  }
+  if (freq === "yearly") { const y = sched.yearly || { month: start.getMonth() + 1, day: start.getDate() }; return (d.getMonth() + 1) === +y.month && d.getDate() === +y.day; }
+  return true;
+}
 function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || []; } catch (e) { return []; } }
 function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); return true; } catch (e) { return false; } }
 function todayKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
