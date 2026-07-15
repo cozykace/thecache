@@ -3980,7 +3980,19 @@ function cloudChip(state, msg) {
   const el = document.getElementById("cloudHealth");
   if (!el) return;
   const s = cloudState();
-  if (!s.token) { el.hidden = true; return; }
+  if (!s.token) {
+    // Not signed in → DON'T vanish. A logged-out desktop user otherwise has no way to
+    // discover cloud sign-in (it's buried in Settings → Cache cloud), so they run the app,
+    // connect a bank, and never link their phone — the exact wall a tester hit. Show a gentle,
+    // tappable nudge instead; clicking it opens Settings (Cache cloud sits at the top). The
+    // hosted web app's login gate guarantees a token, so this only ever surfaces on desktop.
+    el.hidden = false;
+    const d = el.querySelector(".sync-dot"), t = el.querySelector(".sync-text");
+    if (d) d.style.background = "#6b9bd6";
+    if (t) t.textContent = "sign in to sync";
+    el.title = "sign in to sync your cache across your devices — tap to set up (Settings → Cache cloud)";
+    return;
+  }
   el.hidden = false;
   const dot = el.querySelector(".sync-dot"), txt = el.querySelector(".sync-text");
   if (cloudPaused()) { dot.style.background = "#8a8a8a"; txt.textContent = "cloud: off"; el.title = "cloud sync is off by your choice — your data stays on this device (Settings → Cache cloud)"; return; }
