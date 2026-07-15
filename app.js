@@ -6756,13 +6756,15 @@ function openLedger() {
     "</div>" +
     '<div class="lg-intro lg-scene lg-hidden"><div class="lg-eyebrow">EN ROUTE</div><div class="lg-cta">TRAVELING TO YOUR CACHE</div></div>' +
     '<div class="lg-ledger lg-scene lg-hidden">' +
-      '<div class="lg-eyebrow lg-gold">⟢ The Ledger ⟣</div>' +
-      '<div class="lg-title">YOUR LIFE, IN DATA</div>' +
-      '<div class="lg-headline" id="lgHeadline"></div>' +
-      '<div class="lg-reward lg-hidden" id="lgReward"></div>' +
-      '<svg class="lg-const" id="lgConst" viewBox="0 0 1000 320" preserveAspectRatio="xMidYMid meet"></svg>' +
-      '<button class="lg-back">↩ Return</button>' +
-      '<div class="lg-dash" id="lgDash"></div>' +
+      '<div class="lg-hero">' +                              // centered hero grows to fill the space ABOVE the dash…
+        '<div class="lg-eyebrow lg-gold">⟢ The Ledger ⟣</div>' +
+        '<div class="lg-title">YOUR LIFE, IN DATA</div>' +
+        '<div class="lg-headline" id="lgHeadline"></div>' +
+        '<div class="lg-reward lg-hidden" id="lgReward"></div>' +
+        '<svg class="lg-const" id="lgConst" viewBox="0 0 1000 320" preserveAspectRatio="xMidYMid meet"></svg>' +
+        '<button class="lg-back">↩ Return</button>' +
+      '</div>' +
+      '<div class="lg-dash" id="lgDash"></div>' +             // …and the dash sits in-flow below it, so the two can never overlap
     "</div>" +
     '<button class="lg-mute lg-hidden" title="Mute the music">🔊</button>' +
     '<div class="lg-flash"></div>';
