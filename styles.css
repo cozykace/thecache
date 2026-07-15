@@ -2002,6 +2002,42 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
   color: rgba(var(--ink-rgb), 0.7); font-family: inherit; font-size: 12px; cursor: pointer; }
 .bk-retry:hover { border-color: var(--accent); color: var(--ink); }
 .bk-count { margin-top: auto; }
+
+/* Tasks widget (money.things) — mirrors the Brain Bucket's add/list rhythm; 44px hit areas,
+   fluid, theme-var colors only so it survives dark mode and a narrow phone-width widget. */
+.is-tasks { display: flex; flex-direction: column; }
+.tk-add { display: flex; gap: 8px; margin-bottom: 10px; }
+.tk-in { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border: 1.5px solid var(--edge); border-radius: 12px;
+  background: var(--panel); color: var(--ink); font-family: inherit; font-size: 14px; }
+.tk-in:focus { outline: none; border-color: var(--accent); }
+.tk-go { width: 44px; min-height: 44px; flex: 0 0 auto; border: 1.5px solid var(--accent); border-radius: 12px;
+  background: none; color: var(--ink); font-size: 20px; line-height: 1; cursor: pointer; transition: transform .1s; }
+.tk-go:active { transform: scale(0.94); }
+.tk-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.tk-item { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 4px; border: 1px solid var(--edge); border-radius: 10px; background: var(--panel); }
+/* checkbox: a 44px touch target with a 24px visual box (glyph small, hit area big — mobile SOP #1) */
+.tk-check { flex: 0 0 auto; width: 40px; min-height: 40px; border: none; background: none; cursor: pointer; padding: 0; position: relative; }
+.tk-check::before { content: ""; position: absolute; left: 50%; top: 50%; width: 23px; height: 23px; margin: -11.5px 0 0 -11.5px;
+  border: 1.8px solid rgba(var(--ink-rgb), 0.3); border-radius: 7px; transition: background .12s, border-color .12s, transform .1s; }
+.tk-check.on::before { background: var(--accent); border-color: var(--accent); }
+.tk-check.on::after { content: "✓"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700; color: var(--ink); }
+.tk-check:active::before { transform: scale(0.86); }
+.tk-title { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.35; color: var(--ink); word-break: break-word; }
+.tk-item.done .tk-title { text-decoration: line-through; color: rgba(var(--ink-rgb), 0.4); }
+.tk-x { min-width: 44px; min-height: 40px; flex: 0 0 auto; border: none; background: none; color: rgba(var(--ink-rgb), 0.42);
+  font-size: 14px; cursor: pointer; transition: transform .1s, color .12s; }
+.tk-x:hover { color: rgba(var(--ink-rgb), 0.75); }
+.tk-x:active { transform: scale(0.9); }
+.tk-empty { line-height: 1.5; }
+.tk-undo { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; margin-bottom: 8px;
+  border: 1px dashed var(--edge); border-radius: 10px; }
+.tk-undo-t { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.6); min-width: 0; }
+.tk-undo-go { min-height: 40px; flex: 0 0 auto; padding: 0 14px; border: 1px solid var(--accent); border-radius: 9px;
+  background: none; color: var(--ink); font-family: inherit; font-size: 13px; cursor: pointer; transition: transform .1s; }
+.tk-undo-go:active { transform: scale(0.96); }
+.tk-count { margin-top: auto; }
+
 .daily-input { margin-top: auto; }
 .daily-opts { display: flex; flex-direction: column; gap: 11px; }
 .daily-btn { display: flex; align-items: center; gap: 15px; width: 100%; box-sizing: border-box; min-height: 66px;
