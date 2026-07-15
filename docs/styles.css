@@ -2099,6 +2099,29 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .tkt-what b { color: var(--accent); font-weight: 700; }
 .tkt-when { flex: 0 0 auto; font-size: 11.5px; color: rgba(var(--ink-rgb), 0.5); font-variant-numeric: tabular-nums; }
 .tkt-empty { padding: 22px 14px; text-align: center; font-size: 13px; color: rgba(var(--ink-rgb), 0.55); line-height: 1.5; }
+/* Task / habit DETAIL surface — the full editor a task's bar opens (reuses .daily-space). */
+.td-htitle { flex: 1 1 auto; text-align: center; font-size: 14px; font-weight: 600; color: var(--ink); }
+.td-del:hover { color: #c9542e !important; }
+.td-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 560px; margin: 0 auto; box-sizing: border-box; padding: 4px 16px calc(28px + env(safe-area-inset-bottom)); }
+.td-title { width: 100%; box-sizing: border-box; min-height: 48px; padding: 10px 12px; margin-bottom: 18px; border: 1px solid var(--edge); border-radius: 12px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 17px; font-weight: 600; }
+.td-title:focus { outline: none; border-color: var(--accent); }
+.td-field { margin-bottom: 18px; }
+.td-field > label { display: block; font-size: 11px; letter-spacing: 0.11em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); font-weight: 600; margin: 0 0 8px 2px; }
+.td-seg { display: inline-flex; border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; max-width: 100%; }
+.td-seg button { min-height: 44px; padding: 0 16px; border: none; background: none; color: rgba(var(--ink-rgb), 0.62); font-family: inherit; font-size: 13.5px; cursor: pointer; transition: background .12s, color .12s; }
+.td-seg button.on { background: var(--accent); color: var(--ink); font-weight: 600; }
+.td-unit { display: block; margin-top: 8px; width: 100%; box-sizing: border-box; min-height: 44px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 11px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; }
+.td-unit:focus, .td-due:focus { outline: none; border-color: var(--accent); }
+.td-due-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.td-due { flex: 1 1 130px; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 11px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; }
+.td-areas { display: flex; flex-wrap: wrap; gap: 7px; }
+.td-area { min-height: 40px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 20px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 12.5px; cursor: pointer; transition: border-color .12s, background .12s; }
+.td-area.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 600; }
+.td-area-clear { color: rgba(var(--ink-rgb), 0.5); }
+.td-notes { width: 100%; box-sizing: border-box; min-height: 84px; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 12px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; line-height: 1.5; resize: vertical; }
+.td-notes:focus { outline: none; border-color: var(--accent); }
+.td-soon .td-soon-txt { font-size: 13px; color: rgba(var(--ink-rgb), 0.45); padding: 11px 12px; border: 1px dashed var(--edge); border-radius: 12px; }
+.td-trail { display: flex; flex-direction: column; gap: 2px; }
 
 .daily-input { margin-top: auto; }
 .daily-opts { display: flex; flex-direction: column; gap: 11px; }

@@ -1280,7 +1280,7 @@ const RENDERERS = {
           ? '<button class="tk-caret' + (col ? " col" : "") + '" data-act="caret" data-id="' + esc(t.id) + '" aria-label="' + (col ? "expand" : "collapse") + '">▾</button>'
           : '<span class="tk-caret-sp"></span>') +
         control +
-        '<span class="tk-title" data-act="trail" data-id="' + esc(t.id) + '" role="button" tabindex="0" title="see activity">' + (habit ? '<span class="tk-hbadge" aria-hidden="true" title="a habit — recurs daily">↻</span>' : "") + esc(t.title) + "</span>" +
+        '<span class="tk-title" data-act="detail" data-id="' + esc(t.id) + '" role="button" tabindex="0" title="open — edit, due date, area…">' + (habit ? '<span class="tk-hbadge" aria-hidden="true" title="a habit — recurs daily">↻</span>' : "") + esc(t.title) + "</span>" +
         '<button class="tk-addsub" data-act="addsub" data-id="' + esc(t.id) + '" aria-label="add a subtask" title="add a subtask">＋</button>' +
         '<button class="tk-menu" data-act="menu" data-id="' + esc(t.id) + '" aria-label="options" title="habit &amp; options">⋯</button>' +
         '<button class="tk-x" data-act="del" data-id="' + esc(t.id) + '" aria-label="delete">✕</button>' +
@@ -1319,7 +1319,7 @@ const RENDERERS = {
         const id = b.dataset.id, act = b.dataset.act;
         if (act === "toggle") toggle(id);
         else if (act === "del") del(id);
-        else if (act === "trail") openTrail(id);
+        else if (act === "detail") openTaskDetail(id);
         else if (act === "caret") { collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); render(); }
         else if (act === "addsub") { togglePanel(id, "addsub"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
         else if (act === "menu") { togglePanel(id, "menu"); render(); }
@@ -1328,7 +1328,7 @@ const RENDERERS = {
         else if (act === "totask") toTask(id);
         else if (act === "track") setTrack(id, b.dataset.mode);
       }));
-      el.querySelectorAll('.tk-title[data-act="trail"]').forEach((s) => s.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTrail(s.dataset.id); } }));
+      el.querySelectorAll('.tk-title[data-act="detail"]').forEach((s) => s.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTaskDetail(s.dataset.id); } }));
       const subin = el.querySelector(".tk-subin");
       if (subin) {
         const commitSub = () => {
@@ -8158,6 +8158,92 @@ function openDeck() {
   root.querySelector("#deckSpGear").addEventListener("click", openDeckEditor);
   root.querySelector("#deckCi").addEventListener("click", () => { try { openDaily(); } catch (e) {} });   // check-in opens on top; the deck stays behind it
   try { if (typeof RENDERERS === "object" && RENDERERS.tasks) RENDERERS.tasks(root.querySelector("#deckSpTasks")); } catch (e) {}   // the real Tasks/Habits widget, mounted full-screen
+}
+// ── Task / habit DETAIL — tap a row's bar to open the full editor, like any task manager:
+//    rename, notes, due date + time, task↔habit + how it's tracked, the life AREA it belongs
+//    to (its "data store"), its activity trail, and delete. Full-screen, mobile-first (reuses
+//    the deck shell). Routine membership arrives with routines. Every edit merges per-item.
+const TD_AREAS = [
+  ["💰", "Money"], ["🩺", "Health"], ["⏱️", "Time"], ["🏠", "Household"], ["✅", "Tasks"], ["🍳", "Meals"],
+  ["🤝", "Community"], ["👥", "Relationships"], ["📚", "Learning"], ["🎨", "Creative"], ["🧰", "Home & Stuff"], ["📓", "Journal"],
+];
+function openTaskDetail(id) {
+  const t0 = loadThings().find((x) => x && x.id === id);
+  if (!t0 || t0.deleted) return;
+  const ex = document.getElementById("taskDetail"); if (ex) ex.remove();
+  const root = document.createElement("div"); root.id = "taskDetail"; root.className = "daily-space td-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const get = () => loadThings().find((x) => x && x.id === id) || t0;   // always read the freshest copy
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  document.addEventListener("keydown", onKey);
+  function render() {
+    const t = get(), habit = t.type === "habit", amount = habit && t.track === "amount", now = Date.now();
+    const byId = {}; loadThings().forEach((x) => { if (x && x.id) byId[x.id] = x; });
+    const trail = (typeof thingTrail === "function" ? thingTrail(loadLog(), id) : []).slice().reverse();
+    const trailRow = (e) => {
+      const it = byId[e.itemId], name = it ? "“" + esc(it.title) + "”" : "an item", self = e.itemId === id;
+      let w = esc(e.kind) + " " + name;
+      if (e.kind === "done") w = "<b>✓</b> completed " + (self ? "this" : name);
+      else if (e.kind === "undone") w = "<b>↩</b> un-checked " + (self ? "this" : name);
+      else if (e.kind === "habit") w = "<b>◆</b> logged " + name + (e.value && e.value.qty != null ? " · " + esc(e.value.qty) : "");
+      return '<div class="tkt-row"><span class="tkt-what">' + w + '</span><span class="tkt-when">' + esc(ageStr(now - (+e.at || 0))) + "</span></div>";
+    };
+    const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (t.area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("") +
+      (t.area ? '<button class="td-area td-area-clear" data-area="">✕ clear</button>' : "");
+    root.innerHTML =
+      '<div class="daily-top">' +
+        '<button class="daily-icn" id="tdClose" aria-label="close">✕</button>' +
+        '<div class="td-htitle">' + (habit ? "↻ Habit" : "✅ Task") + '</div>' +
+        '<button class="daily-icn td-del" id="tdDel" aria-label="delete" title="delete">🗑</button>' +
+      '</div>' +
+      '<div class="td-scroll">' +
+        '<input class="td-title" id="tdTitle" value="' + esc(t.title) + '" placeholder="name…" aria-label="name">' +
+        '<div class="td-field"><label>Type</label><div class="td-seg" id="tdType">' +
+          '<button data-type="task"' + (!habit ? ' class="on"' : "") + '>✅ Task</button>' +
+          '<button data-type="habit"' + (habit ? ' class="on"' : "") + '>↻ Habit</button>' +
+        "</div></div>" +
+        (habit ? '<div class="td-field"><label>How it’s tracked</label><div class="td-seg" id="tdTrack">' +
+          '<button data-mode="check"' + (!amount ? ' class="on"' : "") + ">Yes / no</button>" +
+          '<button data-mode="amount"' + (amount ? ' class="on"' : "") + ">A number</button>" +
+          "</div>" + (amount ? '<input class="td-unit" id="tdUnit" value="' + esc(t.unit) + '" placeholder="unit — min, reps, pages…" aria-label="unit">' : "") + "</div>" : "") +
+        '<div class="td-field"><label>Due</label><div class="td-due-row">' +
+          '<input type="date" class="td-due" id="tdDue" value="' + esc(t.due) + '" aria-label="due date">' +
+          '<input type="time" class="td-due" id="tdDueTime" value="' + esc(t.dueTime) + '" aria-label="due time">' +
+        "</div></div>" +
+        '<div class="td-field"><label>Area — where it belongs</label><div class="td-areas">' + areaChips + "</div></div>" +
+        '<div class="td-field"><label>Notes</label><textarea class="td-notes" id="tdNotes" placeholder="anything to remember…" aria-label="notes">' + esc(t.notes) + "</textarea></div>" +
+        '<div class="td-field td-soon"><label>Routine</label><div class="td-soon-txt">Add to a saved routine — coming with routines.</div></div>' +
+        '<div class="td-field"><label>Activity</label>' + (trail.length ? '<div class="td-trail">' + trail.map(trailRow).join("") + "</div>" : '<div class="tkt-empty">No activity yet — check it off and it shows here.</div>') + "</div>" +
+      "</div>";
+    wire();
+  }
+  function wire() {
+    root.querySelector("#tdClose").addEventListener("click", close);
+    root.querySelector("#tdDel").addEventListener("click", () => {
+      const all = loadThings(), now = Date.now(), liveBefore = {};
+      all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+      saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));
+      close();
+    });
+    const title = root.querySelector("#tdTitle");
+    title.addEventListener("change", () => { const v = title.value.trim(); if (v) patch({ title: v }); });   // save on blur / Enter
+    root.querySelectorAll("#tdType button").forEach((b) => b.addEventListener("click", () => {
+      const wantHabit = b.dataset.type === "habit", t = get();
+      if (wantHabit && t.type !== "habit") patch({ type: "habit", track: t.track || "check" });
+      else if (!wantHabit && t.type === "habit") { const c = Object.assign({}, t, { type: "task", updated: Date.now() }); delete c.track; delete c.unit; saveThings([c]); }
+      render();
+    }));
+    root.querySelectorAll("#tdTrack button").forEach((b) => b.addEventListener("click", () => { patch({ track: b.dataset.mode }); render(); }));
+    const unit = root.querySelector("#tdUnit"); if (unit) unit.addEventListener("change", () => patch({ unit: unit.value.trim() }));
+    root.querySelector("#tdDue").addEventListener("change", (e) => patch({ due: e.target.value || null }));
+    root.querySelector("#tdDueTime").addEventListener("change", (e) => patch({ dueTime: e.target.value || null }));
+    root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { patch({ area: b.dataset.area || null }); render(); }));
+    const notes = root.querySelector("#tdNotes"); notes.addEventListener("change", () => patch({ notes: notes.value }));
+  }
+  render();
 }
 (function () {
   const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", openDeck);
