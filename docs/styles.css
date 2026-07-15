@@ -2107,6 +2107,25 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .rd-everylbl { font-size: 13px; color: rgba(var(--ink-rgb), 0.6); }
 .rd-pausefield > label { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--ink); margin: 0; }
 .rd-pausefield input[type="checkbox"] { width: 20px; height: 20px; }
+/* Mobile: the deck's tasks + routines get chunkier — bigger text, emojis, and 44px+ hit areas
+   so habits are easy to read and tap on a phone (tester ask). Scoped to .is-tasks. */
+@media (max-width: 640px) {
+  .is-tasks .tk-item { gap: 9px; padding: 7px 6px; }
+  .is-tasks .tk-title { font-size: 16px; line-height: 1.4; }
+  .is-tasks .tk-check { width: 46px; min-height: 46px; }
+  .is-tasks .tk-check::before { width: 26px; height: 26px; margin: -13px 0 0 -13px; }
+  .is-tasks .tk-check.on::after { font-size: 16px; }
+  .is-tasks .tk-caret { width: 30px; min-height: 46px; font-size: 15px; }
+  .is-tasks .tk-remoji { font-size: 24px; }
+  .is-tasks .tk-hbadge { font-size: 16px; }
+  .is-tasks .tk-rprog { font-size: 13px; padding: 3px 9px; }
+  .is-tasks .tk-addsub, .is-tasks .tk-menu, .is-tasks .tk-x { min-width: 46px; min-height: 46px; font-size: 20px; }
+  .is-tasks .tk-amt { min-height: 44px; font-size: 15px; padding: 0 12px; }
+  .is-tasks .tk-in { min-height: 48px; }
+  .is-tasks .tk-go { width: 48px; min-height: 48px; font-size: 22px; }
+  .is-tasks .tk-newroutine { min-height: 44px; font-size: 14px; }
+  .is-tasks .tk-mbtn { min-height: 44px; font-size: 14px; }
+}
 /* Subtasks (infinite depth): a collapse caret, a hover-revealed add-subtask +, and the inline add row. */
 .tk-caret { flex: 0 0 auto; width: 22px; min-height: 40px; border: none; background: none; cursor: pointer; padding: 0;
   color: rgba(var(--ink-rgb), 0.45); font-size: 11px; line-height: 1; transition: transform .12s, color .12s; }
@@ -2127,7 +2146,11 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
   background: none; color: var(--ink); font-size: 17px; line-height: 1; cursor: pointer; transition: transform .1s; }
 .tk-subgo:active { transform: scale(0.94); }
 /* Habits: a ↻ badge on the title, a value chip for "amount" habits, a ⋯ options button + its inline menu row. */
-.tk-hbadge { color: var(--accent); font-size: 12px; margin-right: 4px; opacity: 0.85; }
+.tk-hbadge { color: color-mix(in srgb, #1aa64c 62%, var(--ink)); font-size: 12px; margin-right: 4px; opacity: 0.9; }
+/* a HABIT reads GREEN — green outline + green text, blended toward the theme's ink so it stays
+   dark/readable on any paper (tester ask). Title greys only once done (falls through to .done). */
+.tk-item.tk-habit { border-color: color-mix(in srgb, #1aa64c 50%, var(--ink)); }
+.tk-item.tk-habit:not(.done) .tk-title { color: color-mix(in srgb, #1aa64c 62%, var(--ink)); font-weight: 500; }
 .tk-amt { flex: 0 0 auto; min-width: 40px; min-height: 40px; padding: 0 9px; border: 1.5px solid rgba(var(--ink-rgb), 0.25); border-radius: 9px;
   background: none; color: rgba(var(--ink-rgb), 0.7); font-family: ui-monospace, Menlo, monospace; font-size: 12px; cursor: pointer; transition: border-color .12s, background .12s, color .12s; }
 .tk-amt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); }
@@ -2163,7 +2186,7 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .td-field > label { display: block; font-size: 11px; letter-spacing: 0.11em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); font-weight: 600; margin: 0 0 8px 2px; }
 .td-seg { display: inline-flex; border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; max-width: 100%; }
 .td-seg button { min-height: 44px; padding: 0 16px; border: none; background: none; color: rgba(var(--ink-rgb), 0.62); font-family: inherit; font-size: 13.5px; cursor: pointer; transition: background .12s, color .12s; }
-.td-seg button.on { background: var(--accent); color: var(--ink); font-weight: 600; }
+.td-seg button.on { background: var(--accent); color: var(--paper); font-weight: 600; }   /* text must CONTRAST the accent fill (var(--ink) went black-on-black on the mono theme) */
 .td-unit { display: block; margin-top: 8px; width: 100%; box-sizing: border-box; min-height: 44px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 11px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; }
 .td-unit:focus, .td-due:focus { outline: none; border-color: var(--accent); }
 .td-due-row { display: flex; gap: 8px; flex-wrap: wrap; }

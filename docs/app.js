@@ -8212,7 +8212,7 @@ function openDeck() {
     '<span class="deck-q-emoji" aria-hidden="true">' + escapeHtml(q.emoji || "🃏") + "</span>" +
     '<span class="deck-q-txt">' + escapeHtml(q.prompt || "") + "</span>" +
     '<span class="deck-q-kind">' + escapeHtml(DECK_INPUT_HINT[q.input] || "") + "</span></button>").join("");
-  let ciOpen = true; try { ciOpen = localStorage.getItem("deckCiCollapsed") !== "1"; } catch (e) {}   // remembered per device (non-money key → not synced)
+  let ciOpen = false; try { ciOpen = localStorage.getItem("deckCiCollapsed") === "0"; } catch (e) {}   // DEFAULT collapsed — only the header shows until you expand; remembered per device (non-money key → not synced)
   root.innerHTML =
     '<div class="daily-top">' +
       '<button class="daily-icn" id="deckSpClose" aria-label="close">✕</button>' +
@@ -8281,7 +8281,7 @@ function openTaskDetail(id) {
   document.body.appendChild(root);
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
   const get = () => loadThings().find((x) => x && x.id === id) || t0;   // always read the freshest copy
-  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); try { flash("Saved"); } catch (e) {} };   // a quick bottom toast so autosave is never silent
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
   document.addEventListener("keydown", onKey);
@@ -8376,7 +8376,7 @@ function openQuestionDetail(qid) {
   document.body.appendChild(root);
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
   const get = () => (loadDeck() || []).find((x) => x && x.id === qid) || q0;
-  const save = (p) => { const q = get(); saveDeck([Object.assign({}, q, p, { updated: deckNow() })]); };   // stamp AT the edit; saveDeck merges per-item
+  const save = (p) => { const q = get(); saveDeck([Object.assign({}, q, p, { updated: deckNow() })]); try { if (!p.deleted) flash("Saved"); } catch (e) {} };   // stamp AT the edit; saveDeck merges per-item
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
   document.addEventListener("keydown", onKey);
@@ -8424,7 +8424,7 @@ function openRoutineDetail(id) {
   document.body.appendChild(root);
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
   const get = () => loadThings().find((x) => x && x.id === id) || r0;
-  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); try { flash("Saved"); } catch (e) {} };   // a quick bottom toast so autosave is never silent
   const sched = (p) => { const t = get(); patch({ sched: Object.assign({}, t.sched || {}, p) }); };
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
