@@ -103,4 +103,14 @@ const ids = (d) => deckLive(d).map(x=>x.id).join(",");
   ok("cap: capping does not drop live cards to make room for tombstones", deckLive(c).length === 60);
 }
 
+// ── 10. an area-dest question (the shared 12-area vocabulary) rides the per-item merge
+//    unchanged — dest is opaque content to mergeDecks, so unifying the picker can't fork sync ──
+{
+  const a = [{id:"aq",prompt:"learned today?",dest:{kind:"area",target:"Learning"},updated:5,ord:0,ordAt:0}];
+  const edited = [{id:"aq",prompt:"learned today?",dest:{kind:"area",target:"Creative"},updated:9,ord:0,ordAt:0}];
+  const m = mergeDecks(a, edited);
+  ok("area-dest question survives the deck merge intact", !!(m.find(x=>x.id==="aq").dest) && m.find(x=>x.id==="aq").dest.kind === "area");
+  ok("...and a newer area re-tag wins (Learning → Creative)", m.find(x=>x.id==="aq").dest.target === "Creative");
+}
+
 console.log(`\n${p} passed, ${f} failed`); process.exit(f?1:0);

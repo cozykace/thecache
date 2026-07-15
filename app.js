@@ -8054,8 +8054,8 @@ function openDeckEditor() {
           '<button class="deck-del" aria-label="remove">✕</button></div>' +
         '<div class="deck-row-cfg">' +
           '<label>Answer<select class="deck-input">' + INPUTS.map((t) => "<option" + (t === it.input ? " selected" : "") + ">" + t + "</option>").join("") + "</select></label>" +
-          '<label>Store<select class="deck-kind">' + [["money", "💰 Money"], ["health", "🩺 Health"], ["tracker", "📈 Tracker"], ["dayflag", "📅 Day-log"]].map((k) => '<option value="' + k[0] + '"' + ((it.dest && it.dest.kind) === k[0] ? " selected" : "") + ">" + k[1] + "</option>").join("") + "</select></label>" +
-          '<label class="deck-target">Where<input class="deck-tgt" value="' + escapeHtml((it.dest && it.dest.target) || "") + '" placeholder="name (e.g. Groceries)" list="deckBldNames"></label></div>' +
+          '<label>Area<select class="deck-kind"><option value=""' + (!deckDestToArea(it.dest) ? " selected" : "") + ">—</option>" + TD_AREAS.map((a) => '<option value="' + escapeHtml(a[1]) + '"' + (deckDestToArea(it.dest) === a[1] ? " selected" : "") + ">" + a[0] + " " + escapeHtml(a[1]) + "</option>").join("") + "</select></label>" +
+          (deckDestToArea(it.dest) === "Money" ? '<label class="deck-target">Building<input class="deck-tgt" value="' + escapeHtml((it.dest && it.dest.target) || "") + '" placeholder="e.g. Groceries" list="deckBldNames"></label>' : "") + "</div>" +
         ((it.input === "choice" || it.input === "scale") ? '<div class="deck-row-cfg"><label class="deck-optlbl">Buttons<input class="deck-opts" value="' + escapeHtml(optStr(it.options)) + '" placeholder="Cooked, Ate out, Both"></label></div>' : "");
       // stamp AT THE POINT OF EDIT — the item the user actually touched. Deriving
       // "what changed" inside the save would make this stale array authoritative for
@@ -8065,8 +8065,8 @@ function openDeckEditor() {
       row.querySelector(".deck-emoji").addEventListener("input", (e) => { it.emoji = e.target.value; touch(); });
       row.querySelector(".deck-prompt").addEventListener("input", (e) => { it.prompt = e.target.value; touch(); });
       row.querySelector(".deck-input").addEventListener("change", (e) => { it.input = e.target.value; touch(); render(); });
-      row.querySelector(".deck-kind").addEventListener("change", (e) => { it.dest = it.dest || {}; it.dest.kind = e.target.value; touch(); });
-      row.querySelector(".deck-tgt").addEventListener("input", (e) => { it.dest = it.dest || {}; it.dest.target = e.target.value; touch(); });
+      row.querySelector(".deck-kind").addEventListener("change", (e) => { it.dest = e.target.value ? deckAreaToDest(e.target.value, it.dest) : { kind: "area", target: "" }; touch(); render(); });   // 12-area vocabulary, shared with the card sheet
+      const tgt = row.querySelector(".deck-tgt"); if (tgt) tgt.addEventListener("input", (e) => { it.dest = it.dest || {}; it.dest.target = e.target.value; touch(); });
       const oi = row.querySelector(".deck-opts"); if (oi) oi.addEventListener("input", (e) => { it.options = parseOpts(e.target.value); touch(); });
       row.__item = it;
       // delete leaves a TOMBSTONE. Removing the item outright would let any device
@@ -8271,6 +8271,23 @@ function openTaskDetail(id) {
   }
   render();
 }
+// ONE "where does this belong" vocabulary — the 12 areas — shared by the question detail
+// sheet AND the batch form-builder AND (as a tag) tasks. Questions map areas to the dest
+// kinds: Money/Health keep the kinds that have live readers (spend building, energy widget);
+// every other area routes to {kind:"area"}. Legacy tracker/dayflag questions read as unmapped
+// until re-tagged. Kept as two tiny pure functions so all three surfaces stay in lockstep.
+function deckDestToArea(d) {
+  if (!d) return null;
+  if (d.kind === "money") return "Money";
+  if (d.kind === "health") return "Health";
+  if (d.kind === "area") { const t = String(d.target || "").toLowerCase(); const m = TD_AREAS.find((a) => a[1].toLowerCase() === t); return m ? m[1] : null; }
+  return null;
+}
+function deckAreaToDest(area, prev) {
+  if (area === "Money") return { kind: "money", target: (prev && prev.target) || "" };
+  if (area === "Health") return { kind: "health", target: (prev && prev.target) || "energy" };
+  return { kind: "area", target: area };
+}
 // A check-in QUESTION's detail sheet — the SAME gesture as a task (tap a card → edit it),
 // reusing the td-space shell. Fields differ by card type; a question's are emoji, prompt,
 // answer type, and — via the SHARED 12-area picker — the area its answer lands in. The
@@ -8291,8 +8308,7 @@ function openQuestionDetail(qid) {
   const INPUTS = ["choice", "scale", "yesno", "amount", "count", "duration", "note"];
   const optStr = (o) => (!o || !o.length) ? "" : o.map((x) => (Array.isArray(x) ? x[1] : x)).join(", ");
   const parseOpts = (s) => s.split(",").map((x) => x.trim()).filter(Boolean).map((lb) => ["", lb]);
-  const destArea = (d) => { if (!d) return null; if (d.kind === "money") return "Money"; if (d.kind === "health") return "Health"; if (d.kind === "area") { const t = String(d.target || "").toLowerCase(); const m = TD_AREAS.find((a) => a[1].toLowerCase() === t); return m ? m[1] : null; } return null; };
-  const areaDest = (area, prev) => { if (area === "Money") return { kind: "money", target: (prev && prev.target) || "" }; if (area === "Health") return { kind: "health", target: (prev && prev.target) || "energy" }; return { kind: "area", target: area }; };
+  const destArea = deckDestToArea, areaDest = deckAreaToDest;   // shared with the batch form-builder — one vocabulary
   function render() {
     const q = get(), area = destArea(q.dest), opt = q.input === "choice" || q.input === "scale";
     const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("");
