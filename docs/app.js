@@ -8135,6 +8135,15 @@ function showDeckCoach() {
 function openDeck() {
   if (document.getElementById("deckSpace") || document.getElementById("dailySpace")) return;
   const root = document.createElement("div"); root.id = "deckSpace"; root.className = "daily-space deck-space";
+  // Your check-in QUESTIONS now show as cards right here. They used to be invisible on this
+  // surface — the ⚙ gear edited them but the view showed only tasks, so "edit the deck → open
+  // the deck → the questions aren't there." One deck, one surface: questions + tasks together.
+  const DECK_INPUT_HINT = { choice: "pick", scale: "1–5", yesno: "yes/no", amount: "$", count: "count", duration: "time", note: "note" };
+  const qs = (typeof deckLive === "function" ? deckLive(loadDeck()) : []).slice().sort((a, b) => (+a.ord || 0) - (+b.ord || 0));
+  const qCards = qs.map((q) => '<button class="deck-q">' +
+    '<span class="deck-q-emoji" aria-hidden="true">' + escapeHtml(q.emoji || "🃏") + "</span>" +
+    '<span class="deck-q-txt">' + escapeHtml(q.prompt || "") + "</span>" +
+    '<span class="deck-q-kind">' + escapeHtml(DECK_INPUT_HINT[q.input] || "") + "</span></button>").join("");
   root.innerHTML =
     '<div class="daily-top">' +
       '<button class="daily-icn" id="deckSpClose" aria-label="close">✕</button>' +
@@ -8142,21 +8151,20 @@ function openDeck() {
       '<button class="daily-icn" id="deckSpGear" aria-label="customize your check-in deck" title="customize your check-in deck">⚙</button>' +
     '</div>' +
     '<div class="deck-sp-scroll">' +
-      '<button class="deck-ci" id="deckCi">' +
-        '<span class="deck-ci-emoji" aria-hidden="true">☀️</span>' +
-        '<span class="deck-ci-txt"><b>Today’s check-in</b><span>one minute · keeps your cache fed</span></span>' +
-        '<span class="deck-ci-go" aria-hidden="true">▶</span>' +
-      '</button>' +
-      '<div class="deck-sec-h">Tasks &amp; habits</div>' +
+      '<div class="deck-sec-h">Today’s check-in</div>' +
+      '<button class="deck-ci-run" id="deckCiRun"><span class="deck-ci-emoji" aria-hidden="true">☀️</span><span class="deck-ci-run-t">Run today’s check-in</span><span class="deck-ci-go" aria-hidden="true">▶</span></button>' +
+      (qCards ? '<div class="deck-q-list">' + qCards + "</div>" : '<div class="deck-q-empty sub">No questions yet — tap ⚙ to build your check-in deck.</div>') +
+      '<div class="deck-sec-h deck-sec-h2">Tasks &amp; habits</div>' +
       '<div class="deck-sp-tasks" id="deckSpTasks"></div>' +
-    '</div>';
+    "</div>";
   document.body.appendChild(root);
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
   function onKey(e) { if (e.key === "Escape" && !document.getElementById("dailySpace")) close(); }   // if the check-in is open on top, its own Escape handles it first
   document.addEventListener("keydown", onKey);
   root.querySelector("#deckSpClose").addEventListener("click", close);
   root.querySelector("#deckSpGear").addEventListener("click", openDeckEditor);
-  root.querySelector("#deckCi").addEventListener("click", () => { try { openDaily(); } catch (e) {} });   // check-in opens on top; the deck stays behind it
+  root.querySelector("#deckCiRun").addEventListener("click", () => { try { openDaily(); } catch (e) {} });   // the check-in opens on top; the deck stays behind it
+  root.querySelectorAll(".deck-q").forEach((c) => c.addEventListener("click", () => { try { openDaily(); } catch (e) {} }));
   try { if (typeof RENDERERS === "object" && RENDERERS.tasks) RENDERERS.tasks(root.querySelector("#deckSpTasks")); } catch (e) {}   // the real Tasks/Habits widget, mounted full-screen
 }
 // ── Task / habit DETAIL — tap a row's bar to open the full editor, like any task manager:
@@ -8245,8 +8253,16 @@ function openTaskDetail(id) {
   }
   render();
 }
+// The action button opens whatever it's SET to open (the deck by default). A tiny registry
+// gives the target indirection the flagship "configurable action button" needs; a settings
+// picker can write money.actionTarget later without touching this dispatch.
+function actionButtonRun() {
+  let target = "deck"; try { target = localStorage.getItem("money.actionTarget") || "deck"; } catch (e) {}
+  const fn = ({ deck: openDeck, checkin: openDaily })[target] || openDeck;
+  try { fn(); } catch (e) { try { openDeck(); } catch (e2) {} }
+}
 (function () {
-  const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", openDeck);
+  const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", actionButtonRun);
   // ── The action button remembers your touch. Every tap's landing spot is
   //    banked (normalized 0..1) — the raw material for the living, wearing,
   //    heat-mapped button of the FLAGSHIP action-button vision. Starts now so
