@@ -1324,9 +1324,9 @@ const RENDERERS = {
         else if (act === "addsub") { togglePanel(id, "addsub"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
         else if (act === "menu") { togglePanel(id, "menu"); render(); }
         else if (act === "amount") { togglePanel(id, "amount"); render(); const ai = el.querySelector(".tk-amtin"); if (ai) ai.focus(); }
-        else if (act === "tohabit") toHabit(id);
-        else if (act === "totask") toTask(id);
-        else if (act === "track") setTrack(id, b.dataset.mode);
+        else if (act === "tohabit") { panel = null; thingSetType(id, "habit"); }   // re-renders via the cache:things listener
+        else if (act === "totask") { panel = null; thingSetType(id, "task"); }
+        else if (act === "track") { panel = null; thingSetTrack(id, b.dataset.mode); }
       }));
       el.querySelectorAll('.tk-title[data-act="detail"]').forEach((s) => s.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTaskDetail(s.dataset.id); } }));
       const subin = el.querySelector(".tk-subin");
@@ -1370,21 +1370,6 @@ const RENDERERS = {
       if (!(qty >= 0)) { panel = null; render(); return; }
       try { logThingEvent(id, "habit", { items: loadThings(), value: { done: 1, qty: qty } }); } catch (e) {}
       try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit logged · +2 EXP"); } catch (e) {}
-      panel = null; render();
-    }
-    function toHabit(id) {   // task → habit (yes/no by default). id UNCHANGED (§3: an EDIT, not delete+create) — bump `updated` so the merge adopts it.
-      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
-      save([Object.assign({}, t, { type: "habit", track: "check", done: 0, doneAt: null, updated: Date.now() })]);
-      panel = null; render();
-    }
-    function toTask(id) {   // habit → task (drop the tracking)
-      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
-      const c = Object.assign({}, t, { type: "task", updated: Date.now() }); delete c.track; delete c.unit;
-      save([c]); panel = null; render();
-    }
-    function setTrack(id, mode) {   // habit tracking mode: yes/no ↔ a number
-      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
-      save([Object.assign({}, t, { track: mode, updated: Date.now() })]);
       panel = null; render();
     }
     function del(id) {
@@ -8193,6 +8178,18 @@ const TD_AREAS = [
   ["💰", "Money"], ["🩺", "Health"], ["⏱️", "Time"], ["🏠", "Household"], ["✅", "Tasks"], ["🍳", "Meals"],
   ["🤝", "Community"], ["👥", "Relationships"], ["📚", "Learning"], ["🎨", "Creative"], ["🧰", "Home & Stuff"], ["📓", "Journal"],
 ];
+// The ONE code path for task↔habit conversion + tracking mode — used by BOTH the widget's ⋯
+// quick menu and the detail sheet, so they can't drift. An edit, id UNCHANGED (§3). Callers
+// re-render their own surface (the widget via its cache:things listener; the sheet explicitly).
+function thingSetType(id, type) {
+  const t = loadThings().find((x) => x && x.id === id); if (!t) return;
+  if (type === "habit") { if (t.type !== "habit") saveThings([Object.assign({}, t, { type: "habit", track: t.track || "check", done: 0, doneAt: null, updated: Date.now() })]); }
+  else { const c = Object.assign({}, t, { type: "task", updated: Date.now() }); delete c.track; delete c.unit; saveThings([c]); }   // drop the tracking on downgrade
+}
+function thingSetTrack(id, mode) {
+  const t = loadThings().find((x) => x && x.id === id); if (!t) return;
+  saveThings([Object.assign({}, t, { track: mode, updated: Date.now() })]);
+}
 function openTaskDetail(id) {
   const t0 = loadThings().find((x) => x && x.id === id);
   if (!t0 || t0.deleted) return;
@@ -8256,13 +8253,8 @@ function openTaskDetail(id) {
     });
     const title = root.querySelector("#tdTitle");
     title.addEventListener("change", () => { const v = title.value.trim(); if (v) patch({ title: v }); });   // save on blur / Enter
-    root.querySelectorAll("#tdType button").forEach((b) => b.addEventListener("click", () => {
-      const wantHabit = b.dataset.type === "habit", t = get();
-      if (wantHabit && t.type !== "habit") patch({ type: "habit", track: t.track || "check" });
-      else if (!wantHabit && t.type === "habit") { const c = Object.assign({}, t, { type: "task", updated: Date.now() }); delete c.track; delete c.unit; saveThings([c]); }
-      render();
-    }));
-    root.querySelectorAll("#tdTrack button").forEach((b) => b.addEventListener("click", () => { patch({ track: b.dataset.mode }); render(); }));
+    root.querySelectorAll("#tdType button").forEach((b) => b.addEventListener("click", () => { thingSetType(id, b.dataset.type); render(); }));
+    root.querySelectorAll("#tdTrack button").forEach((b) => b.addEventListener("click", () => { thingSetTrack(id, b.dataset.mode); render(); }));
     const unit = root.querySelector("#tdUnit"); if (unit) unit.addEventListener("change", () => patch({ unit: unit.value.trim() }));
     root.querySelector("#tdDue").addEventListener("change", (e) => patch({ due: e.target.value || null }));
     root.querySelector("#tdDueTime").addEventListener("change", (e) => patch({ dueTime: e.target.value || null }));
