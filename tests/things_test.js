@@ -157,4 +157,18 @@ const visIds = (arr) => thingsVisible(arr).map(x=>x.id).sort().join(",");
   ok("wMergeThings byte-identical to mergeThings (incl. emoji tie-break)", allEq);
 }
 
+// ── 12. UPGRADE a task → habit is an EDIT (same id), not delete+create; newer wins, no dup ──
+{
+  const task = {id:"u1",type:"task",title:"practice guitar",done:0,updated:100,ord:0,ordAt:0};
+  const habit = Object.assign({}, task, {type:"habit",track:"check",updated:200});   // device A upgrades in place
+  const m = mergeThings([task], [habit]);   // device B still holds the old task copy
+  ok("upgrade: one item, not two (id is stable across the edit)", m.filter(x=>x.id==="u1").length === 1);
+  ok("upgrade: the newer habit wins over the stale task copy", m.find(x=>x.id==="u1").type === "habit");
+  ok("upgrade: never resurrects as a delete (still live)", !m.find(x=>x.id==="u1").deleted);
+  // and a concurrent subtask edit on the OTHER device still survives the upgrade merge
+  const sub = {id:"u1s",type:"subtask",parent:"u1",title:"scales",done:0,updated:300,ord:0,ordAt:0};
+  const m2 = mergeThings([task, sub], [habit]);
+  ok("upgrade: a concurrent subtask edit survives", !!m2.find(x=>x.id==="u1s") && m2.find(x=>x.id==="u1").type === "habit");
+}
+
 console.log(`\n${p} passed, ${f} failed`); process.exit(f?1:0);

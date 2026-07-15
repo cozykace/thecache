@@ -1225,60 +1225,79 @@ const RENDERERS = {
     load();
   },
   tasks(el) {
-    // Tasks — the deck, fully realized (money.things). Things you need to do and remember,
-    // with INFINITE SUBTASKS (uniform recursion): every task and subtask is its own flat,
-    // id-keyed item linked by `parent`, so each merges independently across devices. Add a
-    // subtask under any row, collapse/expand a subtree, check items off (logged to your
-    // activity trail with the root denormalized to the top task, +2 EXP), delete with a safety
-    // undo that cascade-tombstones the whole subtree. Pure client-side through the per-item
-    // merge engine. The Asana-style trail VIEW is the next brick.
+    // Tasks + Habits — the deck, fully realized (money.things). Tasks are one-off things you do
+    // and remember, with INFINITE SUBTASKS (uniform recursion — each its own id-keyed item
+    // linked by `parent`, merging independently across devices). UPGRADE a task to a HABIT
+    // (⋯ → Make a habit) and it becomes something you track: because habits RECUR, "done today"
+    // is LOG-DERIVED per day (never a flag that would have to reset), and an "amount" habit logs
+    // a number (minutes, reps…). Add subtasks, check things off, delete a whole subtree with one
+    // undo, tap a title for the activity trail. Pure client-side through the per-item merge engine.
+    // Routines (scheduling) and your own data fields are the next bricks.
     el.classList.add("is-tasks");
-    let undo = null, selfSaving = false, addingUnder = null;   // addingUnder = id whose inline "add a subtask" input is open (one at a time)
+    let undo = null, selfSaving = false, panel = null;   // panel = {id, kind:"addsub"|"menu"|"amount"} — one inline row open at a time
     const collapsed = new Set();   // ids whose subtree is hidden (ephemeral, per widget)
     const clip = (s, n) => (s && s.length > n ? s.slice(0, n) + "…" : (s || ""));
     const save = (items) => { selfSaving = true; try { saveThings(items); } finally { selfSaving = false; } };
     const esc = (s) => escapeHtml(s || "");
-    const sortSibs = (a) => a.sort((x, y) => (!!x.done - !!y.done) || (+x.ord || 0) - (+y.ord || 0) || (x.id < y.id ? -1 : 1));   // open first, done sink
+    const sortSibs = (a) => a.sort((x, y) => (!!x.done - !!y.done) || (+x.ord || 0) - (+y.ord || 0) || (x.id < y.id ? -1 : 1));   // one-off done sinks; habits keep their spot (their object `done` stays 0)
+    const isHabit = (t) => t.type === "habit";
+    const isAmount = (t) => isHabit(t) && t.track === "amount";
+    const doneState = (t, log, today) => (isHabit(t) ? thingDoneOn(log, t.id, today) : !!t.done);   // habits: DERIVED from the log per day (they recur); tasks: the object flag
+    const togglePanel = (id, kind) => { panel = (panel && panel.id === id && panel.kind === kind) ? null : { id: id, kind: kind }; };
     function model() {
       const vis = thingsVisible(loadThings()), byParent = {};   // liveness-filtered: tombstoned/dangling subtrees hidden
       vis.forEach((t) => { const p = t.parent || "_root"; (byParent[p] = byParent[p] || []).push(t); });
-      return { byParent, roots: sortSibs((byParent._root || []).filter((t) => t.type === "task" && !t.routine)) };
+      return { byParent, roots: sortSibs((byParent._root || []).filter((t) => (t.type === "task" || t.type === "habit") && !t.routine)) };
     }
     function render() {
-      const { byParent, roots } = model(), rows = [];
+      const { byParent, roots } = model(), rows = [], log = loadLog(), today = todayKey();
       const walk = (t, depth) => {   // uniform recursion — a subtask's children render exactly like a task's
         const kids = sortSibs((byParent[t.id] || []).slice());
-        rows.push(rowHtml(t, depth, kids.length));
-        if (addingUnder === t.id) rows.push(addSubHtml(depth + 1));
+        rows.push(rowHtml(t, depth, kids.length, log, today));
+        if (panel && panel.id === t.id) rows.push(panelHtml(t, depth + 1));
         if (kids.length && !collapsed.has(t.id)) kids.forEach((k) => walk(k, depth + 1));
       };
       roots.forEach((r) => walk(r, 0));
-      const open = roots.filter((t) => !t.done).length, doneN = roots.length - open;
+      const open = roots.filter((t) => !doneState(t, log, today)).length, doneN = roots.length - open;
       el.innerHTML =
         '<div class="tk-add"><input class="tk-in" placeholder="add a task…" maxlength="200" aria-label="add a task">' +
         '<button class="tk-go" aria-label="add task">＋</button></div>' +
         (rows.length ? '<div class="tk-list">' + rows.join("") + "</div>"
-          : '<div class="sub tk-empty">the things you need to do and remember. add one above, break it into subtasks, check them off — it all stays logged in your trail.</div>') +
+          : '<div class="sub tk-empty">the things you need to do and remember. add one above, break it into subtasks, or make it a habit you track — it all stays logged in your trail.</div>') +
         (undo ? '<div class="tk-undo"><span class="tk-undo-t">' + esc(undo.label) + " deleted</span><button class=\"tk-undo-go\">undo</button></div>" : "") +
         '<div class="sub tk-count">' + (roots.length ? open + " to do" + (doneN ? " · " + doneN + " done" : "") : "") + "</div>";
       wire();
     }
-    function rowHtml(t, depth, nKids) {
-      const done = !!t.done, col = collapsed.has(t.id);
-      return '<div class="tk-item' + (done ? " done" : "") + '" style="margin-left:' + (depth * 15) + 'px">' +
+    function rowHtml(t, depth, nKids, log, today) {
+      const habit = isHabit(t), amount = isAmount(t), done = doneState(t, log, today), col = collapsed.has(t.id);
+      const unit = t.unit ? " " + esc(t.unit) : "";
+      const dayVal = amount ? thingAmountOn(log, t.id, today) : null;
+      const control = amount   // amount habits show a tappable value chip instead of a checkbox
+        ? '<button class="tk-amt' + (done ? " on" : "") + '" data-act="amount" data-id="' + esc(t.id) + '" aria-label="log an amount">' + (dayVal && dayVal.qty != null ? esc(String(dayVal.qty)) + unit : "log") + "</button>"
+        : '<button class="tk-check' + (done ? " on" : "") + '" data-act="toggle" data-id="' + esc(t.id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>';
+      return '<div class="tk-item' + (done ? " done" : "") + (habit ? " tk-habit" : "") + '" style="margin-left:' + (depth * 15) + 'px">' +
         (nKids
           ? '<button class="tk-caret' + (col ? " col" : "") + '" data-act="caret" data-id="' + esc(t.id) + '" aria-label="' + (col ? "expand" : "collapse") + '">▾</button>'
           : '<span class="tk-caret-sp"></span>') +
-        '<button class="tk-check' + (done ? " on" : "") + '" data-act="toggle" data-id="' + esc(t.id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>' +
-        '<span class="tk-title" data-act="trail" data-id="' + esc(t.id) + '" role="button" tabindex="0" title="see activity">' + esc(t.title) + "</span>" +
+        control +
+        '<span class="tk-title" data-act="trail" data-id="' + esc(t.id) + '" role="button" tabindex="0" title="see activity">' + (habit ? '<span class="tk-hbadge" aria-hidden="true" title="a habit — recurs daily">↻</span>' : "") + esc(t.title) + "</span>" +
         '<button class="tk-addsub" data-act="addsub" data-id="' + esc(t.id) + '" aria-label="add a subtask" title="add a subtask">＋</button>' +
+        '<button class="tk-menu" data-act="menu" data-id="' + esc(t.id) + '" aria-label="options" title="habit &amp; options">⋯</button>' +
         '<button class="tk-x" data-act="del" data-id="' + esc(t.id) + '" aria-label="delete">✕</button>' +
         "</div>";
     }
-    function addSubHtml(depth) {
-      return '<div class="tk-subadd" style="margin-left:' + (depth * 15) + 'px">' +
-        '<input class="tk-subin" placeholder="add a subtask…" maxlength="200" aria-label="add a subtask">' +
-        '<button class="tk-subgo" aria-label="add subtask">＋</button></div>';
+    function panelHtml(t, depth) {
+      const ml = ' style="margin-left:' + (depth * 15) + 'px"';
+      if (panel.kind === "addsub") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a subtask…" maxlength="200" aria-label="add a subtask"><button class="tk-subgo" aria-label="add subtask">＋</button></div>';
+      if (panel.kind === "amount") { const u = t.unit ? " " + esc(t.unit) : ""; return '<div class="tk-subadd"' + ml + '><input class="tk-amtin" type="number" inputmode="decimal" placeholder="how many' + u + '…" aria-label="log amount"><button class="tk-subgo tk-amtgo" aria-label="log">✓</button></div>'; }
+      // the ⋯ menu — the habit upgrade/downgrade + tracking-mode actions
+      const habit = isHabit(t), amount = isAmount(t), btns = [];
+      if (!habit) btns.push('<button class="tk-mbtn" data-act="tohabit" data-id="' + esc(t.id) + '">↻ Make a habit</button>');
+      else {
+        btns.push('<button class="tk-mbtn" data-act="track" data-id="' + esc(t.id) + '" data-mode="' + (amount ? "check" : "amount") + '">' + (amount ? "✓ Just yes / no" : "🔢 Track a number") + "</button>");
+        btns.push('<button class="tk-mbtn" data-act="totask" data-id="' + esc(t.id) + '">↩ Back to a task</button>');
+      }
+      return '<div class="tk-menu-row"' + ml + ">" + btns.join("") + "</div>";
     }
     function addUnder(parentId, title, type) {
       const now = Date.now();
@@ -1291,44 +1310,82 @@ const RENDERERS = {
       const inp = el.querySelector(".tk-in");
       const addTop = () => {
         const v = (inp.value || "").trim(); if (!v) return;
-        addUnder(null, v, "task"); undo = null; addingUnder = null; render();
+        addUnder(null, v, "task"); undo = null; panel = null; render();
         const ni = el.querySelector(".tk-in"); if (ni) ni.focus();   // keep focus for rapid entry
       };
       el.querySelector(".tk-go").addEventListener("click", addTop);
       inp.addEventListener("keydown", (e) => { if (e.key === "Enter") addTop(); });
       el.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => {
-        const id = b.dataset.id;
-        if (b.dataset.act === "toggle") toggle(id);
-        else if (b.dataset.act === "del") del(id);
-        else if (b.dataset.act === "trail") openTrail(id);
-        else if (b.dataset.act === "caret") { collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); render(); }
-        else if (b.dataset.act === "addsub") { addingUnder = id; collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
+        const id = b.dataset.id, act = b.dataset.act;
+        if (act === "toggle") toggle(id);
+        else if (act === "del") del(id);
+        else if (act === "trail") openTrail(id);
+        else if (act === "caret") { collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); render(); }
+        else if (act === "addsub") { togglePanel(id, "addsub"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
+        else if (act === "menu") { togglePanel(id, "menu"); render(); }
+        else if (act === "amount") { togglePanel(id, "amount"); render(); const ai = el.querySelector(".tk-amtin"); if (ai) ai.focus(); }
+        else if (act === "tohabit") toHabit(id);
+        else if (act === "totask") toTask(id);
+        else if (act === "track") setTrack(id, b.dataset.mode);
       }));
       el.querySelectorAll('.tk-title[data-act="trail"]').forEach((s) => s.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTrail(s.dataset.id); } }));
       const subin = el.querySelector(".tk-subin");
-      const commitSub = () => {
-        if (!subin || addingUnder == null) return;
-        const v = (subin.value || "").trim(), pid = addingUnder;
-        if (v) { addUnder(pid, v, "subtask"); addingUnder = pid; } else { addingUnder = null; }   // keep open under the same parent for rapid entry
-        undo = null; render();
-        const si = el.querySelector(".tk-subin"); if (si) si.focus();
-      };
       if (subin) {
-        subin.addEventListener("keydown", (e) => { if (e.key === "Enter") commitSub(); else if (e.key === "Escape") { addingUnder = null; render(); } });
+        const commitSub = () => {
+          const v = (subin.value || "").trim(), pid = panel && panel.id;
+          if (v && pid) { addUnder(pid, v, "subtask"); } else { panel = null; }   // keep the panel open (same parent) for rapid entry
+          undo = null; render();
+          const si = el.querySelector(".tk-subin"); if (si) si.focus();
+        };
+        subin.addEventListener("keydown", (e) => { if (e.key === "Enter") commitSub(); else if (e.key === "Escape") { panel = null; render(); } });
         const sg = el.querySelector(".tk-subgo"); if (sg) sg.addEventListener("click", commitSub);
+      }
+      const amtin = el.querySelector(".tk-amtin");
+      if (amtin) {
+        const commitAmt = () => { const v = (amtin.value || "").trim(), pid = panel && panel.id; if (v !== "" && pid) logAmount(pid, parseFloat(v)); else { panel = null; render(); } };
+        amtin.addEventListener("keydown", (e) => { if (e.key === "Enter") commitAmt(); else if (e.key === "Escape") { panel = null; render(); } });
+        const ag = el.querySelector(".tk-amtgo"); if (ag) ag.addEventListener("click", commitAmt);
       }
       const u = el.querySelector(".tk-undo-go"); if (u) u.addEventListener("click", doUndo);
     }
     function toggle(id) {
       const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
-      const now = Date.now(), next = t.done ? 0 : 1;
-      // a one-off task/subtask's done state is a flag ON the object (§3); the log event feeds
-      // the trail — root defaults to the TOP-level task (thingRoot walks parent), so a
-      // subtask's completion still shows on its task's activity trail.
-      save([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]);
-      try { logThingEvent(id, next ? "done" : "undone", { items: all }); } catch (e) {}
-      if (next) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Task done · +2 EXP"); } catch (e) {} }
+      if (isHabit(t)) {
+        // habits RECUR → "done today" is LOG-DERIVED (§3), never an object flag that would have
+        // to reset every morning and fight the merge. Toggle TODAY's state in the log only.
+        const done = thingDoneOn(loadLog(), id, todayKey());
+        try { logThingEvent(id, done ? "undone" : "done", { items: all }); } catch (e) {}
+        if (!done) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit done · +2 EXP"); } catch (e) {} }
+      } else {
+        // a one-off task/subtask's done state is a flag ON the object; the log event feeds the
+        // trail — root defaults to the TOP-level task, so a subtask's completion still shows there.
+        const now = Date.now(), next = t.done ? 0 : 1;
+        save([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]);
+        try { logThingEvent(id, next ? "done" : "undone", { items: all }); } catch (e) {}
+        if (next) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Task done · +2 EXP"); } catch (e) {} }
+      }
       undo = null; render();
+    }
+    function logAmount(id, qty) {   // an amount habit's day value = the LATEST entry (never summed, §4), so re-logging just corrects today
+      if (!(qty >= 0)) { panel = null; render(); return; }
+      try { logThingEvent(id, "habit", { items: loadThings(), value: { done: 1, qty: qty } }); } catch (e) {}
+      try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit logged · +2 EXP"); } catch (e) {}
+      panel = null; render();
+    }
+    function toHabit(id) {   // task → habit (yes/no by default). id UNCHANGED (§3: an EDIT, not delete+create) — bump `updated` so the merge adopts it.
+      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
+      save([Object.assign({}, t, { type: "habit", track: "check", done: 0, doneAt: null, updated: Date.now() })]);
+      panel = null; render();
+    }
+    function toTask(id) {   // habit → task (drop the tracking)
+      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
+      const c = Object.assign({}, t, { type: "task", updated: Date.now() }); delete c.track; delete c.unit;
+      save([c]); panel = null; render();
+    }
+    function setTrack(id, mode) {   // habit tracking mode: yes/no ↔ a number
+      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
+      save([Object.assign({}, t, { track: mode, updated: Date.now() })]);
+      panel = null; render();
     }
     function del(id) {
       const all = loadThings(), t = all.find((x) => x && x.id === id);
@@ -1339,7 +1396,7 @@ const RENDERERS = {
       save(killed);
       const extra = killed.length - 1;
       undo = { ids: killed.map((x) => x.id), at: now, label: (t && t.title ? "“" + clip(t.title, 20) + "”" : "item") + (extra > 0 ? " + " + extra + " subtask" + (extra > 1 ? "s" : "") : "") };
-      addingUnder = null; render();
+      panel = null; render();
     }
     function doUndo() {
       if (!undo) return;
@@ -1382,7 +1439,7 @@ const RENDERERS = {
       if (!el.isConnected) { document.removeEventListener("cache:things", onThings); return; }
       if (selfSaving) return;   // our own save already re-rendered
       const a = document.activeElement;
-      if (a && (a.classList.contains("tk-in") || a.classList.contains("tk-subin"))) return;   // a peer's sync landed — repaint, but never clobber mid-type
+      if (a && (a.classList.contains("tk-in") || a.classList.contains("tk-subin") || a.classList.contains("tk-amtin"))) return;   // a peer's sync landed — repaint, but never clobber mid-type
       render();
     }
     document.addEventListener("cache:things", onThings);
@@ -5495,7 +5552,7 @@ const WIDGET_INFO = {
   note: "<p>A free-text note you type — saved locally in your browser. No financial data.</p>",
   energy: "<p><b>Your energy pattern</b> — every ⚡ answer from the Daily check-in, one bar per day for the last 14 days (1–5).</p><p>The point: your executive-function energy <i>varies</i>, and that's not a flaw — seeing the pattern lets you plan around it instead of fighting it. A missing bar just means no log that day; that's information, never a failure.</p>",
   bucket: "<p><b>Your actively-held working memory</b> — notes and links you deliberately drop here so your brain doesn't have to hold them. Lives in your cache, syncs across your devices, and rides your backups + encrypted vault.</p><p>Toss anything with one tap — no shame. A gentle monthly cleanout prompt is a coming brick.</p>",
-  tasks: "<p><b>The things you need to do and remember.</b> Add a task, check it off when it's done (it stays logged in your activity trail), or delete it — with a one-tap undo, no shame. Break any task into <b>subtasks</b>, as many levels deep as you need — hit the ＋ on a row to add one, and collapse a big task to tidy it away.</p><p>Every task and subtask is its own item that syncs on its own, so one added on your phone and one checked off on your laptop both survive. The full activity-trail view is the next brick.</p>",
+  tasks: "<p><b>The things you need to do and remember.</b> Add a task, check it off (it's logged), or delete it — with a one-tap undo, no shame. Break any task into <b>subtasks</b>, as deep as you need (＋ on a row), and collapse a big one to tidy it away. <b>Tap a task's title</b> to see its activity trail — everything you checked off across it and its subtasks.</p><p>Turn a task into a <b>habit</b> (⋯ → Make a habit) and it becomes something you track: because habits repeat, they reset each day, and you can track a plain yes/no or a number (minutes, reps…). Every task, subtask, and habit syncs on its own, so edits on your phone and laptop both survive.</p>",
   timer: "<p><b>Work a block, rest a block</b> — with a longer rest every few blocks. The visible countdown does the time-keeping so your head doesn't have to.</p><p>All four numbers are yours — tap <i>presets</i>. The defaults are just a starting point, not a prescription. Pausing, skipping, or ending early is always one tap and never punished. Finishing a work block earns +2 EXP.</p>",
 };
 
