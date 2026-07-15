@@ -8324,6 +8324,10 @@ function openTaskDetail(id) {
     };
     const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (t.area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("") +
       (t.area ? '<button class="td-area td-area-clear" data-area="">✕ clear</button>' : "");
+    const routines = loadThings().filter((x) => x && x.type === "routine" && !x.deleted);
+    const curRt = t.routine || null;
+    const rtChips = routines.map((r) => '<button class="td-rt' + (r.id === curRt ? " on" : "") + '" data-rt="' + esc(r.id) + '">' + esc(r.emoji || "🔁") + " " + esc(r.name || "Routine") + "</button>").join("") +
+      '<button class="td-rt' + (!curRt ? " on" : "") + '" data-rt="">↩ None</button>';
     root.innerHTML =
       '<div class="daily-top">' +
         '<button class="daily-icn" id="tdClose" aria-label="close">✕</button>' +
@@ -8346,7 +8350,7 @@ function openTaskDetail(id) {
         "</div></div>" +
         '<div class="td-field"><label>Area — where it belongs</label><div class="td-areas">' + areaChips + "</div></div>" +
         '<div class="td-field"><label>Notes</label><textarea class="td-notes" id="tdNotes" placeholder="anything to remember…" aria-label="notes">' + esc(t.notes) + "</textarea></div>" +
-        '<div class="td-field td-soon"><label>Routine</label><div class="td-soon-txt">Add to a saved routine — coming with routines.</div></div>' +
+        '<div class="td-field"><label>Routine — part of a saved routine?</label><div class="td-areas td-rtrow">' + (routines.length ? rtChips : '<span class="td-soon-txt" style="margin-right:8px">No routines yet — make one in your deck.</span><button class="td-rt on" data-rt="">↩ None</button>') + "</div></div>" +
         '<div class="td-field"><label>Activity</label>' + (trail.length ? '<div class="td-trail">' + trail.map(trailRow).join("") + "</div>" : '<div class="tkt-empty">No activity yet — check it off and it shows here.</div>') + "</div>" +
       "</div>";
     wire();
@@ -8367,6 +8371,16 @@ function openTaskDetail(id) {
     root.querySelector("#tdDue").addEventListener("change", (e) => patch({ due: e.target.value || null }));
     root.querySelector("#tdDueTime").addEventListener("change", (e) => patch({ dueTime: e.target.value || null }));
     root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { patch({ area: b.dataset.area || null }); render(); }));
+    root.querySelectorAll(".td-rt").forEach((b) => b.addEventListener("click", () => {   // move in/out of a routine — same per-item edit as the deck's ⋯ picker
+      const rid = b.dataset.rt || null, cur = get();
+      if ((cur.routine || null) === rid) { render(); return; }   // already there — no-op
+      const nowm = Date.now(), parent = rid ? null : (cur.parent || null);   // into a routine → top-level member; out → keep parent (usually null)
+      const sibs = loadThings().filter((x) => x && !x.deleted && x.id !== id && (rid ? x.routine === rid : ((x.parent || null) === parent && !x.routine)));
+      const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+      saveThings([Object.assign({}, cur, { routine: rid, parent: parent, ord: ord, ordAt: nowm, updated: nowm })]);
+      try { flash(rid ? "Moved to routine" : "Removed from routine"); } catch (e) {}
+      render();
+    }));
     const notes = root.querySelector("#tdNotes"); notes.addEventListener("change", () => patch({ notes: notes.value }));
   }
   render();

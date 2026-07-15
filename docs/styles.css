@@ -2197,8 +2197,8 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .td-due-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .td-due { flex: 1 1 130px; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 11px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; }
 .td-areas { display: flex; flex-wrap: wrap; gap: 7px; }
-.td-area { min-height: 40px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 20px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 12.5px; cursor: pointer; transition: border-color .12s, background .12s; }
-.td-area.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 600; }
+.td-area, .td-rt { min-height: 40px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 20px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 12.5px; cursor: pointer; transition: border-color .12s, background .12s; }
+.td-area.on, .td-rt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 600; }
 .td-area-clear { color: rgba(var(--ink-rgb), 0.5); }
 .td-notes { width: 100%; box-sizing: border-box; min-height: 84px; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 12px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; line-height: 1.5; resize: vertical; }
 .td-notes:focus { outline: none; border-color: var(--accent); }
