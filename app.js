@@ -1234,6 +1234,10 @@ const RENDERERS = {
     // undo, tap a title for the activity trail. Pure client-side through the per-item merge engine.
     // Routines (scheduling) and your own data fields are the next bricks.
     el.classList.add("is-tasks");
+    // date-nav CONTRACT (coordinate with the deck session): mounted INSIDE the deck (.deck-space)
+    // this renders for the deck's SELECTED day; on the board it's always today. Completion reads
+    // AND writes key off this one day, so "done" travels with the DAY, not the habit.
+    const viewDay = () => ((el.closest && el.closest(".deck-space") && typeof deckViewDay === "function") ? deckViewDay() : todayKey());
     let undo = null, selfSaving = false, panel = null;   // panel = {id, kind:"addsub"|"menu"|"amount"} — one inline row open at a time
     const collapsed = new Set();   // ids whose subtree is hidden (ephemeral, per widget)
     const clip = (s, n) => (s && s.length > n ? s.slice(0, n) + "…" : (s || ""));
@@ -1254,7 +1258,7 @@ const RENDERERS = {
       return { byParent, byRoutine, roots };
     }
     function render() {
-      const { byParent, byRoutine, roots } = model(), rows = [], log = loadLog(), today = todayKey();
+      const { byParent, byRoutine, roots } = model(), rows = [], log = loadLog(), today = viewDay();
       const walk = (t, depth) => {   // uniform recursion — a subtask's children render exactly like a task's
         if (t.type === "routine") {   // a ROUTINE groups members (routine:<id>), shown when expanded; each member's "done today" is log-derived
           const members = sortSibs((byRoutine[t.id] || []).slice());
@@ -1393,24 +1397,24 @@ const RENDERERS = {
     function toggle(id) {
       const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
       if (isHabit(t) || t.routine) {
-        // habits AND routine members RECUR → "done today" is LOG-DERIVED (§3), never an object
-        // flag that would have to reset every morning and fight the merge. Toggle TODAY only.
-        const done = thingDoneOn(loadLog(), id, todayKey());
-        try { logThingEvent(id, done ? "undone" : "done", { items: all }); } catch (e) {}
+        // habits AND routine members RECUR → "done" is LOG-DERIVED per day (§3), never an object
+        // flag. Toggle the VIEWED day only, so completion travels with the DAY (date-nav).
+        const done = thingDoneOn(loadLog(), id, viewDay());
+        try { logThingEvent(id, done ? "undone" : "done", { items: all, ts: viewDay() }); } catch (e) {}
         if (!done) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit done · +2 EXP"); } catch (e) {} }
       } else {
         // a one-off task/subtask's done state is a flag ON the object; the log event feeds the
         // trail — root defaults to the TOP-level task, so a subtask's completion still shows there.
         const now = Date.now(), next = t.done ? 0 : 1;
         save([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]);
-        try { logThingEvent(id, next ? "done" : "undone", { items: all }); } catch (e) {}
+        try { logThingEvent(id, next ? "done" : "undone", { items: all, ts: viewDay() }); } catch (e) {}
         if (next) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Task done · +2 EXP"); } catch (e) {} }
       }
       undo = null; render();
     }
-    function logAmount(id, qty) {   // an amount habit's day value = the LATEST entry (never summed, §4), so re-logging just corrects today
+    function logAmount(id, qty) {   // an amount habit's day value = the LATEST entry for the VIEWED day (never summed, §4)
       if (!(qty >= 0)) { panel = null; render(); return; }
-      try { logThingEvent(id, "habit", { items: loadThings(), value: { done: 1, qty: qty } }); } catch (e) {}
+      try { logThingEvent(id, "habit", { items: loadThings(), value: { done: 1, qty: qty }, ts: viewDay() }); } catch (e) {}
       try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit logged · +2 EXP"); } catch (e) {}
       panel = null; render();
     }
@@ -1470,6 +1474,8 @@ const RENDERERS = {
       render();
     }
     document.addEventListener("cache:things", onThings);
+    function onDeckDay() { if (!el.isConnected) { document.removeEventListener("cache:deckday", onDeckDay); return; } if (el.closest(".deck-space")) render(); }   // date-nav: repaint for the newly-selected day (deck only)
+    document.addEventListener("cache:deckday", onDeckDay);
     render();
   },
   safe(el) {
@@ -3445,7 +3451,7 @@ async function cloudFindVaultId(s) {
 //              a fresher edit and the web app can't blind-adopt on every unlock.
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
-const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun"];
+const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay"];
 const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
@@ -8212,6 +8218,65 @@ function showDeckCoach() {
   card.querySelector(".dc-open").addEventListener("click", () => { done(); openDeck(); });
   card.querySelector(".dc-later").addEventListener("click", done);
 }
+// ── The DECK is a DATE-DEPENDENT scroller (Cozy 2026-07-15). Which day the deck is showing is
+//    per-DEVICE and SILOED — money.deckDay is DEVICE_LOCAL (never rides the vault), so each
+//    device keeps its own place and the UI can be customized per device. It restores the EXACT
+//    last-viewed day on reopen (defaults to today when unset/invalid). Completion travels with
+//    the DAY, not the habit: reads + writes key off deckViewDay(), and the completion log is
+//    already day-keyed, so scrolling to another day shows THAT day's history. `cache:deckday`
+//    is the change signal the deck body + the task/habit renderer listen for.
+const DECKDAY_KEY = "money.deckDay";
+function deckViewDay() {
+  let v = null; try { v = localStorage.getItem(DECKDAY_KEY); } catch (e) {}
+  return (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : todayKey();
+}
+function setDeckViewDay(ymd) {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) ymd = todayKey();
+  try { localStorage.setItem(DECKDAY_KEY, ymd); } catch (e) {}                                   // persist immediately (per-device)
+  try { document.dispatchEvent(new CustomEvent("cache:deckday", { detail: { ymd: ymd } })); } catch (e) {}
+}
+// The satisfying day SCROLLWHEEL at the bottom of the deck — yesterday / today / tomorrow sit
+// as the primary three, snap-centered; scroll (or ‹ ›, or tap a day) to travel through recent
+// days. The centered day is the selected day. Commits on settle (so the body doesn't thrash
+// mid-scroll); a live highlight tracks the finger. Built ONCE per open so the scroll position
+// is the user's to keep — selection updates a class, never a rebuild.
+function renderDeckDayWheel(host) {
+  if (!host) return;
+  const BACK = 45, FWD = 14;                          // recent-days emphasis (a bit of runway forward)
+  const t0 = _ymd2date(todayKey()) || new Date(), sel = deckViewDay(), cells = [];
+  for (let i = -BACK; i <= FWD; i++) {
+    const d = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + i), ymd = ymdOf(d), isToday = i === 0;
+    const rel = i === 0 ? "Today" : i === -1 ? "Yesterday" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-US", { weekday: "short" });
+    cells.push('<button class="deck-day' + (ymd === sel ? " on" : "") + (isToday ? " istoday" : "") + '" data-ymd="' + ymd + '" role="tab" aria-selected="' + (ymd === sel ? "true" : "false") + '">' +
+      '<span class="deck-day-rel">' + rel + "</span>" +
+      '<span class="deck-day-num">' + d.getDate() + "</span>" +
+      '<span class="deck-day-mon">' + d.toLocaleDateString("en-US", { month: "short" }) + "</span>" +
+      "</button>");
+  }
+  host.innerHTML =
+    '<button class="deck-wheel-nav" id="deckWheelPrev" aria-label="previous day">‹</button>' +
+    '<div class="deck-wheel" id="deckWheel" role="tablist" aria-label="pick a day">' + cells.join("") + "</div>" +
+    '<button class="deck-wheel-nav" id="deckWheelNext" aria-label="next day">›</button>' +
+    '<button class="deck-today-jump" id="deckTodayJump" aria-label="back to today">Today</button>';
+  const wheel = host.querySelector("#deckWheel"), dayCells = Array.prototype.slice.call(wheel.querySelectorAll(".deck-day"));
+  const centerOf = (el) => { const r = el.getBoundingClientRect(); return r.left + r.width / 2; };
+  const centerCell = (el, smooth) => { if (el) wheel.scrollTo({ left: el.offsetLeft - (wheel.clientWidth - el.clientWidth) / 2, behavior: smooth ? "smooth" : "auto" }); };
+  const nearest = () => { const wr = wheel.getBoundingClientRect(), cx = wr.left + wr.width / 2; let best = null, bd = Infinity; dayCells.forEach((c) => { const dd = Math.abs(centerOf(c) - cx); if (dd < bd) { bd = dd; best = c; } }); return best; };
+  const highlight = (cell) => dayCells.forEach((c) => { const on = c === cell; c.classList.toggle("on", on); c.setAttribute("aria-selected", on ? "true" : "false"); });
+  const jump = host.querySelector("#deckTodayJump"), updJump = (ymd) => { if (jump) jump.classList.toggle("show", ymd !== todayKey()); };
+  centerCell(dayCells.filter((c) => c.dataset.ymd === sel)[0] || dayCells.filter((c) => c.classList.contains("istoday"))[0], false);
+  updJump(sel);
+  let raf = 0, settle = 0;
+  wheel.addEventListener("scroll", () => {
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; const c = nearest(); if (c) highlight(c); });   // live highlight tracks the scroll
+    clearTimeout(settle);
+    settle = setTimeout(() => { const c = nearest(); if (c && c.dataset.ymd !== deckViewDay()) { setDeckViewDay(c.dataset.ymd); updJump(c.dataset.ymd); } }, 110);   // commit once it settles
+  });
+  dayCells.forEach((c) => c.addEventListener("click", () => centerCell(c, true)));
+  host.querySelector("#deckWheelPrev").addEventListener("click", () => { const i = dayCells.indexOf(nearest()); if (i > 0) centerCell(dayCells[i - 1], true); });
+  host.querySelector("#deckWheelNext").addEventListener("click", () => { const i = dayCells.indexOf(nearest()); if (i >= 0 && i < dayCells.length - 1) centerCell(dayCells[i + 1], true); });
+  if (jump) jump.addEventListener("click", () => centerCell(dayCells.filter((c) => c.classList.contains("istoday"))[0], true));
+}
 // ── The DECK — the full-screen front door the action button opens (mobile AND desktop). It
 //    holds "every kind of thing you want to track": today's check-in, and your tasks + habits
 //    (the SAME responsive widget, mounted here so your one CTA reaches it without touching the
@@ -8250,11 +8315,14 @@ function openDeck() {
       "</div>" +
       '<div class="deck-sec-h deck-sec-h2">Tasks &amp; habits</div>' +
       '<div class="deck-sp-tasks" id="deckSpTasks"></div>' +
-    "</div>";
+    "</div>" +
+    '<div class="deck-daybar" id="deckDayBar"></div>';   // date-nav: the day scrollwheel lives at the bottom
   document.body.appendChild(root);
-  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); document.removeEventListener("cache:deckday", onDeckDay); };
   function onKey(e) { if (e.key === "Escape" && !document.getElementById("dailySpace")) close(); }   // if the check-in is open on top, its own Escape handles it first
   document.addEventListener("keydown", onKey);
+  function onDeckDay() { root.classList.toggle("deck-not-today", deckViewDay() !== todayKey()); }   // grey the deck when browsing a non-today day (still fully editable)
+  document.addEventListener("cache:deckday", onDeckDay);
   root.querySelector("#deckSpClose").addEventListener("click", close);
   root.querySelector("#deckSpGear").addEventListener("click", () => { try { openSettings(); } catch (e) {} });   // DECK-level settings (overall) — separate from the check-in form builder
   root.querySelector("#deckCiEdit").addEventListener("click", () => { try { openDeckEditor(); } catch (e) {} });   // CHECK-IN level — the form builder (add / reorder / manage questions), where it belongs
@@ -8268,6 +8336,8 @@ function openDeck() {
     try { localStorage.setItem("deckCiCollapsed", collapsed ? "1" : "0"); } catch (e) {}
   });
   try { if (typeof RENDERERS === "object" && RENDERERS.tasks) RENDERERS.tasks(root.querySelector("#deckSpTasks")); } catch (e) {}   // the real Tasks/Habits widget, mounted full-screen
+  root.classList.toggle("deck-not-today", deckViewDay() !== todayKey());   // date-nav: obvious at a glance when you're not on today
+  try { renderDeckDayWheel(root.querySelector("#deckDayBar")); } catch (e) {}   // the satisfying day scrollwheel at the bottom
 }
 // ── Task / habit DETAIL — tap a row's bar to open the full editor, like any task manager:
 //    rename, notes, due date + time, task↔habit + how it's tracked, the life AREA it belongs

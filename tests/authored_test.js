@@ -47,4 +47,13 @@ ok("plain string compare", authoredHash({"money.note":"abc"}, {}) !== authoredHa
 ok("calview: an edit is detected → it follows you across devices",
    authoredHash({"money.calview":'{"view":"month","weekStart":0}'}, {}) !== authoredHash({"money.calview":'{"view":"week","weekStart":1}'}, {}));
 
+// 10. money.deckDay (the deck's per-device viewed day) is DEVICE_LOCAL + SILOED — it must NOT
+// affect the authored hash (each device keeps its own place), and must be mirrored device-local
+// in webcache's W_INTERNAL or the two runtimes fork (one syncs it, one doesn't).
+ok("deckDay: classified device-local (internal)", isInternalKey("money.deckDay"));
+ok("deckDay: siloed — a change does NOT arm a push (inverse of calview)",
+   authoredHash({"money.deckDay":"2026-07-15"}, {}) === authoredHash({"money.deckDay":"2026-07-01"}, {}));
+ok("deckDay: mirrored device-local in webcache W_INTERNAL",
+   /W_INTERNAL[\s\S]*?money\.deckDay/.test(require("fs").readFileSync(require("path").join(__dirname, "..", "webcache.js"), "utf8")));
+
 console.log(`\n${p} passed, ${f} failed`); process.exit(f?1:0);
