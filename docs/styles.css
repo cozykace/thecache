@@ -2710,6 +2710,12 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 
 /* ════════════ Mobile: the freeform board becomes one scroll of full-width widgets ════════════ */
 @media (max-width: 640px) {
+  /* iOS Safari zooms the whole viewport when you focus an input whose font-size is under
+     16px. We're already in mobile layout — that auto-zoom is just jarring. Force every
+     text field to 16px at phone width so tapping one never zooms. (Range/checkbox/radio
+     are excluded — font-size is irrelevant there — and pinch-zoom stays available, so
+     this doesn't cost accessibility.) */
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select { font-size: 16px !important; }
   .board { overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }   /* our pull-to-sync owns the top edge, not the browser's reload */
   .board-canvas {
     position: static !important; transform: none !important;
