@@ -8125,11 +8125,42 @@ function showDeckCoach() {
     if (pill) pill.classList.remove("coaching");
     card.remove();
   };
-  card.querySelector(".dc-open").addEventListener("click", () => { done(); openDaily(); });
+  card.querySelector(".dc-open").addEventListener("click", () => { done(); openDeck(); });
   card.querySelector(".dc-later").addEventListener("click", done);
 }
+// ── The DECK — the full-screen front door the action button opens (mobile AND desktop). It
+//    holds "every kind of thing you want to track": today's check-in, and your tasks + habits
+//    (the SAME responsive widget, mounted here so your one CTA reaches it without touching the
+//    board). Routines / fields / day-by-day paging slot in as later cards. One surface, one CTA.
+function openDeck() {
+  if (document.getElementById("deckSpace") || document.getElementById("dailySpace")) return;
+  const root = document.createElement("div"); root.id = "deckSpace"; root.className = "daily-space deck-space";
+  root.innerHTML =
+    '<div class="daily-top">' +
+      '<button class="daily-icn" id="deckSpClose" aria-label="close">✕</button>' +
+      '<div class="deck-sp-title">🃏 Your deck</div>' +
+      '<button class="daily-icn" id="deckSpGear" aria-label="customize your check-in deck" title="customize your check-in deck">⚙</button>' +
+    '</div>' +
+    '<div class="deck-sp-scroll">' +
+      '<button class="deck-ci" id="deckCi">' +
+        '<span class="deck-ci-emoji" aria-hidden="true">☀️</span>' +
+        '<span class="deck-ci-txt"><b>Today’s check-in</b><span>one minute · keeps your cache fed</span></span>' +
+        '<span class="deck-ci-go" aria-hidden="true">▶</span>' +
+      '</button>' +
+      '<div class="deck-sec-h">Tasks &amp; habits</div>' +
+      '<div class="deck-sp-tasks" id="deckSpTasks"></div>' +
+    '</div>';
+  document.body.appendChild(root);
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  function onKey(e) { if (e.key === "Escape" && !document.getElementById("dailySpace")) close(); }   // if the check-in is open on top, its own Escape handles it first
+  document.addEventListener("keydown", onKey);
+  root.querySelector("#deckSpClose").addEventListener("click", close);
+  root.querySelector("#deckSpGear").addEventListener("click", openDeckEditor);
+  root.querySelector("#deckCi").addEventListener("click", () => { try { openDaily(); } catch (e) {} });   // check-in opens on top; the deck stays behind it
+  try { if (typeof RENDERERS === "object" && RENDERERS.tasks) RENDERERS.tasks(root.querySelector("#deckSpTasks")); } catch (e) {}   // the real Tasks/Habits widget, mounted full-screen
+}
 (function () {
-  const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", openDaily);
+  const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", openDeck);
   // ── The action button remembers your touch. Every tap's landing spot is
   //    banked (normalized 0..1) — the raw material for the living, wearing,
   //    heat-mapped button of the FLAGSHIP action-button vision. Starts now so
