@@ -8140,7 +8140,7 @@ function openDeck() {
   // the deck → the questions aren't there." One deck, one surface: questions + tasks together.
   const DECK_INPUT_HINT = { choice: "pick", scale: "1–5", yesno: "yes/no", amount: "$", count: "count", duration: "time", note: "note" };
   const qs = (typeof deckLive === "function" ? deckLive(loadDeck()) : []).slice().sort((a, b) => (+a.ord || 0) - (+b.ord || 0));
-  const qCards = qs.map((q) => '<button class="deck-q">' +
+  const qCards = qs.map((q) => '<button class="deck-q" data-qid="' + escapeHtml(q.id) + '">' +
     '<span class="deck-q-emoji" aria-hidden="true">' + escapeHtml(q.emoji || "🃏") + "</span>" +
     '<span class="deck-q-txt">' + escapeHtml(q.prompt || "") + "</span>" +
     '<span class="deck-q-kind">' + escapeHtml(DECK_INPUT_HINT[q.input] || "") + "</span></button>").join("");
@@ -8149,15 +8149,18 @@ function openDeck() {
     '<div class="daily-top">' +
       '<button class="daily-icn" id="deckSpClose" aria-label="close">✕</button>' +
       '<div class="deck-sp-title">🃏 Your deck</div>' +
-      '<button class="daily-icn" id="deckSpGear" aria-label="customize your check-in deck" title="customize your check-in deck">⚙</button>' +
+      '<button class="daily-icn" id="deckSpGear" aria-label="deck settings" title="deck settings">⚙</button>' +
     '</div>' +
     '<div class="deck-sp-scroll">' +
       '<div class="deck-ci-sec' + (ciOpen ? "" : " collapsed") + '" id="deckCiSec">' +
-        '<button class="deck-ci-head" id="deckCiHead" aria-expanded="' + (ciOpen ? "true" : "false") + '">' +
-          '<span class="deck-ci-caret" aria-hidden="true">▾</span>' +
-          '<span class="deck-ci-label">Today’s check-in</span>' +
-          '<span class="deck-ci-count">' + qs.length + "</span>" +
-        "</button>" +
+        '<div class="deck-ci-head-row">' +
+          '<button class="deck-ci-head" id="deckCiHead" aria-expanded="' + (ciOpen ? "true" : "false") + '">' +
+            '<span class="deck-ci-caret" aria-hidden="true">▾</span>' +
+            '<span class="deck-ci-label">Today’s check-in</span>' +
+            '<span class="deck-ci-count">' + qs.length + "</span>" +
+          "</button>" +
+          '<button class="deck-ci-edit" id="deckCiEdit" aria-label="edit your check-in questions" title="edit your check-in questions">⚙</button>' +
+        "</div>" +
         '<button class="deck-ci-run" id="deckCiRun"><span class="deck-ci-emoji" aria-hidden="true">☀️</span><span class="deck-ci-run-t">Run today’s check-in</span><span class="deck-ci-go" aria-hidden="true">▶</span></button>' +
         (qCards ? '<div class="deck-q-list">' + qCards + "</div>" : '<div class="deck-q-empty sub">No questions yet — tap ⚙ to build your check-in deck.</div>') +
       "</div>" +
@@ -8169,9 +8172,10 @@ function openDeck() {
   function onKey(e) { if (e.key === "Escape" && !document.getElementById("dailySpace")) close(); }   // if the check-in is open on top, its own Escape handles it first
   document.addEventListener("keydown", onKey);
   root.querySelector("#deckSpClose").addEventListener("click", close);
-  root.querySelector("#deckSpGear").addEventListener("click", openDeckEditor);
+  root.querySelector("#deckSpGear").addEventListener("click", () => { try { openSettings(); } catch (e) {} });   // DECK-level settings (overall) — separate from the check-in form builder
+  root.querySelector("#deckCiEdit").addEventListener("click", () => { try { openDeckEditor(); } catch (e) {} });   // CHECK-IN level — the form builder (add / reorder / manage questions), where it belongs
   root.querySelector("#deckCiRun").addEventListener("click", () => { try { openDaily(); } catch (e) {} });   // the check-in opens on top; the deck stays behind it
-  root.querySelectorAll(".deck-q").forEach((c) => c.addEventListener("click", () => { try { openDaily(); } catch (e) {} }));
+  root.querySelectorAll(".deck-q").forEach((c) => c.addEventListener("click", () => { try { openQuestionDetail(c.dataset.qid); } catch (e) {} }));   // tap a card → edit that one question (same gesture as a task)
   const ciHead = root.querySelector("#deckCiHead"), ciSec = root.querySelector("#deckCiSec");
   if (ciHead && ciSec) ciHead.addEventListener("click", () => {   // toggle: collapse to a compact entry, or expand to see every question at a glance
     const collapsed = !ciSec.classList.contains("collapsed");
@@ -8264,6 +8268,56 @@ function openTaskDetail(id) {
     root.querySelector("#tdDueTime").addEventListener("change", (e) => patch({ dueTime: e.target.value || null }));
     root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { patch({ area: b.dataset.area || null }); render(); }));
     const notes = root.querySelector("#tdNotes"); notes.addEventListener("change", () => patch({ notes: notes.value }));
+  }
+  render();
+}
+// A check-in QUESTION's detail sheet — the SAME gesture as a task (tap a card → edit it),
+// reusing the td-space shell. Fields differ by card type; a question's are emoji, prompt,
+// answer type, and — via the SHARED 12-area picker — the area its answer lands in. The
+// money/health areas map to the dest kinds that have live readers (spend building, energy
+// widget); every other area routes to {kind:"area"}. Saves per-item through saveDeck.
+function openQuestionDetail(qid) {
+  const q0 = (loadDeck() || []).find((x) => x && x.id === qid);
+  if (!q0 || q0.deleted) return;
+  const ex = document.getElementById("taskDetail"); if (ex) ex.remove();
+  const root = document.createElement("div"); root.id = "taskDetail"; root.className = "daily-space td-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const get = () => (loadDeck() || []).find((x) => x && x.id === qid) || q0;
+  const save = (p) => { const q = get(); saveDeck([Object.assign({}, q, p, { updated: deckNow() })]); };   // stamp AT the edit; saveDeck merges per-item
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  document.addEventListener("keydown", onKey);
+  const INPUTS = ["choice", "scale", "yesno", "amount", "count", "duration", "note"];
+  const optStr = (o) => (!o || !o.length) ? "" : o.map((x) => (Array.isArray(x) ? x[1] : x)).join(", ");
+  const parseOpts = (s) => s.split(",").map((x) => x.trim()).filter(Boolean).map((lb) => ["", lb]);
+  const destArea = (d) => { if (!d) return null; if (d.kind === "money") return "Money"; if (d.kind === "health") return "Health"; if (d.kind === "area") { const t = String(d.target || "").toLowerCase(); const m = TD_AREAS.find((a) => a[1].toLowerCase() === t); return m ? m[1] : null; } return null; };
+  const areaDest = (area, prev) => { if (area === "Money") return { kind: "money", target: (prev && prev.target) || "" }; if (area === "Health") return { kind: "health", target: (prev && prev.target) || "energy" }; return { kind: "area", target: area }; };
+  function render() {
+    const q = get(), area = destArea(q.dest), opt = q.input === "choice" || q.input === "scale";
+    const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("");
+    root.innerHTML =
+      '<div class="daily-top">' +
+        '<button class="daily-icn" id="qdClose" aria-label="close">✕</button>' +
+        '<div class="td-htitle">🃏 Check-in card</div>' +
+        '<button class="daily-icn td-del" id="qdDel" aria-label="delete" title="delete">🗑</button>' +
+      "</div>" +
+      '<div class="td-scroll">' +
+        '<div class="qd-titlerow"><input class="qd-emoji" id="qdEmoji" value="' + esc(q.emoji) + '" maxlength="4" aria-label="emoji"><input class="td-title qd-prompt" id="qdPrompt" value="' + esc(q.prompt) + '" placeholder="your question…" aria-label="question"></div>' +
+        '<div class="td-field"><label>Answer type</label><select class="qd-input" id="qdInput">' + INPUTS.map((t) => "<option" + (t === q.input ? " selected" : "") + ">" + t + "</option>").join("") + "</select></div>" +
+        (opt ? '<div class="td-field"><label>Buttons</label><input class="td-unit" id="qdOpts" value="' + esc(optStr(q.options)) + '" placeholder="Cooked, Ate out, Both"></div>' : "") +
+        '<div class="td-field"><label>Where the answer lands — an area</label><div class="td-areas">' + areaChips + "</div></div>" +
+      "</div>";
+    wire();
+  }
+  function wire() {
+    root.querySelector("#qdClose").addEventListener("click", close);
+    root.querySelector("#qdDel").addEventListener("click", () => { save({ deleted: 1 }); close(); });   // tombstone (never absence) — the deck merge relies on it
+    const em = root.querySelector("#qdEmoji"); em.addEventListener("change", () => save({ emoji: em.value }));
+    const pr = root.querySelector("#qdPrompt"); pr.addEventListener("change", () => { const v = pr.value.trim(); if (v) save({ prompt: v }); });
+    const inp = root.querySelector("#qdInput"); inp.addEventListener("change", () => { save({ input: inp.value }); render(); });
+    const op = root.querySelector("#qdOpts"); if (op) op.addEventListener("change", () => save({ options: parseOpts(op.value) }));
+    root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { save({ dest: areaDest(b.dataset.area, get().dest) }); render(); }));
   }
   render();
 }

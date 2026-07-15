@@ -1981,7 +1981,16 @@ body.view-base #board { display: none; }               /* board hides while the 
 .deck-q-empty { padding: 6px 4px 14px; line-height: 1.5; }
 /* collapsible "Today's check-in": tap the header to hide/show the question list at a glance */
 .deck-ci-sec { margin-bottom: 4px; }
-.deck-ci-head { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; min-height: 40px; padding: 4px 2px; margin: 2px 0 8px; border: none; background: none; cursor: pointer; font-family: inherit; }
+.deck-ci-head-row { display: flex; align-items: center; gap: 4px; margin: 2px 0 8px; }
+.deck-ci-head { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 2px; border: none; background: none; cursor: pointer; font-family: inherit; }
+.deck-ci-edit { flex: 0 0 auto; width: 40px; min-height: 40px; border: none; background: none; color: rgba(var(--ink-rgb), 0.45); font-size: 15px; cursor: pointer; border-radius: 9px; }
+.deck-ci-edit:hover { background: rgba(var(--ink-rgb), 0.06); color: var(--ink); }
+/* question detail sheet (rides the td-space shell): emoji + prompt row, answer-type select */
+.qd-titlerow { display: flex; gap: 8px; margin-bottom: 18px; }
+.qd-emoji { flex: 0 0 auto; width: 54px; text-align: center; box-sizing: border-box; min-height: 48px; padding: 0; border: 1px solid var(--edge); border-radius: 12px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 22px; }
+.qd-emoji:focus, .qd-input:focus { outline: none; border-color: var(--accent); }
+.qd-titlerow .td-title { flex: 1 1 auto; margin-bottom: 0; }
+.qd-input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 11px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; }
 .deck-ci-caret { flex: 0 0 auto; color: rgba(var(--ink-rgb), 0.45); font-size: 11px; transition: transform .15s; }
 .deck-ci-sec.collapsed .deck-ci-caret { transform: rotate(-90deg); }
 .deck-ci-label { flex: 1 1 auto; text-align: left; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); font-weight: 600; }
