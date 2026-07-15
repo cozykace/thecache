@@ -2,7 +2,7 @@
 
 A private, local money cockpit. It runs entirely on **your own computer** — your bank data never leaves your machine and is never uploaded anywhere.
 
-> New here and just want to look around? Try the live demo (fake data, nothing to install): **https://cozykace.github.io/thecache/demo/**
+> New here and just want to look around? Try the live demo (fake data, nothing to install): **https://thecache.app/demo/**
 
 ---
 
