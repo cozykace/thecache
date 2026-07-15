@@ -8562,7 +8562,7 @@ function openCalendar() {
   let view = "month";                     // "month" | "day"  (week view is a later brick)
   let cursor = todayKey();                // the focused day (its month, in month view)
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
-  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const onKey = (e) => { if (e.key === "Escape" && !document.getElementById("taskDetail")) close(); };   // a detail sheet open on top handles its own Escape first
   const onCache = () => { if (root.isConnected) render(); else cleanup(); };   // a peer's sync landed → repaint
   const cleanup = () => { document.removeEventListener("keydown", onKey); document.removeEventListener("cache:things", onCache); document.removeEventListener("cache:logged", onCache); };
   const close = () => { root.remove(); cleanup(); };
@@ -8607,7 +8607,8 @@ function openCalendar() {
       const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, cursor)).length;
       rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length + " done" : "routine", members.length > 0 && doneCt === members.length));
     });
-    return '<div class="cal-day">' + (rows.length ? '<div class="cal-agenda">' + rows.join("") + "</div>" : '<div class="cal-empty sub">Nothing on the calendar for this day.</div>') + "</div>";
+    return '<div class="cal-day"><button class="cal-addevent" id="calAddEvent">＋ New event</button>' +
+      (rows.length ? '<div class="cal-agenda">' + rows.join("") + "</div>" : '<div class="cal-empty sub">Nothing on the calendar for this day yet.</div>') + "</div>";
   }
   function render() {
     root.innerHTML =
@@ -8640,9 +8641,74 @@ function openCalendar() {
       try {
         if (act === "detail") openTaskDetail(id);
         else if (act === "rdetail") openRoutineDetail(id);
-        else if (act === "event" && typeof openEventDetail === "function") openEventDetail(id);
+        else if (act === "event") openEventDetail(id);
       } catch (e) {}
     }));
+    const ae = root.querySelector("#calAddEvent"); if (ae) ae.addEventListener("click", () => { try { calAddEvent(cursor); } catch (e) {} });   // new event, prefilled with this day
+  }
+  render();
+}
+// ── EVENTS (type:"event") — a first-class Thing on money.things, so it inherits the ENTIRE
+//    proven per-item merge / tombstone / sync stack for free (no backend, no webcache, no
+//    store.py change). An event is a SPAN (start..end) with an optional time, distinct from a
+//    task's `due` (a deadline). Recurrence via `sched` (reusing routineDueOn) arrives in the
+//    next brick. Non-negotiables (deck contract): a stable id minted ONCE by thingId(); a
+//    reschedule is an EDIT (same id, bump updated); a cancel is a TOMBSTONE, never array removal.
+function calAddEvent(ymd) {
+  const now = Date.now(), id = thingId();
+  const sibs = thingsVisible(loadThings()).filter((x) => x && x.type === "event");
+  const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+  saveThings([{ id: id, type: "event", title: "", emoji: "📌", start: ymd || todayKey(), end: null, allDay: 0, startTime: null, endTime: null, area: null, notes: "", sched: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }]);
+  try { openEventDetail(id); } catch (e) {}
+}
+// An event's detail sheet — cloned from openTaskDetail (td-space shell): emoji + title, timed
+// vs all-day, start/end date + time (native inputs → correct mobile keyboards), the shared
+// 12-area picker, notes, delete. Every edit merges per-item through saveThings (vault-only).
+function openEventDetail(id) {
+  const e0 = loadThings().find((x) => x && x.id === id && x.type === "event");
+  if (!e0 || e0.deleted) return;
+  const ex = document.getElementById("taskDetail"); if (ex) ex.remove();
+  const root = document.createElement("div"); root.id = "taskDetail"; root.className = "daily-space td-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const get = () => loadThings().find((x) => x && x.id === id) || e0;
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const onKey = (ev) => { if (ev.key === "Escape") close(); };
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  document.addEventListener("keydown", onKey);
+  function render() {
+    const t = get(), allDay = !!t.allDay;
+    const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (t.area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("") +
+      (t.area ? '<button class="td-area td-area-clear" data-area="">✕ clear</button>' : "");
+    root.innerHTML =
+      '<div class="daily-top"><button class="daily-icn" id="edClose" aria-label="close">✕</button><div class="td-htitle">📅 Event</div><button class="daily-icn td-del" id="edDel" aria-label="delete" title="delete">🗑</button></div>' +
+      '<div class="td-scroll">' +
+        '<div class="qd-titlerow"><input class="qd-emoji" id="edEmoji" value="' + esc(t.emoji) + '" maxlength="4" aria-label="emoji"><input class="td-title" id="edTitle" value="' + esc(t.title) + '" placeholder="what is it…" aria-label="title"></div>' +
+        '<div class="td-field"><label>Kind</label><div class="td-seg" id="edAllday"><button data-allday="0"' + (!allDay ? ' class="on"' : "") + ">Timed</button><button data-allday=\"1\"" + (allDay ? ' class="on"' : "") + ">All day</button></div></div>" +
+        '<div class="td-field"><label>Starts</label><div class="td-due-row"><input type="date" class="td-due" id="edStart" value="' + esc(t.start) + '" aria-label="start date">' + (!allDay ? '<input type="time" class="td-due" id="edStartTime" value="' + esc(t.startTime) + '" aria-label="start time">' : "") + "</div></div>" +
+        '<div class="td-field"><label>Ends (optional)</label><div class="td-due-row"><input type="date" class="td-due" id="edEnd" value="' + esc(t.end) + '" aria-label="end date">' + (!allDay ? '<input type="time" class="td-due" id="edEndTime" value="' + esc(t.endTime) + '" aria-label="end time">' : "") + "</div></div>" +
+        '<div class="td-field"><label>Area — where it belongs</label><div class="td-areas">' + areaChips + "</div></div>" +
+        '<div class="td-field"><label>Notes</label><textarea class="td-notes" id="edNotes" placeholder="anything to remember…" aria-label="notes">' + esc(t.notes) + "</textarea></div>" +
+        '<div class="td-field td-soon"><label>Repeats</label><div class="td-soon-txt">Make it recurring — coming in the next brick.</div></div>' +
+      "</div>";
+    wire();
+  }
+  function wire() {
+    root.querySelector("#edClose").addEventListener("click", close);
+    root.querySelector("#edDel").addEventListener("click", () => {
+      const all = loadThings(), now = Date.now(), liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+      saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));
+      close();
+    });
+    const em = root.querySelector("#edEmoji"); em.addEventListener("change", () => patch({ emoji: em.value }));
+    const ti = root.querySelector("#edTitle"); ti.addEventListener("change", () => { const v = ti.value.trim(); if (v) patch({ title: v }); });
+    root.querySelectorAll("#edAllday button").forEach((b) => b.addEventListener("click", () => { patch({ allDay: b.dataset.allday === "1" ? 1 : 0 }); render(); }));
+    root.querySelector("#edStart").addEventListener("change", (e) => patch({ start: e.target.value || todayKey() }));
+    const st = root.querySelector("#edStartTime"); if (st) st.addEventListener("change", (e) => patch({ startTime: e.target.value || null }));
+    root.querySelector("#edEnd").addEventListener("change", (e) => patch({ end: e.target.value || null }));
+    const et = root.querySelector("#edEndTime"); if (et) et.addEventListener("change", (e) => patch({ endTime: e.target.value || null }));
+    root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { patch({ area: b.dataset.area || null }); render(); }));
+    const nt = root.querySelector("#edNotes"); nt.addEventListener("change", () => patch({ notes: nt.value }));
   }
   render();
 }

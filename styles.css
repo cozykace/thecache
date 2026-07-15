@@ -2906,6 +2906,8 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 
 /* day agenda */
 .cal-day { width: 100%; max-width: 560px; margin: 0 auto; padding-top: 4px; }
+.cal-addevent { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin: 2px 0 10px; padding: 0 18px; border: 1px solid var(--accent); border-radius: 22px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); font-family: inherit; font-size: 13.5px; cursor: pointer; }
+.cal-addevent:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .cal-agenda { display: flex; flex-direction: column; gap: 6px; }
 .cal-arow { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; min-height: 52px; padding: 8px 14px; border: 1px solid var(--edge-soft); border-radius: 13px; background: var(--panel); color: var(--ink); font-family: inherit; text-align: left; cursor: pointer; transition: border-color 0.12s; }
 .cal-arow:hover { border-color: var(--accent); }
