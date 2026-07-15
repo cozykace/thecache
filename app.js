@@ -4110,26 +4110,47 @@ function openConnect() {
   back.addEventListener("pointerdown", (e) => { if (e.target === back) closeCategorizer(); });
   const modal = document.createElement("div");
   modal.className = "cat-modal connect-modal";
-  modal.innerHTML =
-    '<div class="cat-head"><span>Connect a bank</span><button class="cat-close" aria-label="Close">✕</button></div>' +
-    '<div class="connect-body">' +
-      '<div class="cn-status">checking…</div>' +
-      '<div class="cn-intro">Bank data comes through <b>SimpleFIN Bridge</b> — a read-only service that <b>never hands the app your bank login</b>. The connection is stored only on this computer. First time? Do this once:</div>' +
-      '<ol class="cn-steps">' +
-        '<li>Make a SimpleFIN account at <a href="https://bridge.simplefin.org" target="_blank" rel="noreferrer">bridge.simplefin.org</a> <span class="cn-dim">(~$15/yr — it protects your bank login)</span>.</li>' +
-        '<li>In SimpleFIN, connect your bank(s).</li>' +
-        '<li>Click <b>New app connection</b> → it shows a long <b>setup token</b>.</li>' +
-        '<li>Copy the <b>whole</b> token and paste it below.</li>' +
-      '</ol>' +
-      '<textarea class="cn-token" rows="3" placeholder="paste YOUR SimpleFIN setup token here (it stays on this computer)"></textarea>' +
-      '<button class="cn-connect">Connect &amp; sync</button>' +
-      '<div class="cn-or">— or, free, no bank —</div>' +
-      '<div class="cn-alts">' +
-        '<button class="cn-demo">Load demo data</button>' +
-        '<button class="cn-csv">Import a bank CSV</button>' +
-      '</div>' +
-      '<div class="cn-result"></div>' +
-    '</div>';
+  // On the hosted web app there is no local sync engine — it's a read-only window into the
+  // cache the DESKTOP app pulls from the bank. Presenting the SimpleFIN steps + a token box
+  // here dead-ends the user with a generic "editing is coming soon" reject AFTER they've done
+  // all the work (exactly how a tester got stuck). So on web we say it plainly up front and
+  // point them at the desktop app, instead of offering controls that can't work.
+  const web = !!window.__CACHE_WEB__;
+  if (web) {
+    modal.innerHTML =
+      '<div class="cat-head"><span>Connect a bank</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+      '<div class="connect-body">' +
+        '<div class="cn-status">checking…</div>' +
+        '<div class="cn-intro">You’re viewing your cache on the <b>web</b> — a read-only window into it. Connecting a bank happens once in the <b>desktop app</b> (the part that securely pulls your bank data). After that, your cache <b>syncs here automatically</b> and you can see everything from any device.</div>' +
+        '<ol class="cn-steps">' +
+          '<li>Open <b>THE CACHE desktop app</b> on your computer.</li>' +
+          '<li>Tap <b>Connect a bank</b> and paste your SimpleFIN <b>setup token</b> there.</li>' +
+          '<li>Come back here — your accounts and transactions will already be showing.</li>' +
+        '</ol>' +
+        '<div class="cn-result"></div>' +
+      '</div>';
+  } else {
+    modal.innerHTML =
+      '<div class="cat-head"><span>Connect a bank</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+      '<div class="connect-body">' +
+        '<div class="cn-status">checking…</div>' +
+        '<div class="cn-intro">Bank data comes through <b>SimpleFIN Bridge</b> — a read-only service that <b>never hands the app your bank login</b>. The connection is stored only on this computer. First time? Do this once:</div>' +
+        '<ol class="cn-steps">' +
+          '<li>Make a SimpleFIN account at <a href="https://bridge.simplefin.org" target="_blank" rel="noreferrer">bridge.simplefin.org</a> <span class="cn-dim">(~$15/yr — it protects your bank login)</span>.</li>' +
+          '<li>In SimpleFIN, connect your bank(s).</li>' +
+          '<li>Click <b>New app connection</b> → it shows a long <b>setup token</b>.</li>' +
+          '<li>Copy the <b>whole</b> token and paste it below.</li>' +
+        '</ol>' +
+        '<textarea class="cn-token" rows="3" placeholder="paste YOUR SimpleFIN setup token here (it stays on this computer)"></textarea>' +
+        '<button class="cn-connect">Connect &amp; sync</button>' +
+        '<div class="cn-or">— or, free, no bank —</div>' +
+        '<div class="cn-alts">' +
+          '<button class="cn-demo">Load demo data</button>' +
+          '<button class="cn-csv">Import a bank CSV</button>' +
+        '</div>' +
+        '<div class="cn-result"></div>' +
+      '</div>';
+  }
   document.body.appendChild(back);
   document.body.appendChild(modal);
   if (typeof makeModalResizable === "function") makeModalResizable(modal, "money.connect");
@@ -4139,10 +4160,17 @@ function openConnect() {
   let connected = false;
   fetch("/api/connect-status").then((r) => r.json()).then((d) => {
     connected = !!(d && d.connected);
-    statusEl.innerHTML = connected
-      ? '<span class="cn-ok">✓ A bank is connected.</span> Paste a new token to reconnect, or just close this.'
-      : '<span class="cn-no">Not connected yet.</span> Follow the steps below.';
+    if (web) {
+      statusEl.innerHTML = connected
+        ? '<span class="cn-ok">✓ Your bank is already connected</span> — synced from your desktop. There’s nothing to do here.'
+        : '<span class="cn-no">No bank connected yet.</span> Set it up in the desktop app (below), then it’ll appear here.';
+    } else {
+      statusEl.innerHTML = connected
+        ? '<span class="cn-ok">✓ A bank is connected.</span> Paste a new token to reconnect, or just close this.'
+        : '<span class="cn-no">Not connected yet.</span> Follow the steps below.';
+    }
   }).catch(() => { statusEl.textContent = ""; });
+  if (web) return;   // web body has no token/demo/csv controls to wire
   const doConnect = (body, label) => {
     result.innerHTML = '<span class="cn-working">' + label + "…</span>";
     fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
