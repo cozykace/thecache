@@ -8676,20 +8676,33 @@ function openEventDetail(id) {
   const onKey = (ev) => { if (ev.key === "Escape") close(); };
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
   document.addEventListener("keydown", onKey);
+  const setSched = (p) => { const cur = get(); patch({ sched: Object.assign({}, cur.sched || {}, p) }); };   // merge a patch into the event's sched
   function render() {
-    const t = get(), allDay = !!t.allDay;
+    const t = get(), allDay = !!t.allDay, s = t.sched, recurring = !!s, freq = s ? (s.freq || "daily") : "daily";
+    const days = s && Array.isArray(s.days) ? s.days.map(String) : [];
+    const FREQS = [["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]];
+    const DOW = [["0", "S"], ["1", "M"], ["2", "T"], ["3", "W"], ["4", "T"], ["5", "F"], ["6", "S"]];
+    const everyUnit = freq === "weekly" ? "week(s)" : freq === "monthly" ? "month(s)" : freq === "yearly" ? "year(s)" : "day(s)";
     const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (t.area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("") +
       (t.area ? '<button class="td-area td-area-clear" data-area="">✕ clear</button>' : "");
+    const timeStart = (!allDay ? '<input type="time" class="td-due" id="edStartTime" value="' + esc(t.startTime) + '" aria-label="start time">' : "");
+    const recurFields = recurring
+      ? '<div class="td-field"><label>Repeats</label><div class="td-seg" id="edFreq">' + FREQS.map((fq) => '<button data-freq="' + fq[0] + '"' + (freq === fq[0] ? ' class="on"' : "") + ">" + fq[1] + "</button>").join("") + "</div></div>"
+        + (freq === "weekly" ? '<div class="td-field"><label>On these days</label><div class="rd-days" id="edDays">' + DOW.map((d) => '<button class="rd-day' + (days.indexOf(d[0]) !== -1 ? " on" : "") + '" data-dow="' + d[0] + '">' + d[1] + "</button>").join("") + "</div></div>" : "")
+        + '<div class="td-field"><label>Every</label><div class="rd-every"><input type="number" inputmode="numeric" class="rd-everyin" id="edEvery" value="' + esc(s.every || 1) + '" min="1"><span class="rd-everylbl">' + everyUnit + "</span></div></div>"
+        + '<div class="td-field"><label>Until (optional)</label><input type="date" class="td-due" id="edUntil" value="' + esc(s.end) + '" aria-label="repeat until"></div>'
+      : "";
     root.innerHTML =
       '<div class="daily-top"><button class="daily-icn" id="edClose" aria-label="close">✕</button><div class="td-htitle">📅 Event</div><button class="daily-icn td-del" id="edDel" aria-label="delete" title="delete">🗑</button></div>' +
       '<div class="td-scroll">' +
         '<div class="qd-titlerow"><input class="qd-emoji" id="edEmoji" value="' + esc(t.emoji) + '" maxlength="4" aria-label="emoji"><input class="td-title" id="edTitle" value="' + esc(t.title) + '" placeholder="what is it…" aria-label="title"></div>' +
         '<div class="td-field"><label>Kind</label><div class="td-seg" id="edAllday"><button data-allday="0"' + (!allDay ? ' class="on"' : "") + ">Timed</button><button data-allday=\"1\"" + (allDay ? ' class="on"' : "") + ">All day</button></div></div>" +
-        '<div class="td-field"><label>Starts</label><div class="td-due-row"><input type="date" class="td-due" id="edStart" value="' + esc(t.start) + '" aria-label="start date">' + (!allDay ? '<input type="time" class="td-due" id="edStartTime" value="' + esc(t.startTime) + '" aria-label="start time">' : "") + "</div></div>" +
-        '<div class="td-field"><label>Ends (optional)</label><div class="td-due-row"><input type="date" class="td-due" id="edEnd" value="' + esc(t.end) + '" aria-label="end date">' + (!allDay ? '<input type="time" class="td-due" id="edEndTime" value="' + esc(t.endTime) + '" aria-label="end time">' : "") + "</div></div>" +
+        '<div class="td-field"><label>' + (recurring ? "First on" : "Starts") + '</label><div class="td-due-row"><input type="date" class="td-due" id="edStart" value="' + esc(t.start) + '" aria-label="start date">' + timeStart + "</div></div>" +
+        (recurring ? "" : '<div class="td-field"><label>Ends (optional)</label><div class="td-due-row"><input type="date" class="td-due" id="edEnd" value="' + esc(t.end) + '" aria-label="end date">' + (!allDay ? '<input type="time" class="td-due" id="edEndTime" value="' + esc(t.endTime) + '" aria-label="end time">' : "") + "</div></div>") +
+        '<div class="td-field rd-pausefield"><label class="rd-pauselbl"><input type="checkbox" id="edRepeat"' + (recurring ? " checked" : "") + "> Repeat this event</label></div>" +
+        recurFields +
         '<div class="td-field"><label>Area — where it belongs</label><div class="td-areas">' + areaChips + "</div></div>" +
         '<div class="td-field"><label>Notes</label><textarea class="td-notes" id="edNotes" placeholder="anything to remember…" aria-label="notes">' + esc(t.notes) + "</textarea></div>" +
-        '<div class="td-field td-soon"><label>Repeats</label><div class="td-soon-txt">Make it recurring — coming in the next brick.</div></div>' +
       "</div>";
     wire();
   }
@@ -8703,10 +8716,23 @@ function openEventDetail(id) {
     const em = root.querySelector("#edEmoji"); em.addEventListener("change", () => patch({ emoji: em.value }));
     const ti = root.querySelector("#edTitle"); ti.addEventListener("change", () => { const v = ti.value.trim(); if (v) patch({ title: v }); });
     root.querySelectorAll("#edAllday button").forEach((b) => b.addEventListener("click", () => { patch({ allDay: b.dataset.allday === "1" ? 1 : 0 }); render(); }));
-    root.querySelector("#edStart").addEventListener("change", (e) => patch({ start: e.target.value || todayKey() }));
+    root.querySelector("#edStart").addEventListener("change", (e) => {   // keep the recurrence anchor in step with the start date
+      const v = e.target.value || todayKey(), cur = get(), p = { start: v };
+      if (cur.sched) p.sched = Object.assign({}, cur.sched, { start: v });
+      patch(p);
+    });
     const st = root.querySelector("#edStartTime"); if (st) st.addEventListener("change", (e) => patch({ startTime: e.target.value || null }));
-    root.querySelector("#edEnd").addEventListener("change", (e) => patch({ end: e.target.value || null }));
+    const en = root.querySelector("#edEnd"); if (en) en.addEventListener("change", (e) => patch({ end: e.target.value || null }));
     const et = root.querySelector("#edEndTime"); if (et) et.addEventListener("change", (e) => patch({ endTime: e.target.value || null }));
+    const rep = root.querySelector("#edRepeat"); rep.addEventListener("change", () => {
+      if (rep.checked) { const t = get(), d = _ymd2date(t.start) || new Date(); patch({ sched: { freq: "weekly", every: 1, days: [d.getDay()], start: t.start } }); }   // sensible default: weekly on the start weekday
+      else patch({ sched: null });
+      render();
+    });
+    root.querySelectorAll("#edFreq button").forEach((b) => b.addEventListener("click", () => { setSched({ freq: b.dataset.freq }); render(); }));
+    root.querySelectorAll(".rd-day").forEach((b) => b.addEventListener("click", () => { const s = get().sched || {}, days = Array.isArray(s.days) ? s.days.map(Number) : [], d = +b.dataset.dow, i = days.indexOf(d); if (i === -1) days.push(d); else days.splice(i, 1); setSched({ days: days.sort((x, y) => x - y) }); render(); }));
+    const ev = root.querySelector("#edEvery"); if (ev) ev.addEventListener("change", () => setSched({ every: Math.max(1, parseInt(ev.value) || 1) }));
+    const un = root.querySelector("#edUntil"); if (un) un.addEventListener("change", (e) => setSched({ end: e.target.value || null }));
     root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { patch({ area: b.dataset.area || null }); render(); }));
     const nt = root.querySelector("#edNotes"); nt.addEventListener("change", () => patch({ notes: nt.value }));
   }

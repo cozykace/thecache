@@ -72,4 +72,9 @@ ok("fixture sanity: 2026-07-20 is Monday", _ymd2date("2026-07-20").getDay() === 
 ok("join: recurring event due on its weekday", day("2026-07-20").events.some((e) => e.id === "e3"));
 ok("join: recurring event not due off its weekday", !wed.events.some((e) => e.id === "e3"));
 
+// a recurring event with an Until date (sched.end) stops after it — inclusive on the last day.
+const e4 = [{ id: "e4", type: "event", title: "Standup", sched: { freq: "weekly", days: [1], end: "2026-07-20" } }];
+ok("join: recurring event honors Until (on the last day)", calThingsOnDay(e4, "2026-07-20").events.some((e) => e.id === "e4"));
+ok("join: recurring event honors Until (gone after)", !calThingsOnDay(e4, "2026-07-27").events.some((e) => e.id === "e4"));
+
 console.log(`\n${p} passed, ${f} failed`); process.exit(f ? 1 : 0);
