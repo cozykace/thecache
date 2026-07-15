@@ -18,7 +18,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import store
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PORT = 5173
+PORT = int(os.environ.get("GOAT_PORT", "5173"))  # override if 5173 is taken: GOAT_PORT=5174 python3 server.py
 
 # never serve these over HTTP, even on localhost
 BLOCKED = (".simplefin", ".py", ".pyc")
@@ -442,4 +442,15 @@ if __name__ == "__main__":
     HOST = os.environ.get("GOAT_HOST", "127.0.0.1")
     where = "your network" if HOST == "0.0.0.0" else "localhost"
     print(f"THE CACHE running on {HOST}:{PORT}  ({where})  (Ctrl-C to stop)")
-    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    try:
+        ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    except OSError as e:
+        # Port already taken (another copy of THE CACHE, or a dev server on 5173) — show a
+        # plain-English message instead of a scary traceback in the double-click launcher.
+        if getattr(e, "errno", None) in (48, 98, 10048):  # EADDRINUSE on mac/linux/windows
+            print(f"\n  Couldn't start — port {PORT} is already in use.")
+            print(f"  Another copy of THE CACHE may already be running (try http://localhost:{PORT}),")
+            print(f"  or close whatever is using that port. To use a different one:")
+            print(f"      GOAT_PORT={PORT + 1} python3 server.py\n")
+            raise SystemExit(1)
+        raise
