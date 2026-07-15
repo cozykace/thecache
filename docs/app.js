@@ -1235,7 +1235,13 @@ const RENDERERS = {
     // Routines (scheduling) and your own data fields are the next bricks.
     el.classList.add("is-tasks");
     let undo = null, selfSaving = false, panel = null;   // panel = {id, kind:"addsub"|"menu"|"amount"} — one inline row open at a time
-    const collapsed = new Set();   // ids whose subtree is hidden (ephemeral, per widget)
+    // Fold state PERSISTS across deck opens (bare key, like deckCiCollapsed → auto-excluded
+    // from the vault since only money.* syncs). Routines default COLLAPSED (neat accordions
+    // pinned at top); tasks with subtasks default expanded. An explicit toggle stores 0|1.
+    const FOLD_KEY = "deckFold";
+    let fold = {}; try { fold = JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {}; } catch (e) { fold = {}; }
+    const isOpen = (t) => (fold[t.id] === 0 || fold[t.id] === 1) ? fold[t.id] === 1 : (t.type !== "routine");
+    const setOpen = (id, open) => { fold[id] = open ? 1 : 0; try { localStorage.setItem(FOLD_KEY, JSON.stringify(fold)); } catch (e) {} };
     const clip = (s, n) => (s && s.length > n ? s.slice(0, n) + "…" : (s || ""));
     const save = (items) => { selfSaving = true; try { saveThings(items); } finally { selfSaving = false; } };
     const esc = (s) => escapeHtml(s || "");
@@ -1262,15 +1268,16 @@ const RENDERERS = {
           const doneCt = members.filter((m) => thingDoneOn(log, m.id, today)).length;
           rows.push(routineRowHtml(t, depth, members.length, doneCt, due));
           if (panel && panel.id === t.id) rows.push(panelHtml(t, depth + 1));
-          if (!collapsed.has(t.id)) members.forEach((m) => rows.push(rowHtml(m, depth + 1, 0, log, today)));
+          if (isOpen(t)) members.forEach((m) => rows.push(rowHtml(m, depth + 1, 0, log, today)));
           return;
         }
         const kids = sortSibs((byParent[t.id] || []).slice());
         rows.push(rowHtml(t, depth, kids.length, log, today));
         if (panel && panel.id === t.id) rows.push(panelHtml(t, depth + 1));
-        if (kids.length && !collapsed.has(t.id)) kids.forEach((k) => walk(k, depth + 1));
+        if (kids.length && isOpen(t)) kids.forEach((k) => walk(k, depth + 1));
       };
-      roots.forEach((r) => walk(r, 0));
+      roots.filter((t) => t.type === "routine").forEach((r) => walk(r, 0));   // routines pinned to the top as accordions
+      roots.filter((t) => t.type !== "routine").forEach((r) => walk(r, 0));   // then loose tasks + habits
       const flat = roots.filter((t) => t.type !== "routine");
       const open = flat.filter((t) => !doneState(t, log, today)).length, doneN = flat.length - open;
       el.innerHTML =
@@ -1283,7 +1290,7 @@ const RENDERERS = {
       wire();
     }
     function rowHtml(t, depth, nKids, log, today) {
-      const habit = isHabit(t), amount = isAmount(t), done = doneState(t, log, today), col = collapsed.has(t.id);
+      const habit = isHabit(t), amount = isAmount(t), done = doneState(t, log, today), col = !isOpen(t);
       const unit = t.unit ? " " + esc(t.unit) : "";
       const dayVal = amount ? thingAmountOn(log, t.id, today) : null;
       const control = amount   // amount habits show a tappable value chip instead of a checkbox
@@ -1301,7 +1308,7 @@ const RENDERERS = {
         "</div>";
     }
     function routineRowHtml(r, depth, nMembers, doneCt, due) {
-      const col = collapsed.has(r.id), allDone = nMembers > 0 && doneCt === nMembers;
+      const col = !isOpen(r), allDone = nMembers > 0 && doneCt === nMembers;
       return '<div class="tk-item tk-routine' + (allDone ? " done" : "") + (due ? "" : " tk-notdue") + '" style="margin-left:' + (depth * 15) + 'px">' +
         '<button class="tk-caret' + (col ? " col" : "") + '" data-act="caret" data-id="' + esc(r.id) + '" aria-label="' + (col ? "expand" : "collapse") + '">▾</button>' +
         '<span class="tk-remoji" aria-hidden="true">' + esc(r.emoji || "🔁") + "</span>" +
@@ -1360,9 +1367,9 @@ const RENDERERS = {
         else if (act === "del") del(id);
         else if (act === "detail") openTaskDetail(id);
         else if (act === "rdetail") { try { openRoutineDetail(id); } catch (e) {} }
-        else if (act === "caret") { collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); render(); }
-        else if (act === "addsub") { togglePanel(id, "addsub"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
-        else if (act === "addmember") { togglePanel(id, "addmember"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
+        else if (act === "caret") { const ct = loadThings().find((x) => x && x.id === id); setOpen(id, !(ct ? isOpen(ct) : false)); render(); }
+        else if (act === "addsub") { togglePanel(id, "addsub"); setOpen(id, true); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
+        else if (act === "addmember") { togglePanel(id, "addmember"); setOpen(id, true); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
         else if (act === "menu") { togglePanel(id, "menu"); render(); }
         else if (act === "amount") { togglePanel(id, "amount"); render(); const ai = el.querySelector(".tk-amtin"); if (ai) ai.focus(); }
         else if (act === "tohabit") { panel = null; thingSetType(id, "habit"); }   // re-renders via the cache:things listener
