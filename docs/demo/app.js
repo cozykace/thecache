@@ -1242,30 +1242,44 @@ const RENDERERS = {
     const sortSibs = (a) => a.sort((x, y) => (!!x.done - !!y.done) || (+x.ord || 0) - (+y.ord || 0) || (x.id < y.id ? -1 : 1));   // one-off done sinks; habits keep their spot (their object `done` stays 0)
     const isHabit = (t) => t.type === "habit";
     const isAmount = (t) => isHabit(t) && t.track === "amount";
-    const doneState = (t, log, today) => (isHabit(t) ? thingDoneOn(log, t.id, today) : !!t.done);   // habits: DERIVED from the log per day (they recur); tasks: the object flag
+    const doneState = (t, log, today) => ((isHabit(t) || t.routine) ? thingDoneOn(log, t.id, today) : !!t.done);   // habits AND routine members recur → DERIVED from the log per day; plain tasks use the object flag
     const togglePanel = (id, kind) => { panel = (panel && panel.id === id && panel.kind === kind) ? null : { id: id, kind: kind }; };
     function model() {
-      const vis = thingsVisible(loadThings()), byParent = {};   // liveness-filtered: tombstoned/dangling subtrees hidden
-      vis.forEach((t) => { const p = t.parent || "_root"; (byParent[p] = byParent[p] || []).push(t); });
-      return { byParent, roots: sortSibs((byParent._root || []).filter((t) => (t.type === "task" || t.type === "habit") && !t.routine)) };
+      const vis = thingsVisible(loadThings()), byParent = {}, byRoutine = {};   // liveness-filtered: tombstoned/dangling subtrees hidden
+      vis.forEach((t) => {
+        if (t.routine && t.type !== "routine") { (byRoutine[t.routine] = byRoutine[t.routine] || []).push(t); return; }   // routine MEMBERS group under their routine
+        const p = t.parent || "_root"; (byParent[p] = byParent[p] || []).push(t);
+      });
+      const roots = sortSibs((byParent._root || []).filter((t) => (t.type === "task" || t.type === "habit" || t.type === "routine") && !t.parent && !t.routine));
+      return { byParent, byRoutine, roots };
     }
     function render() {
-      const { byParent, roots } = model(), rows = [], log = loadLog(), today = todayKey();
+      const { byParent, byRoutine, roots } = model(), rows = [], log = loadLog(), today = todayKey();
       const walk = (t, depth) => {   // uniform recursion — a subtask's children render exactly like a task's
+        if (t.type === "routine") {   // a ROUTINE groups members (routine:<id>), shown when expanded; each member's "done today" is log-derived
+          const members = sortSibs((byRoutine[t.id] || []).slice());
+          const due = (typeof routineDueOn === "function") ? routineDueOn(t.sched, today) : true;
+          const doneCt = members.filter((m) => thingDoneOn(log, m.id, today)).length;
+          rows.push(routineRowHtml(t, depth, members.length, doneCt, due));
+          if (panel && panel.id === t.id) rows.push(panelHtml(t, depth + 1));
+          if (!collapsed.has(t.id)) members.forEach((m) => rows.push(rowHtml(m, depth + 1, 0, log, today)));
+          return;
+        }
         const kids = sortSibs((byParent[t.id] || []).slice());
         rows.push(rowHtml(t, depth, kids.length, log, today));
         if (panel && panel.id === t.id) rows.push(panelHtml(t, depth + 1));
         if (kids.length && !collapsed.has(t.id)) kids.forEach((k) => walk(k, depth + 1));
       };
       roots.forEach((r) => walk(r, 0));
-      const open = roots.filter((t) => !doneState(t, log, today)).length, doneN = roots.length - open;
+      const flat = roots.filter((t) => t.type !== "routine");
+      const open = flat.filter((t) => !doneState(t, log, today)).length, doneN = flat.length - open;
       el.innerHTML =
         '<div class="tk-add"><input class="tk-in" placeholder="add a task…" maxlength="200" aria-label="add a task">' +
         '<button class="tk-go" aria-label="add task">＋</button></div>' +
         (rows.length ? '<div class="tk-list">' + rows.join("") + "</div>"
-          : '<div class="sub tk-empty">the things you need to do and remember. add one above, break it into subtasks, or make it a habit you track — it all stays logged in your trail.</div>') +
+          : '<div class="sub tk-empty">the things you need to do and remember. add one above, break it into subtasks, make it a habit, or group a few into a routine.</div>') +
         (undo ? '<div class="tk-undo"><span class="tk-undo-t">' + esc(undo.label) + " deleted</span><button class=\"tk-undo-go\">undo</button></div>" : "") +
-        '<div class="sub tk-count">' + (roots.length ? open + " to do" + (doneN ? " · " + doneN + " done" : "") : "") + "</div>";
+        '<div class="tk-foot"><button class="tk-newroutine" id="tkNewRoutine">🔁 New routine</button><span class="sub tk-count">' + (flat.length ? open + " to do" + (doneN ? " · " + doneN + " done" : "") : "") + "</span></div>";
       wire();
     }
     function rowHtml(t, depth, nKids, log, today) {
@@ -1280,15 +1294,27 @@ const RENDERERS = {
           ? '<button class="tk-caret' + (col ? " col" : "") + '" data-act="caret" data-id="' + esc(t.id) + '" aria-label="' + (col ? "expand" : "collapse") + '">▾</button>'
           : '<span class="tk-caret-sp"></span>') +
         control +
-        '<span class="tk-title" data-act="trail" data-id="' + esc(t.id) + '" role="button" tabindex="0" title="see activity">' + (habit ? '<span class="tk-hbadge" aria-hidden="true" title="a habit — recurs daily">↻</span>' : "") + esc(t.title) + "</span>" +
+        '<span class="tk-title" data-act="detail" data-id="' + esc(t.id) + '" role="button" tabindex="0" title="open — edit, due date, area…">' + (habit ? '<span class="tk-hbadge" aria-hidden="true" title="a habit — recurs daily">↻</span>' : "") + esc(t.title) + "</span>" +
         '<button class="tk-addsub" data-act="addsub" data-id="' + esc(t.id) + '" aria-label="add a subtask" title="add a subtask">＋</button>' +
         '<button class="tk-menu" data-act="menu" data-id="' + esc(t.id) + '" aria-label="options" title="habit &amp; options">⋯</button>' +
         '<button class="tk-x" data-act="del" data-id="' + esc(t.id) + '" aria-label="delete">✕</button>' +
         "</div>";
     }
+    function routineRowHtml(r, depth, nMembers, doneCt, due) {
+      const col = collapsed.has(r.id), allDone = nMembers > 0 && doneCt === nMembers;
+      return '<div class="tk-item tk-routine' + (allDone ? " done" : "") + (due ? "" : " tk-notdue") + '" style="margin-left:' + (depth * 15) + 'px">' +
+        '<button class="tk-caret' + (col ? " col" : "") + '" data-act="caret" data-id="' + esc(r.id) + '" aria-label="' + (col ? "expand" : "collapse") + '">▾</button>' +
+        '<span class="tk-remoji" aria-hidden="true">' + esc(r.emoji || "🔁") + "</span>" +
+        '<span class="tk-title" data-act="rdetail" data-id="' + esc(r.id) + '" role="button" tabindex="0" title="edit routine — name, schedule, steps">' + esc(r.name || "Routine") + "</span>" +
+        '<span class="tk-rprog' + (allDone ? " done" : "") + '">' + (due ? doneCt + "/" + nMembers : "not today") + "</span>" +
+        '<button class="tk-addsub" data-act="addmember" data-id="' + esc(r.id) + '" aria-label="add a step" title="add a step">＋</button>' +
+        '<button class="tk-x" data-act="del" data-id="' + esc(r.id) + '" aria-label="delete routine">✕</button>' +
+        "</div>";
+    }
     function panelHtml(t, depth) {
       const ml = ' style="margin-left:' + (depth * 15) + 'px"';
       if (panel.kind === "addsub") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a subtask…" maxlength="200" aria-label="add a subtask"><button class="tk-subgo" aria-label="add subtask">＋</button></div>';
+      if (panel.kind === "addmember") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a step to this routine…" maxlength="200" aria-label="add a step"><button class="tk-subgo" aria-label="add step">＋</button></div>';
       if (panel.kind === "amount") { const u = t.unit ? " " + esc(t.unit) : ""; return '<div class="tk-subadd"' + ml + '><input class="tk-amtin" type="number" inputmode="decimal" placeholder="how many' + u + '…" aria-label="log amount"><button class="tk-subgo tk-amtgo" aria-label="log">✓</button></div>'; }
       // the ⋯ menu — the habit upgrade/downgrade + tracking-mode actions
       const habit = isHabit(t), amount = isAmount(t), btns = [];
@@ -1306,6 +1332,19 @@ const RENDERERS = {
       // every object gets a stable globally-unique id + real stamps at birth (deck contract)
       save([{ id: thingId(), type: type, title: title, done: 0, doneAt: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: parentId, routine: null }]);
     }
+    function addMember(routineId, title) {   // a routine STEP — a thing carrying routine:<id>; completion is log-derived (resets daily)
+      const now = Date.now();
+      const sibs = thingsVisible(loadThings()).filter((x) => x.routine === routineId);
+      const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+      save([{ id: thingId(), type: "task", title: title, done: 0, doneAt: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: routineId }]);
+    }
+    function newRoutine() {
+      const now = Date.now(), id = thingId();
+      const sibs = thingsVisible(loadThings()).filter((x) => x.type === "routine");
+      const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+      save([{ id: id, type: "routine", name: "New routine", emoji: "🔁", sched: { freq: "daily", every: 1 }, active: 1, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }]);
+      undo = null; render(); try { openRoutineDetail(id); } catch (e) {}
+    }
     function wire() {
       const inp = el.querySelector(".tk-in");
       const addTop = () => {
@@ -1319,27 +1358,30 @@ const RENDERERS = {
         const id = b.dataset.id, act = b.dataset.act;
         if (act === "toggle") toggle(id);
         else if (act === "del") del(id);
-        else if (act === "trail") openTrail(id);
+        else if (act === "detail") openTaskDetail(id);
+        else if (act === "rdetail") { try { openRoutineDetail(id); } catch (e) {} }
         else if (act === "caret") { collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); render(); }
         else if (act === "addsub") { togglePanel(id, "addsub"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
+        else if (act === "addmember") { togglePanel(id, "addmember"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
         else if (act === "menu") { togglePanel(id, "menu"); render(); }
         else if (act === "amount") { togglePanel(id, "amount"); render(); const ai = el.querySelector(".tk-amtin"); if (ai) ai.focus(); }
-        else if (act === "tohabit") toHabit(id);
-        else if (act === "totask") toTask(id);
-        else if (act === "track") setTrack(id, b.dataset.mode);
+        else if (act === "tohabit") { panel = null; thingSetType(id, "habit"); }   // re-renders via the cache:things listener
+        else if (act === "totask") { panel = null; thingSetType(id, "task"); }
+        else if (act === "track") { panel = null; thingSetTrack(id, b.dataset.mode); }
       }));
-      el.querySelectorAll('.tk-title[data-act="trail"]').forEach((s) => s.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTrail(s.dataset.id); } }));
+      el.querySelectorAll('.tk-title[data-act="detail"]').forEach((s) => s.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTaskDetail(s.dataset.id); } }));
       const subin = el.querySelector(".tk-subin");
       if (subin) {
         const commitSub = () => {
-          const v = (subin.value || "").trim(), pid = panel && panel.id;
-          if (v && pid) { addUnder(pid, v, "subtask"); } else { panel = null; }   // keep the panel open (same parent) for rapid entry
+          const v = (subin.value || "").trim(), pid = panel && panel.id, kind = panel && panel.kind;
+          if (v && pid) { if (kind === "addmember") addMember(pid, v); else addUnder(pid, v, "subtask"); } else { panel = null; }   // keep the panel open (same parent) for rapid entry
           undo = null; render();
           const si = el.querySelector(".tk-subin"); if (si) si.focus();
         };
         subin.addEventListener("keydown", (e) => { if (e.key === "Enter") commitSub(); else if (e.key === "Escape") { panel = null; render(); } });
         const sg = el.querySelector(".tk-subgo"); if (sg) sg.addEventListener("click", commitSub);
       }
+      const nr = el.querySelector("#tkNewRoutine"); if (nr) nr.addEventListener("click", newRoutine);
       const amtin = el.querySelector(".tk-amtin");
       if (amtin) {
         const commitAmt = () => { const v = (amtin.value || "").trim(), pid = panel && panel.id; if (v !== "" && pid) logAmount(pid, parseFloat(v)); else { panel = null; render(); } };
@@ -1350,9 +1392,9 @@ const RENDERERS = {
     }
     function toggle(id) {
       const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
-      if (isHabit(t)) {
-        // habits RECUR → "done today" is LOG-DERIVED (§3), never an object flag that would have
-        // to reset every morning and fight the merge. Toggle TODAY's state in the log only.
+      if (isHabit(t) || t.routine) {
+        // habits AND routine members RECUR → "done today" is LOG-DERIVED (§3), never an object
+        // flag that would have to reset every morning and fight the merge. Toggle TODAY only.
         const done = thingDoneOn(loadLog(), id, todayKey());
         try { logThingEvent(id, done ? "undone" : "done", { items: all }); } catch (e) {}
         if (!done) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit done · +2 EXP"); } catch (e) {} }
@@ -1370,21 +1412,6 @@ const RENDERERS = {
       if (!(qty >= 0)) { panel = null; render(); return; }
       try { logThingEvent(id, "habit", { items: loadThings(), value: { done: 1, qty: qty } }); } catch (e) {}
       try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit logged · +2 EXP"); } catch (e) {}
-      panel = null; render();
-    }
-    function toHabit(id) {   // task → habit (yes/no by default). id UNCHANGED (§3: an EDIT, not delete+create) — bump `updated` so the merge adopts it.
-      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
-      save([Object.assign({}, t, { type: "habit", track: "check", done: 0, doneAt: null, updated: Date.now() })]);
-      panel = null; render();
-    }
-    function toTask(id) {   // habit → task (drop the tracking)
-      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
-      const c = Object.assign({}, t, { type: "task", updated: Date.now() }); delete c.track; delete c.unit;
-      save([c]); panel = null; render();
-    }
-    function setTrack(id, mode) {   // habit tracking mode: yes/no ↔ a number
-      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
-      save([Object.assign({}, t, { track: mode, updated: Date.now() })]);
       panel = null; render();
     }
     function del(id) {
@@ -7799,6 +7826,40 @@ function fieldValues(log, fieldId) {
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }
 
+// ── Routine recurrence engine (§3 sched) — PURE: is a routine scheduled for a given local
+//    day? Daily (every N days), weekly (days-of-week, every N weeks), monthly (days-of-month
+//    OR nth-weekday), yearly (month/day), honoring start/end and pause. "Due today" is the
+//    VIEWING device's local day; a member's completion stays LOG-derived per (member, day).
+function _ymd2date(ymd) { const p = String(ymd || "").split("-"); return p.length === 3 ? new Date(+p[0], +p[1] - 1, +p[2]) : null; }
+function _weekStart(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()); }
+function _nthWeekdayOfMonth(d, nth, weekday) {
+  if (d.getDay() !== weekday) return false;
+  const dom = d.getDate();
+  if (nth === -1) return new Date(d.getFullYear(), d.getMonth(), dom + 7).getMonth() !== d.getMonth();   // the LAST such weekday
+  return Math.floor((dom - 1) / 7) + 1 === nth;
+}
+function routineDueOn(sched, ymd) {
+  if (!sched) return true;                        // no schedule → always available
+  if (sched.paused) return false;
+  const d = _ymd2date(ymd); if (!d) return false;
+  if (sched.start && ymd < sched.start) return false;
+  if (sched.end && ymd > sched.end) return false;
+  const every = Math.max(1, +sched.every || 1), freq = sched.freq || "daily", start = sched.start ? _ymd2date(sched.start) : d;
+  if (freq === "daily") { if (every === 1) return true; const n = Math.round((d - start) / 86400000); return n >= 0 && n % every === 0; }
+  if (freq === "weekly") {
+    const dow = d.getDay(), days = (Array.isArray(sched.days) && sched.days.length) ? sched.days : [dow];
+    if (days.indexOf(dow) === -1) return false;
+    if (every === 1) return true;
+    const wk = Math.round((_weekStart(d) - _weekStart(start)) / 604800000); return wk >= 0 && wk % every === 0;
+  }
+  if (freq === "monthly") {
+    if (Array.isArray(sched.monthly) && sched.monthly.length) return sched.monthly.indexOf(d.getDate()) !== -1;
+    if (sched.monthly && sched.monthly.weekday != null) return _nthWeekdayOfMonth(d, sched.monthly.nth, sched.monthly.weekday);
+    return d.getDate() === start.getDate();
+  }
+  if (freq === "yearly") { const y = sched.yearly || { month: start.getMonth() + 1, day: start.getDate() }; return (d.getMonth() + 1) === +y.month && d.getDate() === +y.day; }
+  return true;
+}
 function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || []; } catch (e) { return []; } }
 function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); return true; } catch (e) { return false; } }
 function todayKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -8054,8 +8115,8 @@ function openDeckEditor() {
           '<button class="deck-del" aria-label="remove">✕</button></div>' +
         '<div class="deck-row-cfg">' +
           '<label>Answer<select class="deck-input">' + INPUTS.map((t) => "<option" + (t === it.input ? " selected" : "") + ">" + t + "</option>").join("") + "</select></label>" +
-          '<label>Store<select class="deck-kind">' + [["money", "💰 Money"], ["health", "🩺 Health"], ["tracker", "📈 Tracker"], ["dayflag", "📅 Day-log"]].map((k) => '<option value="' + k[0] + '"' + ((it.dest && it.dest.kind) === k[0] ? " selected" : "") + ">" + k[1] + "</option>").join("") + "</select></label>" +
-          '<label class="deck-target">Where<input class="deck-tgt" value="' + escapeHtml((it.dest && it.dest.target) || "") + '" placeholder="name (e.g. Groceries)" list="deckBldNames"></label></div>' +
+          '<label>Area<select class="deck-kind"><option value=""' + (!deckDestToArea(it.dest) ? " selected" : "") + ">—</option>" + TD_AREAS.map((a) => '<option value="' + escapeHtml(a[1]) + '"' + (deckDestToArea(it.dest) === a[1] ? " selected" : "") + ">" + a[0] + " " + escapeHtml(a[1]) + "</option>").join("") + "</select></label>" +
+          (deckDestToArea(it.dest) === "Money" ? '<label class="deck-target">Building<input class="deck-tgt" value="' + escapeHtml((it.dest && it.dest.target) || "") + '" placeholder="e.g. Groceries" list="deckBldNames"></label>' : "") + "</div>" +
         ((it.input === "choice" || it.input === "scale") ? '<div class="deck-row-cfg"><label class="deck-optlbl">Buttons<input class="deck-opts" value="' + escapeHtml(optStr(it.options)) + '" placeholder="Cooked, Ate out, Both"></label></div>' : "");
       // stamp AT THE POINT OF EDIT — the item the user actually touched. Deriving
       // "what changed" inside the save would make this stale array authoritative for
@@ -8065,8 +8126,8 @@ function openDeckEditor() {
       row.querySelector(".deck-emoji").addEventListener("input", (e) => { it.emoji = e.target.value; touch(); });
       row.querySelector(".deck-prompt").addEventListener("input", (e) => { it.prompt = e.target.value; touch(); });
       row.querySelector(".deck-input").addEventListener("change", (e) => { it.input = e.target.value; touch(); render(); });
-      row.querySelector(".deck-kind").addEventListener("change", (e) => { it.dest = it.dest || {}; it.dest.kind = e.target.value; touch(); });
-      row.querySelector(".deck-tgt").addEventListener("input", (e) => { it.dest = it.dest || {}; it.dest.target = e.target.value; touch(); });
+      row.querySelector(".deck-kind").addEventListener("change", (e) => { it.dest = e.target.value ? deckAreaToDest(e.target.value, it.dest) : { kind: "area", target: "" }; touch(); render(); });   // 12-area vocabulary, shared with the card sheet
+      const tgt = row.querySelector(".deck-tgt"); if (tgt) tgt.addEventListener("input", (e) => { it.dest = it.dest || {}; it.dest.target = e.target.value; touch(); });
       const oi = row.querySelector(".deck-opts"); if (oi) oi.addEventListener("input", (e) => { it.options = parseOpts(e.target.value); touch(); });
       row.__item = it;
       // delete leaves a TOMBSTONE. Removing the item outright would let any device
@@ -8135,32 +8196,277 @@ function showDeckCoach() {
 function openDeck() {
   if (document.getElementById("deckSpace") || document.getElementById("dailySpace")) return;
   const root = document.createElement("div"); root.id = "deckSpace"; root.className = "daily-space deck-space";
+  // Your check-in QUESTIONS now show as cards right here. They used to be invisible on this
+  // surface — the ⚙ gear edited them but the view showed only tasks, so "edit the deck → open
+  // the deck → the questions aren't there." One deck, one surface: questions + tasks together.
+  const DECK_INPUT_HINT = { choice: "pick", scale: "1–5", yesno: "yes/no", amount: "$", count: "count", duration: "time", note: "note" };
+  const qs = (typeof deckLive === "function" ? deckLive(loadDeck()) : []).slice().sort((a, b) => (+a.ord || 0) - (+b.ord || 0));
+  const qCards = qs.map((q) => '<button class="deck-q" data-qid="' + escapeHtml(q.id) + '">' +
+    '<span class="deck-q-emoji" aria-hidden="true">' + escapeHtml(q.emoji || "🃏") + "</span>" +
+    '<span class="deck-q-txt">' + escapeHtml(q.prompt || "") + "</span>" +
+    '<span class="deck-q-kind">' + escapeHtml(DECK_INPUT_HINT[q.input] || "") + "</span></button>").join("");
+  let ciOpen = true; try { ciOpen = localStorage.getItem("deckCiCollapsed") !== "1"; } catch (e) {}   // remembered per device (non-money key → not synced)
   root.innerHTML =
     '<div class="daily-top">' +
       '<button class="daily-icn" id="deckSpClose" aria-label="close">✕</button>' +
       '<div class="deck-sp-title">🃏 Your deck</div>' +
-      '<button class="daily-icn" id="deckSpGear" aria-label="customize your check-in deck" title="customize your check-in deck">⚙</button>' +
+      '<button class="daily-icn" id="deckSpGear" aria-label="deck settings" title="deck settings">⚙</button>' +
     '</div>' +
     '<div class="deck-sp-scroll">' +
-      '<button class="deck-ci" id="deckCi">' +
-        '<span class="deck-ci-emoji" aria-hidden="true">☀️</span>' +
-        '<span class="deck-ci-txt"><b>Today’s check-in</b><span>one minute · keeps your cache fed</span></span>' +
-        '<span class="deck-ci-go" aria-hidden="true">▶</span>' +
-      '</button>' +
-      '<div class="deck-sec-h">Tasks &amp; habits</div>' +
+      '<div class="deck-ci-sec' + (ciOpen ? "" : " collapsed") + '" id="deckCiSec">' +
+        '<div class="deck-ci-head-row">' +
+          '<button class="deck-ci-head" id="deckCiHead" aria-expanded="' + (ciOpen ? "true" : "false") + '">' +
+            '<span class="deck-ci-caret" aria-hidden="true">▾</span>' +
+            '<span class="deck-ci-label">Today’s check-in</span>' +
+            '<span class="deck-ci-count">' + qs.length + "</span>" +
+          "</button>" +
+          '<button class="deck-ci-edit" id="deckCiEdit" aria-label="edit your check-in questions" title="edit your check-in questions">⚙</button>' +
+        "</div>" +
+        '<button class="deck-ci-run" id="deckCiRun"><span class="deck-ci-emoji" aria-hidden="true">☀️</span><span class="deck-ci-run-t">Run today’s check-in</span><span class="deck-ci-go" aria-hidden="true">▶</span></button>' +
+        (qCards ? '<div class="deck-q-list">' + qCards + "</div>" : '<div class="deck-q-empty sub">No questions yet — tap ⚙ to build your check-in deck.</div>') +
+      "</div>" +
+      '<div class="deck-sec-h deck-sec-h2">Tasks &amp; habits</div>' +
       '<div class="deck-sp-tasks" id="deckSpTasks"></div>' +
-    '</div>';
+    "</div>";
   document.body.appendChild(root);
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
   function onKey(e) { if (e.key === "Escape" && !document.getElementById("dailySpace")) close(); }   // if the check-in is open on top, its own Escape handles it first
   document.addEventListener("keydown", onKey);
   root.querySelector("#deckSpClose").addEventListener("click", close);
-  root.querySelector("#deckSpGear").addEventListener("click", openDeckEditor);
-  root.querySelector("#deckCi").addEventListener("click", () => { try { openDaily(); } catch (e) {} });   // check-in opens on top; the deck stays behind it
+  root.querySelector("#deckSpGear").addEventListener("click", () => { try { openSettings(); } catch (e) {} });   // DECK-level settings (overall) — separate from the check-in form builder
+  root.querySelector("#deckCiEdit").addEventListener("click", () => { try { openDeckEditor(); } catch (e) {} });   // CHECK-IN level — the form builder (add / reorder / manage questions), where it belongs
+  root.querySelector("#deckCiRun").addEventListener("click", () => { try { openDaily(); } catch (e) {} });   // the check-in opens on top; the deck stays behind it
+  root.querySelectorAll(".deck-q").forEach((c) => c.addEventListener("click", () => { try { openQuestionDetail(c.dataset.qid); } catch (e) {} }));   // tap a card → edit that one question (same gesture as a task)
+  const ciHead = root.querySelector("#deckCiHead"), ciSec = root.querySelector("#deckCiSec");
+  if (ciHead && ciSec) ciHead.addEventListener("click", () => {   // toggle: collapse to a compact entry, or expand to see every question at a glance
+    const collapsed = !ciSec.classList.contains("collapsed");
+    ciSec.classList.toggle("collapsed", collapsed);
+    ciHead.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    try { localStorage.setItem("deckCiCollapsed", collapsed ? "1" : "0"); } catch (e) {}
+  });
   try { if (typeof RENDERERS === "object" && RENDERERS.tasks) RENDERERS.tasks(root.querySelector("#deckSpTasks")); } catch (e) {}   // the real Tasks/Habits widget, mounted full-screen
 }
+// ── Task / habit DETAIL — tap a row's bar to open the full editor, like any task manager:
+//    rename, notes, due date + time, task↔habit + how it's tracked, the life AREA it belongs
+//    to (its "data store"), its activity trail, and delete. Full-screen, mobile-first (reuses
+//    the deck shell). Routine membership arrives with routines. Every edit merges per-item.
+const TD_AREAS = [
+  ["💰", "Money"], ["🩺", "Health"], ["⏱️", "Time"], ["🏠", "Household"], ["✅", "Tasks"], ["🍳", "Meals"],
+  ["🤝", "Community"], ["👥", "Relationships"], ["📚", "Learning"], ["🎨", "Creative"], ["🧰", "Home & Stuff"], ["📓", "Journal"],
+];
+// The ONE code path for task↔habit conversion + tracking mode — used by BOTH the widget's ⋯
+// quick menu and the detail sheet, so they can't drift. An edit, id UNCHANGED (§3). Callers
+// re-render their own surface (the widget via its cache:things listener; the sheet explicitly).
+function thingSetType(id, type) {
+  const t = loadThings().find((x) => x && x.id === id); if (!t) return;
+  if (type === "habit") { if (t.type !== "habit") saveThings([Object.assign({}, t, { type: "habit", track: t.track || "check", done: 0, doneAt: null, updated: Date.now() })]); }
+  else { const c = Object.assign({}, t, { type: "task", updated: Date.now() }); delete c.track; delete c.unit; saveThings([c]); }   // drop the tracking on downgrade
+}
+function thingSetTrack(id, mode) {
+  const t = loadThings().find((x) => x && x.id === id); if (!t) return;
+  saveThings([Object.assign({}, t, { track: mode, updated: Date.now() })]);
+}
+function openTaskDetail(id) {
+  const t0 = loadThings().find((x) => x && x.id === id);
+  if (!t0 || t0.deleted) return;
+  const ex = document.getElementById("taskDetail"); if (ex) ex.remove();
+  const root = document.createElement("div"); root.id = "taskDetail"; root.className = "daily-space td-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const get = () => loadThings().find((x) => x && x.id === id) || t0;   // always read the freshest copy
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  document.addEventListener("keydown", onKey);
+  function render() {
+    const t = get(), habit = t.type === "habit", amount = habit && t.track === "amount", now = Date.now();
+    const byId = {}; loadThings().forEach((x) => { if (x && x.id) byId[x.id] = x; });
+    const trail = (typeof thingTrail === "function" ? thingTrail(loadLog(), id) : []).slice().reverse();
+    const trailRow = (e) => {
+      const it = byId[e.itemId], name = it ? "“" + esc(it.title) + "”" : "an item", self = e.itemId === id;
+      let w = esc(e.kind) + " " + name;
+      if (e.kind === "done") w = "<b>✓</b> completed " + (self ? "this" : name);
+      else if (e.kind === "undone") w = "<b>↩</b> un-checked " + (self ? "this" : name);
+      else if (e.kind === "habit") w = "<b>◆</b> logged " + name + (e.value && e.value.qty != null ? " · " + esc(e.value.qty) : "");
+      return '<div class="tkt-row"><span class="tkt-what">' + w + '</span><span class="tkt-when">' + esc(ageStr(now - (+e.at || 0))) + "</span></div>";
+    };
+    const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (t.area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("") +
+      (t.area ? '<button class="td-area td-area-clear" data-area="">✕ clear</button>' : "");
+    root.innerHTML =
+      '<div class="daily-top">' +
+        '<button class="daily-icn" id="tdClose" aria-label="close">✕</button>' +
+        '<div class="td-htitle">' + (habit ? "↻ Habit" : "✅ Task") + '</div>' +
+        '<button class="daily-icn td-del" id="tdDel" aria-label="delete" title="delete">🗑</button>' +
+      '</div>' +
+      '<div class="td-scroll">' +
+        '<input class="td-title" id="tdTitle" value="' + esc(t.title) + '" placeholder="name…" aria-label="name">' +
+        '<div class="td-field"><label>Type</label><div class="td-seg" id="tdType">' +
+          '<button data-type="task"' + (!habit ? ' class="on"' : "") + '>✅ Task</button>' +
+          '<button data-type="habit"' + (habit ? ' class="on"' : "") + '>↻ Habit</button>' +
+        "</div></div>" +
+        (habit ? '<div class="td-field"><label>How it’s tracked</label><div class="td-seg" id="tdTrack">' +
+          '<button data-mode="check"' + (!amount ? ' class="on"' : "") + ">Yes / no</button>" +
+          '<button data-mode="amount"' + (amount ? ' class="on"' : "") + ">A number</button>" +
+          "</div>" + (amount ? '<input class="td-unit" id="tdUnit" value="' + esc(t.unit) + '" placeholder="unit — min, reps, pages…" aria-label="unit">' : "") + "</div>" : "") +
+        '<div class="td-field"><label>Due</label><div class="td-due-row">' +
+          '<input type="date" class="td-due" id="tdDue" value="' + esc(t.due) + '" aria-label="due date">' +
+          '<input type="time" class="td-due" id="tdDueTime" value="' + esc(t.dueTime) + '" aria-label="due time">' +
+        "</div></div>" +
+        '<div class="td-field"><label>Area — where it belongs</label><div class="td-areas">' + areaChips + "</div></div>" +
+        '<div class="td-field"><label>Notes</label><textarea class="td-notes" id="tdNotes" placeholder="anything to remember…" aria-label="notes">' + esc(t.notes) + "</textarea></div>" +
+        '<div class="td-field td-soon"><label>Routine</label><div class="td-soon-txt">Add to a saved routine — coming with routines.</div></div>' +
+        '<div class="td-field"><label>Activity</label>' + (trail.length ? '<div class="td-trail">' + trail.map(trailRow).join("") + "</div>" : '<div class="tkt-empty">No activity yet — check it off and it shows here.</div>') + "</div>" +
+      "</div>";
+    wire();
+  }
+  function wire() {
+    root.querySelector("#tdClose").addEventListener("click", close);
+    root.querySelector("#tdDel").addEventListener("click", () => {
+      const all = loadThings(), now = Date.now(), liveBefore = {};
+      all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+      saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));
+      close();
+    });
+    const title = root.querySelector("#tdTitle");
+    title.addEventListener("change", () => { const v = title.value.trim(); if (v) patch({ title: v }); });   // save on blur / Enter
+    root.querySelectorAll("#tdType button").forEach((b) => b.addEventListener("click", () => { thingSetType(id, b.dataset.type); render(); }));
+    root.querySelectorAll("#tdTrack button").forEach((b) => b.addEventListener("click", () => { thingSetTrack(id, b.dataset.mode); render(); }));
+    const unit = root.querySelector("#tdUnit"); if (unit) unit.addEventListener("change", () => patch({ unit: unit.value.trim() }));
+    root.querySelector("#tdDue").addEventListener("change", (e) => patch({ due: e.target.value || null }));
+    root.querySelector("#tdDueTime").addEventListener("change", (e) => patch({ dueTime: e.target.value || null }));
+    root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { patch({ area: b.dataset.area || null }); render(); }));
+    const notes = root.querySelector("#tdNotes"); notes.addEventListener("change", () => patch({ notes: notes.value }));
+  }
+  render();
+}
+// ONE "where does this belong" vocabulary — the 12 areas — shared by the question detail
+// sheet AND the batch form-builder AND (as a tag) tasks. Questions map areas to the dest
+// kinds: Money/Health keep the kinds that have live readers (spend building, energy widget);
+// every other area routes to {kind:"area"}. Legacy tracker/dayflag questions read as unmapped
+// until re-tagged. Kept as two tiny pure functions so all three surfaces stay in lockstep.
+function deckDestToArea(d) {
+  if (!d) return null;
+  if (d.kind === "money") return "Money";
+  if (d.kind === "health") return "Health";
+  if (d.kind === "area") { const t = String(d.target || "").toLowerCase(); const m = TD_AREAS.find((a) => a[1].toLowerCase() === t); return m ? m[1] : null; }
+  return null;
+}
+function deckAreaToDest(area, prev) {
+  if (area === "Money") return { kind: "money", target: (prev && prev.target) || "" };
+  if (area === "Health") return { kind: "health", target: (prev && prev.target) || "energy" };
+  return { kind: "area", target: area };
+}
+// A check-in QUESTION's detail sheet — the SAME gesture as a task (tap a card → edit it),
+// reusing the td-space shell. Fields differ by card type; a question's are emoji, prompt,
+// answer type, and — via the SHARED 12-area picker — the area its answer lands in. The
+// money/health areas map to the dest kinds that have live readers (spend building, energy
+// widget); every other area routes to {kind:"area"}. Saves per-item through saveDeck.
+function openQuestionDetail(qid) {
+  const q0 = (loadDeck() || []).find((x) => x && x.id === qid);
+  if (!q0 || q0.deleted) return;
+  const ex = document.getElementById("taskDetail"); if (ex) ex.remove();
+  const root = document.createElement("div"); root.id = "taskDetail"; root.className = "daily-space td-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const get = () => (loadDeck() || []).find((x) => x && x.id === qid) || q0;
+  const save = (p) => { const q = get(); saveDeck([Object.assign({}, q, p, { updated: deckNow() })]); };   // stamp AT the edit; saveDeck merges per-item
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  document.addEventListener("keydown", onKey);
+  const INPUTS = ["choice", "scale", "yesno", "amount", "count", "duration", "note"];
+  const optStr = (o) => (!o || !o.length) ? "" : o.map((x) => (Array.isArray(x) ? x[1] : x)).join(", ");
+  const parseOpts = (s) => s.split(",").map((x) => x.trim()).filter(Boolean).map((lb) => ["", lb]);
+  const destArea = deckDestToArea, areaDest = deckAreaToDest;   // shared with the batch form-builder — one vocabulary
+  function render() {
+    const q = get(), area = destArea(q.dest), opt = q.input === "choice" || q.input === "scale";
+    const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("");
+    root.innerHTML =
+      '<div class="daily-top">' +
+        '<button class="daily-icn" id="qdClose" aria-label="close">✕</button>' +
+        '<div class="td-htitle">🃏 Check-in card</div>' +
+        '<button class="daily-icn td-del" id="qdDel" aria-label="delete" title="delete">🗑</button>' +
+      "</div>" +
+      '<div class="td-scroll">' +
+        '<div class="qd-titlerow"><input class="qd-emoji" id="qdEmoji" value="' + esc(q.emoji) + '" maxlength="4" aria-label="emoji"><input class="td-title qd-prompt" id="qdPrompt" value="' + esc(q.prompt) + '" placeholder="your question…" aria-label="question"></div>' +
+        '<div class="td-field"><label>Answer type</label><select class="qd-input" id="qdInput">' + INPUTS.map((t) => "<option" + (t === q.input ? " selected" : "") + ">" + t + "</option>").join("") + "</select></div>" +
+        (opt ? '<div class="td-field"><label>Buttons</label><input class="td-unit" id="qdOpts" value="' + esc(optStr(q.options)) + '" placeholder="Cooked, Ate out, Both"></div>' : "") +
+        '<div class="td-field"><label>Where the answer lands — an area</label><div class="td-areas">' + areaChips + "</div></div>" +
+      "</div>";
+    wire();
+  }
+  function wire() {
+    root.querySelector("#qdClose").addEventListener("click", close);
+    root.querySelector("#qdDel").addEventListener("click", () => { save({ deleted: 1 }); close(); });   // tombstone (never absence) — the deck merge relies on it
+    const em = root.querySelector("#qdEmoji"); em.addEventListener("change", () => save({ emoji: em.value }));
+    const pr = root.querySelector("#qdPrompt"); pr.addEventListener("change", () => { const v = pr.value.trim(); if (v) save({ prompt: v }); });
+    const inp = root.querySelector("#qdInput"); inp.addEventListener("change", () => { save({ input: inp.value }); render(); });
+    const op = root.querySelector("#qdOpts"); if (op) op.addEventListener("change", () => save({ options: parseOpts(op.value) }));
+    root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { save({ dest: areaDest(b.dataset.area, get().dest) }); render(); }));
+  }
+  render();
+}
+// A ROUTINE's detail sheet — name, emoji, the recurrence schedule (feeds routineDueOn), and
+// delete (cascades to its steps). Same td-space shell as tasks/questions. Steps are added from
+// the routine card in the deck. Members complete log-derived per day; the schedule decides
+// which days the routine is "due".
+function openRoutineDetail(id) {
+  const r0 = loadThings().find((x) => x && x.id === id && x.type === "routine");
+  if (!r0 || r0.deleted) return;
+  const ex = document.getElementById("taskDetail"); if (ex) ex.remove();
+  const root = document.createElement("div"); root.id = "taskDetail"; root.className = "daily-space td-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const get = () => loadThings().find((x) => x && x.id === id) || r0;
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const sched = (p) => { const t = get(); patch({ sched: Object.assign({}, t.sched || {}, p) }); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  document.addEventListener("keydown", onKey);
+  const FREQS = [["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]];
+  const DOW = [["0", "S"], ["1", "M"], ["2", "T"], ["3", "W"], ["4", "T"], ["5", "F"], ["6", "S"]];
+  function render() {
+    const r = get(), s = r.sched || { freq: "daily", every: 1 }, freq = s.freq || "daily", days = Array.isArray(s.days) ? s.days.map(String) : [];
+    const unit = freq === "weekly" ? "week(s)" : freq === "monthly" ? "month(s)" : freq === "yearly" ? "year(s)" : "day(s)";
+    root.innerHTML =
+      '<div class="daily-top"><button class="daily-icn" id="rdClose" aria-label="close">✕</button><div class="td-htitle">🔁 Routine</div><button class="daily-icn td-del" id="rdDel" aria-label="delete" title="delete">🗑</button></div>' +
+      '<div class="td-scroll">' +
+        '<div class="qd-titlerow"><input class="qd-emoji" id="rdEmoji" value="' + esc(r.emoji) + '" maxlength="4" aria-label="emoji"><input class="td-title" id="rdName" value="' + esc(r.name) + '" placeholder="routine name…" aria-label="name"></div>' +
+        '<div class="td-field"><label>Repeats</label><div class="td-seg" id="rdFreq">' + FREQS.map((fq) => '<button data-freq="' + fq[0] + '"' + (freq === fq[0] ? ' class="on"' : "") + ">" + fq[1] + "</button>").join("") + "</div></div>" +
+        (freq === "weekly" ? '<div class="td-field"><label>On these days</label><div class="rd-days">' + DOW.map((d) => '<button class="rd-day' + (days.indexOf(d[0]) !== -1 ? " on" : "") + '" data-dow="' + d[0] + '">' + d[1] + "</button>").join("") + "</div></div>" : "") +
+        '<div class="td-field"><label>Every</label><div class="rd-every"><input type="number" inputmode="numeric" class="rd-everyin" id="rdEvery" value="' + esc(s.every || 1) + '" min="1"><span class="rd-everylbl">' + unit + "</span></div></div>" +
+        '<div class="td-field"><label>Starts</label><input type="date" class="td-due" id="rdStart" value="' + esc(s.start) + '"></div>' +
+        '<div class="td-field rd-pausefield"><label class="rd-pauselbl"><input type="checkbox" id="rdPaused"' + (s.paused ? " checked" : "") + "> Paused</label></div>" +
+        '<div class="td-field td-soon"><label>Steps</label><div class="td-soon-txt">Add steps with the ＋ on the routine card in your deck.</div></div>' +
+      "</div>";
+    wire();
+  }
+  function wire() {
+    root.querySelector("#rdClose").addEventListener("click", close);
+    root.querySelector("#rdDel").addEventListener("click", () => {
+      const all = loadThings(), now = Date.now(), liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+      saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));   // cascade tombstones its steps too
+      close();
+    });
+    const em = root.querySelector("#rdEmoji"); em.addEventListener("change", () => patch({ emoji: em.value }));
+    const nm = root.querySelector("#rdName"); nm.addEventListener("change", () => { const v = nm.value.trim(); if (v) patch({ name: v }); });
+    root.querySelectorAll("#rdFreq button").forEach((b) => b.addEventListener("click", () => { sched({ freq: b.dataset.freq }); render(); }));
+    root.querySelectorAll(".rd-day").forEach((b) => b.addEventListener("click", () => { const s = get().sched || {}, days = Array.isArray(s.days) ? s.days.map(Number) : [], d = +b.dataset.dow, i = days.indexOf(d); if (i === -1) days.push(d); else days.splice(i, 1); sched({ days: days.sort((x, y) => x - y) }); render(); }));
+    const ev = root.querySelector("#rdEvery"); ev.addEventListener("change", () => sched({ every: Math.max(1, parseInt(ev.value) || 1) }));
+    const st = root.querySelector("#rdStart"); st.addEventListener("change", (e) => sched({ start: e.target.value || null }));
+    const pz = root.querySelector("#rdPaused"); pz.addEventListener("change", () => sched({ paused: pz.checked ? 1 : 0 }));
+  }
+  render();
+}
+// The action button opens whatever it's SET to open (the deck by default). A tiny registry
+// gives the target indirection the flagship "configurable action button" needs; a settings
+// picker can write money.actionTarget later without touching this dispatch.
+function actionButtonRun() {
+  let target = "deck"; try { target = localStorage.getItem("money.actionTarget") || "deck"; } catch (e) {}
+  const fn = ({ deck: openDeck, checkin: openDaily })[target] || openDeck;
+  try { fn(); } catch (e) { try { openDeck(); } catch (e2) {} }
+}
 (function () {
-  const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", openDeck);
+  const b = document.getElementById("dailyBtn"); if (b) b.addEventListener("click", actionButtonRun);
   // ── The action button remembers your touch. Every tap's landing spot is
   //    banked (normalized 0..1) — the raw material for the living, wearing,
   //    heat-mapped button of the FLAGSHIP action-button vision. Starts now so

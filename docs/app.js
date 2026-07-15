@@ -1242,30 +1242,44 @@ const RENDERERS = {
     const sortSibs = (a) => a.sort((x, y) => (!!x.done - !!y.done) || (+x.ord || 0) - (+y.ord || 0) || (x.id < y.id ? -1 : 1));   // one-off done sinks; habits keep their spot (their object `done` stays 0)
     const isHabit = (t) => t.type === "habit";
     const isAmount = (t) => isHabit(t) && t.track === "amount";
-    const doneState = (t, log, today) => (isHabit(t) ? thingDoneOn(log, t.id, today) : !!t.done);   // habits: DERIVED from the log per day (they recur); tasks: the object flag
+    const doneState = (t, log, today) => ((isHabit(t) || t.routine) ? thingDoneOn(log, t.id, today) : !!t.done);   // habits AND routine members recur → DERIVED from the log per day; plain tasks use the object flag
     const togglePanel = (id, kind) => { panel = (panel && panel.id === id && panel.kind === kind) ? null : { id: id, kind: kind }; };
     function model() {
-      const vis = thingsVisible(loadThings()), byParent = {};   // liveness-filtered: tombstoned/dangling subtrees hidden
-      vis.forEach((t) => { const p = t.parent || "_root"; (byParent[p] = byParent[p] || []).push(t); });
-      return { byParent, roots: sortSibs((byParent._root || []).filter((t) => (t.type === "task" || t.type === "habit") && !t.routine)) };
+      const vis = thingsVisible(loadThings()), byParent = {}, byRoutine = {};   // liveness-filtered: tombstoned/dangling subtrees hidden
+      vis.forEach((t) => {
+        if (t.routine && t.type !== "routine") { (byRoutine[t.routine] = byRoutine[t.routine] || []).push(t); return; }   // routine MEMBERS group under their routine
+        const p = t.parent || "_root"; (byParent[p] = byParent[p] || []).push(t);
+      });
+      const roots = sortSibs((byParent._root || []).filter((t) => (t.type === "task" || t.type === "habit" || t.type === "routine") && !t.parent && !t.routine));
+      return { byParent, byRoutine, roots };
     }
     function render() {
-      const { byParent, roots } = model(), rows = [], log = loadLog(), today = todayKey();
+      const { byParent, byRoutine, roots } = model(), rows = [], log = loadLog(), today = todayKey();
       const walk = (t, depth) => {   // uniform recursion — a subtask's children render exactly like a task's
+        if (t.type === "routine") {   // a ROUTINE groups members (routine:<id>), shown when expanded; each member's "done today" is log-derived
+          const members = sortSibs((byRoutine[t.id] || []).slice());
+          const due = (typeof routineDueOn === "function") ? routineDueOn(t.sched, today) : true;
+          const doneCt = members.filter((m) => thingDoneOn(log, m.id, today)).length;
+          rows.push(routineRowHtml(t, depth, members.length, doneCt, due));
+          if (panel && panel.id === t.id) rows.push(panelHtml(t, depth + 1));
+          if (!collapsed.has(t.id)) members.forEach((m) => rows.push(rowHtml(m, depth + 1, 0, log, today)));
+          return;
+        }
         const kids = sortSibs((byParent[t.id] || []).slice());
         rows.push(rowHtml(t, depth, kids.length, log, today));
         if (panel && panel.id === t.id) rows.push(panelHtml(t, depth + 1));
         if (kids.length && !collapsed.has(t.id)) kids.forEach((k) => walk(k, depth + 1));
       };
       roots.forEach((r) => walk(r, 0));
-      const open = roots.filter((t) => !doneState(t, log, today)).length, doneN = roots.length - open;
+      const flat = roots.filter((t) => t.type !== "routine");
+      const open = flat.filter((t) => !doneState(t, log, today)).length, doneN = flat.length - open;
       el.innerHTML =
         '<div class="tk-add"><input class="tk-in" placeholder="add a task…" maxlength="200" aria-label="add a task">' +
         '<button class="tk-go" aria-label="add task">＋</button></div>' +
         (rows.length ? '<div class="tk-list">' + rows.join("") + "</div>"
-          : '<div class="sub tk-empty">the things you need to do and remember. add one above, break it into subtasks, or make it a habit you track — it all stays logged in your trail.</div>') +
+          : '<div class="sub tk-empty">the things you need to do and remember. add one above, break it into subtasks, make it a habit, or group a few into a routine.</div>') +
         (undo ? '<div class="tk-undo"><span class="tk-undo-t">' + esc(undo.label) + " deleted</span><button class=\"tk-undo-go\">undo</button></div>" : "") +
-        '<div class="sub tk-count">' + (roots.length ? open + " to do" + (doneN ? " · " + doneN + " done" : "") : "") + "</div>";
+        '<div class="tk-foot"><button class="tk-newroutine" id="tkNewRoutine">🔁 New routine</button><span class="sub tk-count">' + (flat.length ? open + " to do" + (doneN ? " · " + doneN + " done" : "") : "") + "</span></div>";
       wire();
     }
     function rowHtml(t, depth, nKids, log, today) {
@@ -1286,9 +1300,21 @@ const RENDERERS = {
         '<button class="tk-x" data-act="del" data-id="' + esc(t.id) + '" aria-label="delete">✕</button>' +
         "</div>";
     }
+    function routineRowHtml(r, depth, nMembers, doneCt, due) {
+      const col = collapsed.has(r.id), allDone = nMembers > 0 && doneCt === nMembers;
+      return '<div class="tk-item tk-routine' + (allDone ? " done" : "") + (due ? "" : " tk-notdue") + '" style="margin-left:' + (depth * 15) + 'px">' +
+        '<button class="tk-caret' + (col ? " col" : "") + '" data-act="caret" data-id="' + esc(r.id) + '" aria-label="' + (col ? "expand" : "collapse") + '">▾</button>' +
+        '<span class="tk-remoji" aria-hidden="true">' + esc(r.emoji || "🔁") + "</span>" +
+        '<span class="tk-title" data-act="rdetail" data-id="' + esc(r.id) + '" role="button" tabindex="0" title="edit routine — name, schedule, steps">' + esc(r.name || "Routine") + "</span>" +
+        '<span class="tk-rprog' + (allDone ? " done" : "") + '">' + (due ? doneCt + "/" + nMembers : "not today") + "</span>" +
+        '<button class="tk-addsub" data-act="addmember" data-id="' + esc(r.id) + '" aria-label="add a step" title="add a step">＋</button>' +
+        '<button class="tk-x" data-act="del" data-id="' + esc(r.id) + '" aria-label="delete routine">✕</button>' +
+        "</div>";
+    }
     function panelHtml(t, depth) {
       const ml = ' style="margin-left:' + (depth * 15) + 'px"';
       if (panel.kind === "addsub") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a subtask…" maxlength="200" aria-label="add a subtask"><button class="tk-subgo" aria-label="add subtask">＋</button></div>';
+      if (panel.kind === "addmember") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a step to this routine…" maxlength="200" aria-label="add a step"><button class="tk-subgo" aria-label="add step">＋</button></div>';
       if (panel.kind === "amount") { const u = t.unit ? " " + esc(t.unit) : ""; return '<div class="tk-subadd"' + ml + '><input class="tk-amtin" type="number" inputmode="decimal" placeholder="how many' + u + '…" aria-label="log amount"><button class="tk-subgo tk-amtgo" aria-label="log">✓</button></div>'; }
       // the ⋯ menu — the habit upgrade/downgrade + tracking-mode actions
       const habit = isHabit(t), amount = isAmount(t), btns = [];
@@ -1306,6 +1332,19 @@ const RENDERERS = {
       // every object gets a stable globally-unique id + real stamps at birth (deck contract)
       save([{ id: thingId(), type: type, title: title, done: 0, doneAt: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: parentId, routine: null }]);
     }
+    function addMember(routineId, title) {   // a routine STEP — a thing carrying routine:<id>; completion is log-derived (resets daily)
+      const now = Date.now();
+      const sibs = thingsVisible(loadThings()).filter((x) => x.routine === routineId);
+      const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+      save([{ id: thingId(), type: "task", title: title, done: 0, doneAt: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: routineId }]);
+    }
+    function newRoutine() {
+      const now = Date.now(), id = thingId();
+      const sibs = thingsVisible(loadThings()).filter((x) => x.type === "routine");
+      const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+      save([{ id: id, type: "routine", name: "New routine", emoji: "🔁", sched: { freq: "daily", every: 1 }, active: 1, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }]);
+      undo = null; render(); try { openRoutineDetail(id); } catch (e) {}
+    }
     function wire() {
       const inp = el.querySelector(".tk-in");
       const addTop = () => {
@@ -1320,8 +1359,10 @@ const RENDERERS = {
         if (act === "toggle") toggle(id);
         else if (act === "del") del(id);
         else if (act === "detail") openTaskDetail(id);
+        else if (act === "rdetail") { try { openRoutineDetail(id); } catch (e) {} }
         else if (act === "caret") { collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); render(); }
         else if (act === "addsub") { togglePanel(id, "addsub"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
+        else if (act === "addmember") { togglePanel(id, "addmember"); collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
         else if (act === "menu") { togglePanel(id, "menu"); render(); }
         else if (act === "amount") { togglePanel(id, "amount"); render(); const ai = el.querySelector(".tk-amtin"); if (ai) ai.focus(); }
         else if (act === "tohabit") { panel = null; thingSetType(id, "habit"); }   // re-renders via the cache:things listener
@@ -1332,14 +1373,15 @@ const RENDERERS = {
       const subin = el.querySelector(".tk-subin");
       if (subin) {
         const commitSub = () => {
-          const v = (subin.value || "").trim(), pid = panel && panel.id;
-          if (v && pid) { addUnder(pid, v, "subtask"); } else { panel = null; }   // keep the panel open (same parent) for rapid entry
+          const v = (subin.value || "").trim(), pid = panel && panel.id, kind = panel && panel.kind;
+          if (v && pid) { if (kind === "addmember") addMember(pid, v); else addUnder(pid, v, "subtask"); } else { panel = null; }   // keep the panel open (same parent) for rapid entry
           undo = null; render();
           const si = el.querySelector(".tk-subin"); if (si) si.focus();
         };
         subin.addEventListener("keydown", (e) => { if (e.key === "Enter") commitSub(); else if (e.key === "Escape") { panel = null; render(); } });
         const sg = el.querySelector(".tk-subgo"); if (sg) sg.addEventListener("click", commitSub);
       }
+      const nr = el.querySelector("#tkNewRoutine"); if (nr) nr.addEventListener("click", newRoutine);
       const amtin = el.querySelector(".tk-amtin");
       if (amtin) {
         const commitAmt = () => { const v = (amtin.value || "").trim(), pid = panel && panel.id; if (v !== "" && pid) logAmount(pid, parseFloat(v)); else { panel = null; render(); } };
@@ -1350,9 +1392,9 @@ const RENDERERS = {
     }
     function toggle(id) {
       const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
-      if (isHabit(t)) {
-        // habits RECUR → "done today" is LOG-DERIVED (§3), never an object flag that would have
-        // to reset every morning and fight the merge. Toggle TODAY's state in the log only.
+      if (isHabit(t) || t.routine) {
+        // habits AND routine members RECUR → "done today" is LOG-DERIVED (§3), never an object
+        // flag that would have to reset every morning and fight the merge. Toggle TODAY only.
         const done = thingDoneOn(loadLog(), id, todayKey());
         try { logThingEvent(id, done ? "undone" : "done", { items: all }); } catch (e) {}
         if (!done) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit done · +2 EXP"); } catch (e) {} }
@@ -7784,6 +7826,40 @@ function fieldValues(log, fieldId) {
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }
 
+// ── Routine recurrence engine (§3 sched) — PURE: is a routine scheduled for a given local
+//    day? Daily (every N days), weekly (days-of-week, every N weeks), monthly (days-of-month
+//    OR nth-weekday), yearly (month/day), honoring start/end and pause. "Due today" is the
+//    VIEWING device's local day; a member's completion stays LOG-derived per (member, day).
+function _ymd2date(ymd) { const p = String(ymd || "").split("-"); return p.length === 3 ? new Date(+p[0], +p[1] - 1, +p[2]) : null; }
+function _weekStart(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()); }
+function _nthWeekdayOfMonth(d, nth, weekday) {
+  if (d.getDay() !== weekday) return false;
+  const dom = d.getDate();
+  if (nth === -1) return new Date(d.getFullYear(), d.getMonth(), dom + 7).getMonth() !== d.getMonth();   // the LAST such weekday
+  return Math.floor((dom - 1) / 7) + 1 === nth;
+}
+function routineDueOn(sched, ymd) {
+  if (!sched) return true;                        // no schedule → always available
+  if (sched.paused) return false;
+  const d = _ymd2date(ymd); if (!d) return false;
+  if (sched.start && ymd < sched.start) return false;
+  if (sched.end && ymd > sched.end) return false;
+  const every = Math.max(1, +sched.every || 1), freq = sched.freq || "daily", start = sched.start ? _ymd2date(sched.start) : d;
+  if (freq === "daily") { if (every === 1) return true; const n = Math.round((d - start) / 86400000); return n >= 0 && n % every === 0; }
+  if (freq === "weekly") {
+    const dow = d.getDay(), days = (Array.isArray(sched.days) && sched.days.length) ? sched.days : [dow];
+    if (days.indexOf(dow) === -1) return false;
+    if (every === 1) return true;
+    const wk = Math.round((_weekStart(d) - _weekStart(start)) / 604800000); return wk >= 0 && wk % every === 0;
+  }
+  if (freq === "monthly") {
+    if (Array.isArray(sched.monthly) && sched.monthly.length) return sched.monthly.indexOf(d.getDate()) !== -1;
+    if (sched.monthly && sched.monthly.weekday != null) return _nthWeekdayOfMonth(d, sched.monthly.nth, sched.monthly.weekday);
+    return d.getDate() === start.getDate();
+  }
+  if (freq === "yearly") { const y = sched.yearly || { month: start.getMonth() + 1, day: start.getDate() }; return (d.getMonth() + 1) === +y.month && d.getDate() === +y.day; }
+  return true;
+}
 function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || []; } catch (e) { return []; } }
 function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); return true; } catch (e) { return false; } }
 function todayKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -8326,6 +8402,58 @@ function openQuestionDetail(qid) {
     const inp = root.querySelector("#qdInput"); inp.addEventListener("change", () => { save({ input: inp.value }); render(); });
     const op = root.querySelector("#qdOpts"); if (op) op.addEventListener("change", () => save({ options: parseOpts(op.value) }));
     root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { save({ dest: areaDest(b.dataset.area, get().dest) }); render(); }));
+  }
+  render();
+}
+// A ROUTINE's detail sheet — name, emoji, the recurrence schedule (feeds routineDueOn), and
+// delete (cascades to its steps). Same td-space shell as tasks/questions. Steps are added from
+// the routine card in the deck. Members complete log-derived per day; the schedule decides
+// which days the routine is "due".
+function openRoutineDetail(id) {
+  const r0 = loadThings().find((x) => x && x.id === id && x.type === "routine");
+  if (!r0 || r0.deleted) return;
+  const ex = document.getElementById("taskDetail"); if (ex) ex.remove();
+  const root = document.createElement("div"); root.id = "taskDetail"; root.className = "daily-space td-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const get = () => loadThings().find((x) => x && x.id === id) || r0;
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const sched = (p) => { const t = get(); patch({ sched: Object.assign({}, t.sched || {}, p) }); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
+  document.addEventListener("keydown", onKey);
+  const FREQS = [["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]];
+  const DOW = [["0", "S"], ["1", "M"], ["2", "T"], ["3", "W"], ["4", "T"], ["5", "F"], ["6", "S"]];
+  function render() {
+    const r = get(), s = r.sched || { freq: "daily", every: 1 }, freq = s.freq || "daily", days = Array.isArray(s.days) ? s.days.map(String) : [];
+    const unit = freq === "weekly" ? "week(s)" : freq === "monthly" ? "month(s)" : freq === "yearly" ? "year(s)" : "day(s)";
+    root.innerHTML =
+      '<div class="daily-top"><button class="daily-icn" id="rdClose" aria-label="close">✕</button><div class="td-htitle">🔁 Routine</div><button class="daily-icn td-del" id="rdDel" aria-label="delete" title="delete">🗑</button></div>' +
+      '<div class="td-scroll">' +
+        '<div class="qd-titlerow"><input class="qd-emoji" id="rdEmoji" value="' + esc(r.emoji) + '" maxlength="4" aria-label="emoji"><input class="td-title" id="rdName" value="' + esc(r.name) + '" placeholder="routine name…" aria-label="name"></div>' +
+        '<div class="td-field"><label>Repeats</label><div class="td-seg" id="rdFreq">' + FREQS.map((fq) => '<button data-freq="' + fq[0] + '"' + (freq === fq[0] ? ' class="on"' : "") + ">" + fq[1] + "</button>").join("") + "</div></div>" +
+        (freq === "weekly" ? '<div class="td-field"><label>On these days</label><div class="rd-days">' + DOW.map((d) => '<button class="rd-day' + (days.indexOf(d[0]) !== -1 ? " on" : "") + '" data-dow="' + d[0] + '">' + d[1] + "</button>").join("") + "</div></div>" : "") +
+        '<div class="td-field"><label>Every</label><div class="rd-every"><input type="number" inputmode="numeric" class="rd-everyin" id="rdEvery" value="' + esc(s.every || 1) + '" min="1"><span class="rd-everylbl">' + unit + "</span></div></div>" +
+        '<div class="td-field"><label>Starts</label><input type="date" class="td-due" id="rdStart" value="' + esc(s.start) + '"></div>' +
+        '<div class="td-field rd-pausefield"><label class="rd-pauselbl"><input type="checkbox" id="rdPaused"' + (s.paused ? " checked" : "") + "> Paused</label></div>" +
+        '<div class="td-field td-soon"><label>Steps</label><div class="td-soon-txt">Add steps with the ＋ on the routine card in your deck.</div></div>' +
+      "</div>";
+    wire();
+  }
+  function wire() {
+    root.querySelector("#rdClose").addEventListener("click", close);
+    root.querySelector("#rdDel").addEventListener("click", () => {
+      const all = loadThings(), now = Date.now(), liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+      saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));   // cascade tombstones its steps too
+      close();
+    });
+    const em = root.querySelector("#rdEmoji"); em.addEventListener("change", () => patch({ emoji: em.value }));
+    const nm = root.querySelector("#rdName"); nm.addEventListener("change", () => { const v = nm.value.trim(); if (v) patch({ name: v }); });
+    root.querySelectorAll("#rdFreq button").forEach((b) => b.addEventListener("click", () => { sched({ freq: b.dataset.freq }); render(); }));
+    root.querySelectorAll(".rd-day").forEach((b) => b.addEventListener("click", () => { const s = get().sched || {}, days = Array.isArray(s.days) ? s.days.map(Number) : [], d = +b.dataset.dow, i = days.indexOf(d); if (i === -1) days.push(d); else days.splice(i, 1); sched({ days: days.sort((x, y) => x - y) }); render(); }));
+    const ev = root.querySelector("#rdEvery"); ev.addEventListener("change", () => sched({ every: Math.max(1, parseInt(ev.value) || 1) }));
+    const st = root.querySelector("#rdStart"); st.addEventListener("change", (e) => sched({ start: e.target.value || null }));
+    const pz = root.querySelector("#rdPaused"); pz.addEventListener("change", () => sched({ paused: pz.checked ? 1 : 0 }));
   }
   render();
 }
