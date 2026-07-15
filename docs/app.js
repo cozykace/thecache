@@ -1225,67 +1225,108 @@ const RENDERERS = {
     load();
   },
   tasks(el) {
-    // Tasks v1 — the deck, fully realized (money.things). One-off things you need to do and
-    // remember: add one, check it off (recorded to your activity trail), delete with a safety
-    // undo. Pure client-side — reads/writes money.things through the per-item merge engine, so
-    // a task added on your phone and one checked off on your laptop both survive. Infinite
-    // subtasks + the Asana-style trail view are the next bricks.
+    // Tasks — the deck, fully realized (money.things). Things you need to do and remember,
+    // with INFINITE SUBTASKS (uniform recursion): every task and subtask is its own flat,
+    // id-keyed item linked by `parent`, so each merges independently across devices. Add a
+    // subtask under any row, collapse/expand a subtree, check items off (logged to your
+    // activity trail with the root denormalized to the top task, +2 EXP), delete with a safety
+    // undo that cascade-tombstones the whole subtree. Pure client-side through the per-item
+    // merge engine. The Asana-style trail VIEW is the next brick.
     el.classList.add("is-tasks");
-    let undo = null, selfSaving = false;   // undo = {ids,at,label} for the last delete; the guard stops a self-save's cache:things event from double-rendering
+    let undo = null, selfSaving = false, addingUnder = null;   // addingUnder = id whose inline "add a subtask" input is open (one at a time)
+    const collapsed = new Set();   // ids whose subtree is hidden (ephemeral, per widget)
     const clip = (s, n) => (s && s.length > n ? s.slice(0, n) + "…" : (s || ""));
     const save = (items) => { selfSaving = true; try { saveThings(items); } finally { selfSaving = false; } };
-    function topTasks() {
-      // liveness-filtered (dangling/tombstoned ancestors hidden), top-level tasks only
-      return thingsVisible(loadThings())
-        .filter((t) => t.type === "task" && !t.parent && !t.routine)
-        .sort((a, b) => (!!a.done - !!b.done) || (+a.ord || 0) - (+b.ord || 0) || (a.id < b.id ? -1 : 1));   // open first, done sink to the bottom
+    const esc = (s) => escapeHtml(s || "");
+    const sortSibs = (a) => a.sort((x, y) => (!!x.done - !!y.done) || (+x.ord || 0) - (+y.ord || 0) || (x.id < y.id ? -1 : 1));   // open first, done sink
+    function model() {
+      const vis = thingsVisible(loadThings()), byParent = {};   // liveness-filtered: tombstoned/dangling subtrees hidden
+      vis.forEach((t) => { const p = t.parent || "_root"; (byParent[p] = byParent[p] || []).push(t); });
+      return { byParent, roots: sortSibs((byParent._root || []).filter((t) => t.type === "task" && !t.routine)) };
     }
     function render() {
-      const tasks = topTasks(), open = tasks.filter((t) => !t.done).length, doneN = tasks.length - open;
+      const { byParent, roots } = model(), rows = [];
+      const walk = (t, depth) => {   // uniform recursion — a subtask's children render exactly like a task's
+        const kids = sortSibs((byParent[t.id] || []).slice());
+        rows.push(rowHtml(t, depth, kids.length));
+        if (addingUnder === t.id) rows.push(addSubHtml(depth + 1));
+        if (kids.length && !collapsed.has(t.id)) kids.forEach((k) => walk(k, depth + 1));
+      };
+      roots.forEach((r) => walk(r, 0));
+      const open = roots.filter((t) => !t.done).length, doneN = roots.length - open;
       el.innerHTML =
         '<div class="tk-add"><input class="tk-in" placeholder="add a task…" maxlength="200" aria-label="add a task">' +
         '<button class="tk-go" aria-label="add task">＋</button></div>' +
-        (tasks.length
-          ? '<div class="tk-list">' + tasks.map(row).join("") + "</div>"
-          : '<div class="sub tk-empty">the things you need to do and remember. add one above — check it off when it’s done, and it stays logged in your trail.</div>') +
-        (undo ? '<div class="tk-undo"><span class="tk-undo-t">' + escapeHtml(undo.label) + " deleted</span><button class=\"tk-undo-go\">undo</button></div>" : "") +
-        '<div class="sub tk-count">' + (tasks.length ? open + " to do" + (doneN ? " · " + doneN + " done" : "") : "") + "</div>";
+        (rows.length ? '<div class="tk-list">' + rows.join("") + "</div>"
+          : '<div class="sub tk-empty">the things you need to do and remember. add one above, break it into subtasks, check them off — it all stays logged in your trail.</div>') +
+        (undo ? '<div class="tk-undo"><span class="tk-undo-t">' + esc(undo.label) + " deleted</span><button class=\"tk-undo-go\">undo</button></div>" : "") +
+        '<div class="sub tk-count">' + (roots.length ? open + " to do" + (doneN ? " · " + doneN + " done" : "") : "") + "</div>";
       wire();
     }
-    function row(t) {
-      const done = !!t.done;
-      return '<div class="tk-item' + (done ? " done" : "") + '">' +
-        '<button class="tk-check' + (done ? " on" : "") + '" data-act="toggle" data-id="' + escapeHtml(t.id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>' +
-        '<span class="tk-title">' + escapeHtml(t.title || "") + "</span>" +
-        '<button class="tk-x" data-act="del" data-id="' + escapeHtml(t.id) + '" aria-label="delete task">✕</button>' +
+    function rowHtml(t, depth, nKids) {
+      const done = !!t.done, col = collapsed.has(t.id);
+      return '<div class="tk-item' + (done ? " done" : "") + '" style="margin-left:' + (depth * 15) + 'px">' +
+        (nKids
+          ? '<button class="tk-caret' + (col ? " col" : "") + '" data-act="caret" data-id="' + esc(t.id) + '" aria-label="' + (col ? "expand" : "collapse") + '">▾</button>'
+          : '<span class="tk-caret-sp"></span>') +
+        '<button class="tk-check' + (done ? " on" : "") + '" data-act="toggle" data-id="' + esc(t.id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>' +
+        '<span class="tk-title" data-act="trail" data-id="' + esc(t.id) + '" role="button" tabindex="0" title="see activity">' + esc(t.title) + "</span>" +
+        '<button class="tk-addsub" data-act="addsub" data-id="' + esc(t.id) + '" aria-label="add a subtask" title="add a subtask">＋</button>' +
+        '<button class="tk-x" data-act="del" data-id="' + esc(t.id) + '" aria-label="delete">✕</button>' +
         "</div>";
+    }
+    function addSubHtml(depth) {
+      return '<div class="tk-subadd" style="margin-left:' + (depth * 15) + 'px">' +
+        '<input class="tk-subin" placeholder="add a subtask…" maxlength="200" aria-label="add a subtask">' +
+        '<button class="tk-subgo" aria-label="add subtask">＋</button></div>';
+    }
+    function addUnder(parentId, title, type) {
+      const now = Date.now();
+      const sibs = thingsVisible(loadThings()).filter((x) => (x.parent || null) === parentId);
+      const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+      // every object gets a stable globally-unique id + real stamps at birth (deck contract)
+      save([{ id: thingId(), type: type, title: title, done: 0, doneAt: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: parentId, routine: null }]);
     }
     function wire() {
       const inp = el.querySelector(".tk-in");
-      const add = () => {
+      const addTop = () => {
         const v = (inp.value || "").trim(); if (!v) return;
-        const now = Date.now();
-        const sibs = thingsVisible(loadThings()).filter((x) => x.type === "task" && !x.parent && !x.routine);
-        const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
-        // every object gets a stable globally-unique id + real stamps at birth (deck contract)
-        save([{ id: thingId(), type: "task", title: v, done: 0, doneAt: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }]);
-        undo = null; render();
+        addUnder(null, v, "task"); undo = null; addingUnder = null; render();
         const ni = el.querySelector(".tk-in"); if (ni) ni.focus();   // keep focus for rapid entry
       };
-      el.querySelector(".tk-go").addEventListener("click", add);
-      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+      el.querySelector(".tk-go").addEventListener("click", addTop);
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") addTop(); });
       el.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => {
-        if (b.dataset.act === "toggle") toggle(b.dataset.id);
-        else if (b.dataset.act === "del") del(b.dataset.id);
+        const id = b.dataset.id;
+        if (b.dataset.act === "toggle") toggle(id);
+        else if (b.dataset.act === "del") del(id);
+        else if (b.dataset.act === "trail") openTrail(id);
+        else if (b.dataset.act === "caret") { collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); render(); }
+        else if (b.dataset.act === "addsub") { addingUnder = id; collapsed.delete(id); render(); const si = el.querySelector(".tk-subin"); if (si) si.focus(); }
       }));
+      el.querySelectorAll('.tk-title[data-act="trail"]').forEach((s) => s.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTrail(s.dataset.id); } }));
+      const subin = el.querySelector(".tk-subin");
+      const commitSub = () => {
+        if (!subin || addingUnder == null) return;
+        const v = (subin.value || "").trim(), pid = addingUnder;
+        if (v) { addUnder(pid, v, "subtask"); addingUnder = pid; } else { addingUnder = null; }   // keep open under the same parent for rapid entry
+        undo = null; render();
+        const si = el.querySelector(".tk-subin"); if (si) si.focus();
+      };
+      if (subin) {
+        subin.addEventListener("keydown", (e) => { if (e.key === "Enter") commitSub(); else if (e.key === "Escape") { addingUnder = null; render(); } });
+        const sg = el.querySelector(".tk-subgo"); if (sg) sg.addEventListener("click", commitSub);
+      }
       const u = el.querySelector(".tk-undo-go"); if (u) u.addEventListener("click", doUndo);
     }
     function toggle(id) {
       const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
       const now = Date.now(), next = t.done ? 0 : 1;
-      // a one-off task's done state is a flag ON the object (§3); the log event feeds the trail
+      // a one-off task/subtask's done state is a flag ON the object (§3); the log event feeds
+      // the trail — root defaults to the TOP-level task (thingRoot walks parent), so a
+      // subtask's completion still shows on its task's activity trail.
       save([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]);
-      try { logThingEvent(id, next ? "done" : "undone", { items: all, root: id }); } catch (e) {}
+      try { logThingEvent(id, next ? "done" : "undone", { items: all }); } catch (e) {}
       if (next) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Task done · +2 EXP"); } catch (e) {} }
       undo = null; render();
     }
@@ -1293,11 +1334,12 @@ const RENDERERS = {
       const all = loadThings(), t = all.find((x) => x && x.id === id);
       const liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
       const now = Date.now();
-      // cascade: tombstone the task AND every descendant (§5) so nothing can resurrect/orphan
+      // cascade: tombstone the item AND every descendant (§5) so nothing can resurrect/orphan
       const killed = thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]);
       save(killed);
-      undo = { ids: killed.map((x) => x.id), at: now, label: t && t.title ? "“" + clip(t.title, 22) + "”" : "task" };
-      render();
+      const extra = killed.length - 1;
+      undo = { ids: killed.map((x) => x.id), at: now, label: (t && t.title ? "“" + clip(t.title, 20) + "”" : "item") + (extra > 0 ? " + " + extra + " subtask" + (extra > 1 ? "s" : "") : "") };
+      addingUnder = null; render();
     }
     function doUndo() {
       if (!undo) return;
@@ -1306,11 +1348,42 @@ const RENDERERS = {
       save(all.filter((x) => x && undo.ids.indexOf(x.id) !== -1).map((x) => Object.assign({}, x, { deleted: 0, updated: now })));
       undo = null; render();
     }
+    // The Asana-style ACTIVITY TRAIL (§4) — every completion/uncheck for a task AND its whole
+    // subtree, newest first. Reconstructed from the LOG alone (each event carries a denormalized
+    // `root`), so a deleted interior subtask can't sever it; titles resolve from the Things
+    // (tombstones keep their title), so a deleted subtask's events still read clearly.
+    function openTrail(id) {
+      const all = loadThings(), log = loadLog(), byId = {};
+      all.forEach((t) => { if (t && t.id) byId[t.id] = t; });
+      const rootId = typeof thingRoot === "function" ? thingRoot(all, id) : id, root = byId[rootId];
+      const trail = (typeof thingTrail === "function" ? thingTrail(log, rootId) : []).slice().reverse();   // newest first
+      const now = Date.now();
+      const label = (e) => {
+        const it = byId[e.itemId], name = it ? "“" + esc(it.title) + "”" : "an item", self = e.itemId === rootId;
+        if (e.kind === "done") return "<b>✓</b> completed " + (self ? "this task" : name);
+        if (e.kind === "undone") return "<b>↩</b> un-checked " + (self ? "this task" : name);
+        if (e.kind === "habit") return "<b>◆</b> logged " + name + (e.value && e.value.qty != null ? " · " + esc(String(e.value.qty)) : "");
+        return esc(e.kind) + " " + name;
+      };
+      const body = trail.length
+        ? trail.map((e) => '<div class="tkt-row"><span class="tkt-what">' + label(e) + '</span><span class="tkt-when">' + esc(ageStr(now - (+e.at || 0))) + "</span></div>").join("")
+        : '<div class="tkt-empty">No activity yet — check this off (or one of its subtasks) and it shows up here.</div>';
+      closeCategorizer();
+      const back = document.createElement("div"); back.className = "cat-backdrop"; back.id = "catBackdrop";
+      back.addEventListener("pointerdown", (e) => { if (e.target === back) closeCategorizer(); });
+      const modal = document.createElement("div"); modal.className = "cat-modal tkt-modal";
+      modal.innerHTML =
+        '<div class="cat-head"><span>🕘 ' + (root ? esc(root.title) : "Activity") + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+        '<div class="tkt-body">' + body + "</div>";
+      document.body.appendChild(back); document.body.appendChild(modal);
+      modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer());
+    }
     function onThings() {
       if (!el.isConnected) { document.removeEventListener("cache:things", onThings); return; }
       if (selfSaving) return;   // our own save already re-rendered
-      const inp = el.querySelector(".tk-in");
-      if (!inp || document.activeElement !== inp) render();   // a peer's sync landed — repaint, but never clobber mid-type
+      const a = document.activeElement;
+      if (a && (a.classList.contains("tk-in") || a.classList.contains("tk-subin"))) return;   // a peer's sync landed — repaint, but never clobber mid-type
+      render();
     }
     document.addEventListener("cache:things", onThings);
     render();
@@ -5422,7 +5495,7 @@ const WIDGET_INFO = {
   note: "<p>A free-text note you type — saved locally in your browser. No financial data.</p>",
   energy: "<p><b>Your energy pattern</b> — every ⚡ answer from the Daily check-in, one bar per day for the last 14 days (1–5).</p><p>The point: your executive-function energy <i>varies</i>, and that's not a flaw — seeing the pattern lets you plan around it instead of fighting it. A missing bar just means no log that day; that's information, never a failure.</p>",
   bucket: "<p><b>Your actively-held working memory</b> — notes and links you deliberately drop here so your brain doesn't have to hold them. Lives in your cache, syncs across your devices, and rides your backups + encrypted vault.</p><p>Toss anything with one tap — no shame. A gentle monthly cleanout prompt is a coming brick.</p>",
-  tasks: "<p><b>The things you need to do and remember.</b> Add a task, check it off when it's done (it stays logged in your activity trail), or delete it — with a one-tap undo, no shame.</p><p>Each task is its own item that syncs on its own, so one added on your phone and one checked off on your laptop both survive. Infinite subtasks and the full activity trail are the next bricks.</p>",
+  tasks: "<p><b>The things you need to do and remember.</b> Add a task, check it off when it's done (it stays logged in your activity trail), or delete it — with a one-tap undo, no shame. Break any task into <b>subtasks</b>, as many levels deep as you need — hit the ＋ on a row to add one, and collapse a big task to tidy it away.</p><p>Every task and subtask is its own item that syncs on its own, so one added on your phone and one checked off on your laptop both survive. The full activity-trail view is the next brick.</p>",
   timer: "<p><b>Work a block, rest a block</b> — with a longer rest every few blocks. The visible countdown does the time-keeping so your head doesn't have to.</p><p>All four numbers are yours — tap <i>presets</i>. The defaults are just a starting point, not a prescription. Pausing, skipping, or ending early is always one tap and never punished. Finishing a work block earns +2 EXP.</p>",
 };
 

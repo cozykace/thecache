@@ -2037,6 +2037,36 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
   background: none; color: var(--ink); font-family: inherit; font-size: 13px; cursor: pointer; transition: transform .1s; }
 .tk-undo-go:active { transform: scale(0.96); }
 .tk-count { margin-top: auto; }
+/* Subtasks (infinite depth): a collapse caret, a hover-revealed add-subtask +, and the inline add row. */
+.tk-caret { flex: 0 0 auto; width: 22px; min-height: 40px; border: none; background: none; cursor: pointer; padding: 0;
+  color: rgba(var(--ink-rgb), 0.45); font-size: 11px; line-height: 1; transition: transform .12s, color .12s; }
+.tk-caret.col { transform: rotate(-90deg); }
+.tk-caret:hover { color: var(--ink); }
+.tk-caret-sp { flex: 0 0 auto; width: 22px; }
+.tk-addsub { min-width: 34px; min-height: 40px; flex: 0 0 auto; border: none; background: none; color: rgba(var(--ink-rgb), 0.4);
+  font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; transition: transform .1s, color .12s, opacity .12s; }
+.tk-item:hover .tk-addsub { opacity: 1; }
+.tk-addsub:hover { color: var(--accent); }
+.tk-addsub:active { transform: scale(0.9); }
+@media (hover: none) { .tk-addsub { opacity: 1; } }   /* touch has no hover — never hide an essential control (mobile SOP #2) */
+.tk-subadd { display: flex; gap: 6px; padding: 2px 0 4px 30px; }
+.tk-subin { flex: 1; min-width: 0; min-height: 40px; padding: 0 10px; border: 1.5px solid var(--accent); border-radius: 10px;
+  background: var(--panel); color: var(--ink); font-family: inherit; font-size: 13px; }
+.tk-subin:focus { outline: none; }
+.tk-subgo { width: 40px; min-height: 40px; flex: 0 0 auto; border: 1.5px solid var(--accent); border-radius: 10px;
+  background: none; color: var(--ink); font-size: 17px; line-height: 1; cursor: pointer; transition: transform .1s; }
+.tk-subgo:active { transform: scale(0.94); }
+.tk-title[data-act="trail"] { cursor: pointer; }
+.tk-title[data-act="trail"]:hover { text-decoration: underline; text-decoration-color: rgba(var(--ink-rgb), 0.3); text-underline-offset: 2px; }
+/* Task activity-trail modal (rides the shared .cat-modal shell) */
+.tkt-modal { max-width: 420px; }
+.tkt-body { max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 4px 2px; }
+.tkt-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 10px; border-radius: 9px; }
+.tkt-row:nth-child(odd) { background: rgba(var(--ink-rgb), 0.035); }
+.tkt-what { font-size: 13.5px; color: var(--ink); min-width: 0; line-height: 1.4; }
+.tkt-what b { color: var(--accent); font-weight: 700; }
+.tkt-when { flex: 0 0 auto; font-size: 11.5px; color: rgba(var(--ink-rgb), 0.5); font-variant-numeric: tabular-nums; }
+.tkt-empty { padding: 22px 14px; text-align: center; font-size: 13px; color: rgba(var(--ink-rgb), 0.55); line-height: 1.5; }
 
 .daily-input { margin-top: auto; }
 .daily-opts { display: flex; flex-direction: column; gap: 11px; }
