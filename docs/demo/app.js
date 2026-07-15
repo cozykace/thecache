@@ -1224,6 +1224,97 @@ const RENDERERS = {
     render([]);
     load();
   },
+  tasks(el) {
+    // Tasks v1 — the deck, fully realized (money.things). One-off things you need to do and
+    // remember: add one, check it off (recorded to your activity trail), delete with a safety
+    // undo. Pure client-side — reads/writes money.things through the per-item merge engine, so
+    // a task added on your phone and one checked off on your laptop both survive. Infinite
+    // subtasks + the Asana-style trail view are the next bricks.
+    el.classList.add("is-tasks");
+    let undo = null, selfSaving = false;   // undo = {ids,at,label} for the last delete; the guard stops a self-save's cache:things event from double-rendering
+    const clip = (s, n) => (s && s.length > n ? s.slice(0, n) + "…" : (s || ""));
+    const save = (items) => { selfSaving = true; try { saveThings(items); } finally { selfSaving = false; } };
+    function topTasks() {
+      // liveness-filtered (dangling/tombstoned ancestors hidden), top-level tasks only
+      return thingsVisible(loadThings())
+        .filter((t) => t.type === "task" && !t.parent && !t.routine)
+        .sort((a, b) => (!!a.done - !!b.done) || (+a.ord || 0) - (+b.ord || 0) || (a.id < b.id ? -1 : 1));   // open first, done sink to the bottom
+    }
+    function render() {
+      const tasks = topTasks(), open = tasks.filter((t) => !t.done).length, doneN = tasks.length - open;
+      el.innerHTML =
+        '<div class="tk-add"><input class="tk-in" placeholder="add a task…" maxlength="200" aria-label="add a task">' +
+        '<button class="tk-go" aria-label="add task">＋</button></div>' +
+        (tasks.length
+          ? '<div class="tk-list">' + tasks.map(row).join("") + "</div>"
+          : '<div class="sub tk-empty">the things you need to do and remember. add one above — check it off when it’s done, and it stays logged in your trail.</div>') +
+        (undo ? '<div class="tk-undo"><span class="tk-undo-t">' + escapeHtml(undo.label) + " deleted</span><button class=\"tk-undo-go\">undo</button></div>" : "") +
+        '<div class="sub tk-count">' + (tasks.length ? open + " to do" + (doneN ? " · " + doneN + " done" : "") : "") + "</div>";
+      wire();
+    }
+    function row(t) {
+      const done = !!t.done;
+      return '<div class="tk-item' + (done ? " done" : "") + '">' +
+        '<button class="tk-check' + (done ? " on" : "") + '" data-act="toggle" data-id="' + escapeHtml(t.id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>' +
+        '<span class="tk-title">' + escapeHtml(t.title || "") + "</span>" +
+        '<button class="tk-x" data-act="del" data-id="' + escapeHtml(t.id) + '" aria-label="delete task">✕</button>' +
+        "</div>";
+    }
+    function wire() {
+      const inp = el.querySelector(".tk-in");
+      const add = () => {
+        const v = (inp.value || "").trim(); if (!v) return;
+        const now = Date.now();
+        const sibs = thingsVisible(loadThings()).filter((x) => x.type === "task" && !x.parent && !x.routine);
+        const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+        // every object gets a stable globally-unique id + real stamps at birth (deck contract)
+        save([{ id: thingId(), type: "task", title: v, done: 0, doneAt: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }]);
+        undo = null; render();
+        const ni = el.querySelector(".tk-in"); if (ni) ni.focus();   // keep focus for rapid entry
+      };
+      el.querySelector(".tk-go").addEventListener("click", add);
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+      el.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => {
+        if (b.dataset.act === "toggle") toggle(b.dataset.id);
+        else if (b.dataset.act === "del") del(b.dataset.id);
+      }));
+      const u = el.querySelector(".tk-undo-go"); if (u) u.addEventListener("click", doUndo);
+    }
+    function toggle(id) {
+      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
+      const now = Date.now(), next = t.done ? 0 : 1;
+      // a one-off task's done state is a flag ON the object (§3); the log event feeds the trail
+      save([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]);
+      try { logThingEvent(id, next ? "done" : "undone", { items: all, root: id }); } catch (e) {}
+      if (next) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Task done · +2 EXP"); } catch (e) {} }
+      undo = null; render();
+    }
+    function del(id) {
+      const all = loadThings(), t = all.find((x) => x && x.id === id);
+      const liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+      const now = Date.now();
+      // cascade: tombstone the task AND every descendant (§5) so nothing can resurrect/orphan
+      const killed = thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]);
+      save(killed);
+      undo = { ids: killed.map((x) => x.id), at: now, label: t && t.title ? "“" + clip(t.title, 22) + "”" : "task" };
+      render();
+    }
+    function doUndo() {
+      if (!undo) return;
+      const all = loadThings();
+      const now = Math.max(Date.now(), undo.at + 1);   // strictly newer than the delete stamp, or an exact tie lets the tombstone win
+      save(all.filter((x) => x && undo.ids.indexOf(x.id) !== -1).map((x) => Object.assign({}, x, { deleted: 0, updated: now })));
+      undo = null; render();
+    }
+    function onThings() {
+      if (!el.isConnected) { document.removeEventListener("cache:things", onThings); return; }
+      if (selfSaving) return;   // our own save already re-rendered
+      const inp = el.querySelector(".tk-in");
+      if (!inp || document.activeElement !== inp) render();   // a peer's sync landed — repaint, but never clobber mid-type
+    }
+    document.addEventListener("cache:things", onThings);
+    render();
+  },
   safe(el) {
     // Safe-to-spend + a clean forecast: balance projected forward at your
     // average daily spend, with the date you hit your safety floor.
@@ -3572,7 +3663,14 @@ async function cloudWipe() {
 function autoPushSoon() {
   if (!cloudReady()) return;
   clearTimeout(_apT);
-  _apT = setTimeout(autoPushNow, 9000);   // generous window — a push seals + uploads the whole vault
+  // The FIRST backup fires fast, not on the 9s window. A brand-new (especially phone-only)
+  // user who signs up, does one thing, and closes the tab must not lose that first session —
+  // AND the escrow keybox rides that first push, so a lost first push = a key that only ever
+  // existed in a browser that's now closed. Once a push has landed, keep the generous debounce.
+  // (A short timeout, never a direct autoPushNow() call: when busy it re-queues via
+  // autoPushSoon, which would recurse synchronously.)
+  const wait = cloudState().lastPush ? 9000 : 800;
+  _apT = setTimeout(autoPushNow, wait);
 }
 async function autoPushNow() {
   clearTimeout(_apT); _apT = null;
@@ -5016,6 +5114,7 @@ const LIBRARY = [
   { type: "energy", title: "Energy", w: 300, h: 230 },
   { type: "timer", title: "Work / rest timer", w: 300, h: 300 },
   { type: "bucket", title: "Brain Bucket", w: 300, h: 300 },
+  { type: "tasks", title: "Tasks", w: 300, h: 340 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
   { type: "months", title: "Months", w: 320, h: 340 },
@@ -5311,6 +5410,7 @@ const WIDGET_INFO = {
   note: "<p>A free-text note you type — saved locally in your browser. No financial data.</p>",
   energy: "<p><b>Your energy pattern</b> — every ⚡ answer from the Daily check-in, one bar per day for the last 14 days (1–5).</p><p>The point: your executive-function energy <i>varies</i>, and that's not a flaw — seeing the pattern lets you plan around it instead of fighting it. A missing bar just means no log that day; that's information, never a failure.</p>",
   bucket: "<p><b>Your actively-held working memory</b> — notes and links you deliberately drop here so your brain doesn't have to hold them. Lives in your cache, syncs across your devices, and rides your backups + encrypted vault.</p><p>Toss anything with one tap — no shame. A gentle monthly cleanout prompt is a coming brick.</p>",
+  tasks: "<p><b>The things you need to do and remember.</b> Add a task, check it off when it's done (it stays logged in your activity trail), or delete it — with a one-tap undo, no shame.</p><p>Each task is its own item that syncs on its own, so one added on your phone and one checked off on your laptop both survive. Infinite subtasks and the full activity trail are the next bricks.</p>",
   timer: "<p><b>Work a block, rest a block</b> — with a longer rest every few blocks. The visible countdown does the time-keeping so your head doesn't have to.</p><p>All four numbers are yours — tap <i>presets</i>. The defaults are just a starting point, not a prescription. Pausing, skipping, or ending early is always one tap and never punished. Finishing a work block earns +2 EXP.</p>",
 };
 
@@ -6663,13 +6763,15 @@ function openLedger() {
     "</div>" +
     '<div class="lg-intro lg-scene lg-hidden"><div class="lg-eyebrow">EN ROUTE</div><div class="lg-cta">TRAVELING TO YOUR CACHE</div></div>' +
     '<div class="lg-ledger lg-scene lg-hidden">' +
-      '<div class="lg-eyebrow lg-gold">⟢ The Ledger ⟣</div>' +
-      '<div class="lg-title">YOUR LIFE, IN DATA</div>' +
-      '<div class="lg-headline" id="lgHeadline"></div>' +
-      '<div class="lg-reward lg-hidden" id="lgReward"></div>' +
-      '<svg class="lg-const" id="lgConst" viewBox="0 0 1000 320" preserveAspectRatio="xMidYMid meet"></svg>' +
-      '<button class="lg-back">↩ Return</button>' +
-      '<div class="lg-dash" id="lgDash"></div>' +
+      '<div class="lg-hero">' +                              // centered hero grows to fill the space ABOVE the dash…
+        '<div class="lg-eyebrow lg-gold">⟢ The Ledger ⟣</div>' +
+        '<div class="lg-title">YOUR LIFE, IN DATA</div>' +
+        '<div class="lg-headline" id="lgHeadline"></div>' +
+        '<div class="lg-reward lg-hidden" id="lgReward"></div>' +
+        '<svg class="lg-const" id="lgConst" viewBox="0 0 1000 320" preserveAspectRatio="xMidYMid meet"></svg>' +
+        '<button class="lg-back">↩ Return</button>' +
+      '</div>' +
+      '<div class="lg-dash" id="lgDash"></div>' +             // …and the dash sits in-flow below it, so the two can never overlap
     "</div>" +
     '<button class="lg-mute lg-hidden" title="Mute the music">🔊</button>' +
     '<div class="lg-flash"></div>';
