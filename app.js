@@ -9263,6 +9263,8 @@ function openCalendar() {
   let view = (prefs.view === "day" || prefs.view === "week") ? prefs.view : "month";
   let density = prefs.density === "chips" ? "chips" : "dots";                     // month grid: routines as dots (calm) or names
   let settingsOpen = false;
+  let infinite = false;                   // endless-scroll mode (∞ toggle) — OFF by default, transient per open
+  let infAnchors = [];                    // period-anchor ymds currently stacked, in order (infinite mode)
   let cursor = todayKey();                // the focused day (its month/week, in those views)
   const savePrefs = () => { try { localStorage.setItem("money.calview", JSON.stringify({ view: view, weekStart: weekStart, density: density })); } catch (e) {} };
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
@@ -9315,7 +9317,7 @@ function openCalendar() {
       const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, cursor)).length;
       rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length + " done" : "routine", members.length > 0 && doneCt === members.length, false));
     });
-    return '<div class="cal-day"><button class="cal-addevent" id="calAddEvent">＋ New event</button>' +
+    return '<div class="cal-day"><button class="cal-addevent" data-ymd="' + cursor + '">＋ New event</button>' +
       (rows.length ? '<div class="cal-agenda">' + rows.join("") + "</div>" : '<div class="cal-empty sub">Nothing on the calendar for this day yet.</div>') + "</div>";
   }
   function renderWeek() {
@@ -9347,7 +9349,7 @@ function openCalendar() {
       '<div class="daily-top">' +
         '<button class="daily-icn" id="calClose" aria-label="close">✕</button>' +
         '<div class="cal-titlewrap"><button class="cal-nav" id="calPrev" aria-label="previous">‹</button><div class="cal-title">' + esc(calTitle()) + '</div><button class="cal-nav" id="calNext" aria-label="next">›</button></div>' +
-        '<div class="cal-headright"><button class="cal-today" id="calToday">Today</button><button class="daily-icn cal-gear' + (settingsOpen ? " on" : "") + '" id="calGear" aria-label="calendar settings" title="week start &amp; density">⚙</button></div>' +
+        '<div class="cal-headright"><button class="cal-today" id="calToday">Today</button><button class="daily-icn cal-inf-btn' + (infinite ? " on" : "") + '" id="calInf" aria-pressed="' + (infinite ? "true" : "false") + '" aria-label="endless scroll" title="endless scroll — flow through the calendar">∞</button><button class="daily-icn cal-gear' + (settingsOpen ? " on" : "") + '" id="calGear" aria-label="calendar settings" title="week start &amp; density">⚙</button></div>' +
       "</div>" +
       '<div class="cal-viewbar"><div class="td-seg cal-seg" id="calSeg">' +
         '<button data-view="month"' + (view === "month" ? ' class="on"' : "") + ">Month</button>" +
@@ -9355,8 +9357,9 @@ function openCalendar() {
         '<button data-view="day"' + (view === "day" ? ' class="on"' : "") + ">Day</button>" +
       "</div></div>" +
       settingsHtml() +
-      '<div class="cal-body">' + (view === "day" ? renderDay() : view === "week" ? renderWeek() : renderMonth()) + "</div>";
+      '<div class="cal-body' + (infinite ? " cal-body-inf" : "") + '" id="calBody">' + (infinite ? "" : (view === "day" ? renderDay() : view === "week" ? renderWeek() : renderMonth())) + "</div>";
     wire();
+    if (infinite) buildInfinite();   // stack consecutive periods + wire endless scroll
   }
   function step(dir) {
     const d = _ymd2date(cursor) || new Date();
@@ -9382,7 +9385,70 @@ function openCalendar() {
       r.addEventListener("click", openRow);
       r.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openRow(); } });
     });
-    const ae = root.querySelector("#calAddEvent"); if (ae) ae.addEventListener("click", () => { try { calAddEvent(cursor); } catch (e) {} });   // new event, prefilled with this day
+    const inf = root.querySelector("#calInf"); if (inf) inf.addEventListener("click", () => { infinite = !infinite; render(); });   // endless-scroll toggle
+    root.querySelectorAll(".cal-addevent").forEach((ae) => ae.addEventListener("click", () => { try { calAddEvent(ae.dataset.ymd || cursor); } catch (e) {} }));   // new event on that day
+  }
+  // ── Endless scroll (∞) ─ stack consecutive periods and append/prepend as you scroll, so the
+  //    dates flow continuously. Parameterized by `view`, so one engine covers month/week/day.
+  function periodAnchor(ymd) {   // normalize any day to its period's anchor
+    const d = _ymd2date(ymd) || new Date();
+    if (view === "day") return ymdOf(d);
+    if (view === "week") return calWeekDays(ymdOf(d), weekStart)[0];
+    return ymdOf(new Date(d.getFullYear(), d.getMonth(), 1));
+  }
+  function periodStep(anchor, dir) {   // the anchor one period earlier / later
+    const d = _ymd2date(anchor) || new Date();
+    if (view === "day") return ymdOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + dir));
+    if (view === "week") return ymdOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + dir * 7));
+    return ymdOf(new Date(d.getFullYear(), d.getMonth() + dir, 1));
+  }
+  function periodLabel(anchor) {
+    if (view === "day") return dayTitle(anchor);
+    if (view === "week") { const w = calWeekDays(anchor, weekStart), a = _ymd2date(w[0]), b = _ymd2date(w[6]); return a.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " – " + b.toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
+    return monthTitle(anchor);
+  }
+  function renderPeriod(anchor) {   // one period's content, wrapped with a sticky label (renderers read `cursor`)
+    const saved = cursor; cursor = anchor;
+    const inner = view === "day" ? renderDay() : view === "week" ? renderWeek() : renderMonth();
+    cursor = saved;
+    return '<section class="cal-inf-sec" data-anchor="' + anchor + '"><div class="cal-inf-h">' + esc(periodLabel(anchor)) + "</div>" + inner + "</section>";
+  }
+  function onInfClick(e) {   // delegated — the stacked sections are dynamic, so one handler covers all
+    const cell = e.target.closest(".cal-cell"); if (cell) { cursor = cell.dataset.ymd; view = "day"; render(); return; }
+    const wh = e.target.closest(".cal-wday-head"); if (wh) { cursor = wh.dataset.ymd; view = "day"; render(); return; }
+    const chk = e.target.closest(".cal-check"); if (chk) { e.stopPropagation(); try { calToggleTask(chk.dataset.check); } catch (er) {} return; }
+    const add = e.target.closest(".cal-addevent"); if (add) { try { calAddEvent(add.dataset.ymd || cursor); } catch (er) {} return; }
+    const arow = e.target.closest(".cal-arow"); if (arow) { const id = arow.dataset.id, act = arow.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); } catch (er) {} }
+  }
+  function buildInfinite() {
+    const body = root.querySelector("#calBody"); if (!body) return;
+    const start = periodAnchor(cursor);
+    infAnchors = [periodStep(start, -1), start, periodStep(start, 1)];   // seed: prev, current, next
+    body.innerHTML = infAnchors.map(renderPeriod).join("");
+    const cur = body.querySelector('.cal-inf-sec[data-anchor="' + start + '"]');   // center on the current period
+    if (cur) body.scrollTop = cur.offsetTop;
+    body.addEventListener("click", onInfClick);
+    let busy = false;
+    body.addEventListener("scroll", () => {
+      if (busy) return;
+      if (body.scrollHeight - body.scrollTop - body.clientHeight < 260) {   // near bottom → append the next period
+        busy = true;
+        const next = periodStep(infAnchors[infAnchors.length - 1], 1);
+        infAnchors.push(next); body.insertAdjacentHTML("beforeend", renderPeriod(next));
+        busy = false;
+      } else if (body.scrollTop < 160) {   // near top → prepend, preserving scroll position (no jump)
+        busy = true;
+        const prev = periodStep(infAnchors[0], -1);
+        infAnchors.unshift(prev);
+        const h0 = body.scrollHeight; body.insertAdjacentHTML("afterbegin", renderPeriod(prev));
+        body.scrollTop += body.scrollHeight - h0;
+        busy = false;
+      }
+      // track which period is at the top, so a live-sync re-render re-seeds near where you are
+      const secs = body.querySelectorAll(".cal-inf-sec"); let vis = secs[0];
+      for (let i = 0; i < secs.length; i++) { if (secs[i].offsetTop <= body.scrollTop + 8) vis = secs[i]; else break; }
+      if (vis) cursor = vis.dataset.anchor;
+    });
   }
   render();
 }

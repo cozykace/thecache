@@ -2976,6 +2976,13 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 .cal-setrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .cal-setlbl { font-size: 13px; color: rgba(var(--ink-rgb), 0.7); }
 .cal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 940px; margin: 0 auto; box-sizing: border-box; padding: 2px 10px calc(16px + env(safe-area-inset-bottom)); }
+/* endless-scroll (∞) mode: stacked period sections, each with a sticky label */
+.cal-inf-btn { font-size: 20px; line-height: 1; }
+.cal-inf-btn.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); border-radius: 10px; }
+.cal-body-inf .cal-month { min-height: 0; }
+.cal-body-inf .cal-day, .cal-body-inf .cal-week { padding-top: 0; }
+.cal-inf-sec + .cal-inf-sec { border-top: 1px solid var(--edge-soft); }
+.cal-inf-h { position: sticky; top: 0; z-index: 3; background: var(--paper); padding: 9px 2px 6px; font-size: 13px; font-weight: 700; color: var(--ink); letter-spacing: 0.02em; }
 
 /* month grid */
 .cal-month { min-height: 100%; display: flex; flex-direction: column; }
