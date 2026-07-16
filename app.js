@@ -10296,6 +10296,7 @@ const DOCK_DEFS = [
   { id: "datetime", label: "Date / time" },
   { id: "period", label: "Period" },
   { id: "daily", label: "The deck (daily check-in)" },
+  { id: "cal", label: "Calendar" },
   { id: "base", label: "The Base" },
   { id: "ledger", label: "Visit your cache" },
   { id: "status", label: "Status" },
@@ -10324,12 +10325,16 @@ function applyDockConfig(dock) {
   // External memory needs one findable anchor; a hideable, driftable button isn't one.
   const deck = dock.querySelector('[data-dock="daily"]');
   if (deck) { deck.style.display = ""; dock.insertBefore(deck, dock.firstChild); }
+  // the calendar is the deck's PEER — a prominent circular button pinned right after it,
+  // always visible (like the deck) so "see your month" is one tap on every device.
+  const cal = dock.querySelector('[data-dock="cal"]');
+  if (cal && deck) { cal.style.display = ""; deck.after(cal); }
 }
 function renderDockMenu() {
   const host = document.getElementById("dockMenu");
   if (!host) return;
   const hidden = new Set(dockList(DOCK_HIDDEN_KEY)), f = favs();
-  const defs = DOCK_DEFS.filter((d) => d.id !== "daily");   // the deck can't be hidden — it's the front door of the day
+  const defs = DOCK_DEFS.filter((d) => d.id !== "daily" && d.id !== "cal");   // the deck + calendar can't be hidden — the day's two anchors
   if (autoPinOn()) defs.sort((a, b) => (f.has("dock:" + b.id) ? 1 : 0) - (f.has("dock:" + a.id) ? 1 : 0));
   host.innerHTML = defs.map((d) => {
     const on = !hidden.has(d.id), fav = f.has("dock:" + d.id);
@@ -10464,6 +10469,7 @@ function openClockSettings(anchor) {
     datetime: dt,
     period: pd,
     daily: document.getElementById("dailyBtn"),
+    cal: document.getElementById("calBtn"),
     base: document.getElementById("baseBtn"),
     ledger: document.getElementById("ledgerBtn"),
     status: document.getElementById("statusBtn"),
