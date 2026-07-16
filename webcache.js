@@ -130,7 +130,7 @@
   // cloud/identity internals + device-ergonomic geometry (never synced — keeps the
   // phone from snapping to desktop-pixel zoom / sidebar / modal layout on unlock)
   var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckRev"];   // deckRev RETIRED — must match app.js or it'd sync as a generic key and churn
-  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.things", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
+  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];   // forms/formData reuse wMergeThings — no separate merge fn, so nothing new to keep byte-identical
   // ── deck per-item merge — MUST stay byte-identical to app.js mergeDecks/deckCanon/
   //    deckCap, or the phone and desktop settle on different decks. Same rules:
   //    newer `updated` wins · exact tie → tombstone wins · still tied → canonical
@@ -342,6 +342,22 @@
             }
           }
         } catch (e) {}
+        // money.forms (templates) + money.formData (submissions): PER-ITEM merge, reusing
+        // wMergeThings (byte-identical to app.js mergeThings) so phone + desktop never fork.
+        // Written verbatim (an adoption never restamps what it adopts).
+        ["money.forms", "money.formData"].forEach(function (key) {
+          try {
+            if (lo[key] != null) {
+              var remF = JSON.parse(lo[key] || "[]");
+              if (Array.isArray(remF)) {
+                var curRawF = localStorage.getItem(key) || "[]";
+                var locF = []; try { locF = JSON.parse(curRawF) || []; } catch (e) {}
+                var mgF = JSON.stringify(wMergeThings(locF, remF));
+                if (mgF !== curRawF) { localStorage.setItem(key, mgF); changed++; }
+              }
+            }
+          } catch (e) {}
+        });
         try {
           if (lo["money.profile"] != null) {
             var curP = localStorage.getItem("money.profile") || "";

@@ -1117,6 +1117,23 @@ const RENDERERS = {
     note.addEventListener("input", () => localStorage.setItem(NOTE_KEY, note.textContent));
     el.appendChild(note);
   },
+  forms(el) {
+    // Your own data-intake forms: build a template, route each field into your 12 areas, fill
+    // it. Templates + submissions live in money.forms / money.formData (per-item merge). Reads
+    // localStorage directly — no backend — and repaints on cache:forms.
+    el.classList.add("is-forms");
+    const render = () => {
+      el.innerHTML =
+        '<div class="bd-head"><i data-lucide="clipboard-list"></i><span>Forms</span></div>' +
+        formsRowsHTML() +
+        '<div class="frm-foot"><button class="frm-btn" data-act="new">＋ New form</button><button class="frm-btn ghost" data-act="doc">⬆ From a document</button></div>';
+      drawIcons();
+      wireFormsList(el);
+    };
+    render();
+    const onChange = () => { if (el.isConnected) render(); else document.removeEventListener("cache:forms", onChange); };
+    document.addEventListener("cache:forms", onChange);
+  },
   energy(el) {
     // Health's first widget: the EF-energy pattern — the first visible picture of your own
     // variability (NOW lane, Working Docs/3_ROADMAP.md). Reads check-in answers routed to
@@ -3453,7 +3470,7 @@ async function cloudFindVaultId(s) {
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
 const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun"];
-const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
+const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
 // bundle is engine-computed and travels whole-file. catmeta.json (your category
@@ -3554,6 +3571,12 @@ function _authoredProject(k, str) {
     // `ord`, so a REAL reorder still registers. Without this branch a SPECIAL key falls
     // through to the order-sensitive canonicalizer → infinite corrective-push ping-pong.
     if (k === "money.things" && Array.isArray(v)) return _sortBy(v.filter((q) => q && q.id), (q) => q.id).map(_canonVal);
+    // money.forms (templates) + money.formData (submissions) are per-item merges too
+    // (they reuse the things algorithm) — hash them by id, array-order-insensitive, so two
+    // converged devices don't read as forever "ahead" (the corrective-push livelock). Via
+    // _canonVal this still includes `ord`, so a real reorder registers.
+    if (k === "money.forms" && Array.isArray(v)) return _sortBy(v.filter((q) => q && q.id), (q) => q.id).map(_canonVal);
+    if (k === "money.formData" && Array.isArray(v)) return _sortBy(v.filter((q) => q && q.id), (q) => q.id).map(_canonVal);
   } catch (e) {}
   return _canonStr(str);
 }
@@ -3980,6 +4003,22 @@ function mergeRemoteLocal(lo, meta) {
       }
     }
   } catch (e) {}
+  // money.forms (templates) + money.formData (submissions): per-item merge, written
+  // VERBATIM — they reuse the things algorithm (mergeThings), so the phone and desktop
+  // can't fork, and an adoption never restamps what it adopts.
+  ["money.forms", "money.formData"].forEach((key) => {
+    try {
+      if (lo[key] != null) {
+        const rem = JSON.parse(lo[key] || "[]");
+        if (Array.isArray(rem)) {
+          const cur = localStorage.getItem(key) || "[]";
+          let loc = []; try { loc = JSON.parse(cur) || []; } catch (e) {}
+          const merged = JSON.stringify(mergeThings(loc, rem));
+          if (merged !== cur) { localStorage.setItem(key, merged); changed = true; try { document.dispatchEvent(new CustomEvent(key === "money.forms" ? "cache:forms" : "cache:formdata")); } catch (e) {} }
+        }
+      }
+    } catch (e) {}
+  });
   try {
     if (lo["money.charLog"] != null) {
       const cur = localStorage.getItem("money.charLog") || "[]";
@@ -5291,6 +5330,7 @@ const LIBRARY = [
   { type: "timer", title: "Work / rest timer", w: 300, h: 300 },
   { type: "bucket", title: "Brain Bucket", w: 300, h: 300 },
   { type: "tasks", title: "Tasks", w: 300, h: 340 },
+  { type: "forms", title: "Forms", w: 300, h: 320 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
   { type: "months", title: "Months", w: 320, h: 340 },
@@ -7747,6 +7787,129 @@ function saveThings(items) {
   try { if (typeof autoPushSoon === "function") autoPushSoon(); } catch (e) {}
 }
 
+// ── FORMS — build-your-own data-intake templates + their submissions ─────────────────
+// money.forms = TEMPLATES (a form is ONE merge unit; its `fields` array travels WITH it,
+// exactly like a deck question carries its `options` — the spec's "never nest" rule forbids
+// separately-mergeable children stored nested, not a payload that moves as one). money.formData
+// = SUBMISSIONS. Both are per-item id-keyed arrays that REUSE money.things' proven merge
+// VERBATIM (mergeThings/thingCanon) — one algorithm, so there is NO new cross-runtime fork
+// surface to keep byte-identical (the whole reason the deck/things pulled store.py out of the
+// loop). VAULT-ONLY, JS-merged (app.js + webcache.js), NEVER store.py — same float/emoji rule.
+//
+//   form: { id, type:"form", name, emoji, updated, ord, ordAt, deleted:0|1, dated:0|1,
+//           fields:[ {id, label, ftype, area, target, unit, options} ] }
+//     ftype ∈ text|number|dollar|date|choice|yesno|notes|scale|count|duration (the deck input vocab)
+//     area  = a TD_AREAS name (routing destination); target = money-building / health sub-target
+//   submission: { id, type:"formsub", formId, date:"YYYY-MM-DD", updated, ord, ordAt,
+//                 deleted:0|1, values:[ {fieldId, value} ] }
+//
+// Every id (form, submission, AND field) is minted ONCE and never changes — per-item merge is
+// id-based. So IF fields ever need concurrent per-field editing across devices, they can be
+// promoted to flat parent-referenced items (the things pattern) with NO data migration.
+const FORMS_KEY = "money.forms", FORMDATA_KEY = "money.formData";
+const FORM_FTYPES = ["text", "number", "dollar", "date", "choice", "yesno", "notes", "scale", "count", "duration"];
+function _mintId(prefix) {
+  const d = (typeof devId === "function" ? devId() : "") || "";
+  let r = ""; while (r.length < 6) r += Math.random().toString(36).slice(2);
+  return prefix + Date.now().toString(36) + "-" + (d + "xxxx").slice(0, 4) + "-" + r.slice(0, 6);
+}
+function formId() { return _mintId("f"); }
+function formSubId() { return _mintId("fd"); }
+function fieldId() { return _mintId("ff"); }
+function loadForms() { try { return JSON.parse(localStorage.getItem(FORMS_KEY) || "[]") || []; } catch (e) { return []; } }
+function loadFormData() { try { return JSON.parse(localStorage.getItem(FORMDATA_KEY) || "[]") || []; } catch (e) { return []; } }
+function formsLive(items) { return (items || []).filter((i) => i && !i.deleted); }
+function formDataLive(items) { return (items || []).filter((i) => i && !i.deleted); }
+function formById(id) { return loadForms().find((f) => f && f.id === id) || null; }
+// write VERBATIM (mergeThings with [] just dedups + sorts) — adoption paths never restamp.
+function putForms(items) { try { localStorage.setItem(FORMS_KEY, JSON.stringify(mergeThings(items || [], []))); } catch (e) {} try { document.dispatchEvent(new CustomEvent("cache:forms")); } catch (e) {} }
+function putFormData(items) { try { localStorage.setItem(FORMDATA_KEY, JSON.stringify(mergeThings(items || [], []))); } catch (e) {} try { document.dispatchEvent(new CustomEvent("cache:formdata")); } catch (e) {} }
+// USER-EDIT path — merge into what's stored (so a peer's concurrent add survives) but NEVER
+// stamp; the caller stamps the item it actually touched (updated: Date.now()) at the edit.
+// Vault-only, so it arms the encrypted push — no server call.
+function saveForms(items) { let s = []; try { s = JSON.parse(localStorage.getItem(FORMS_KEY) || "[]") || []; } catch (e) {} putForms(mergeThings(s, items)); try { if (typeof autoPushSoon === "function") autoPushSoon(); } catch (e) {} }
+function saveFormData(items) { let s = []; try { s = JSON.parse(localStorage.getItem(FORMDATA_KEY) || "[]") || []; } catch (e) {} putFormData(mergeThings(s, items)); try { if (typeof autoPushSoon === "function") autoPushSoon(); } catch (e) {} }
+
+// ── Document → template: parse an uploaded artifact into a DRAFT form ─────────────────
+// The doc only SEEDS the schema — the user always lands in the editor to confirm before it
+// saves (deterministic; confirm-before-commit). These are PURE (no DOM, no app helpers) so
+// the test harness can exercise them directly.
+//
+// A tiny RFC-4180-ish CSV splitter (none existed client-side — bank CSVs parse server-side).
+// Handles quoted fields, "" escaped quotes, and commas / newlines inside quotes, plus CRLF.
+function parseCsvRows(text) {
+  const s = String(text == null ? "" : text);
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) {
+      if (c === '"') { if (s[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+      else cell += c;
+    } else if (c === '"') { q = true; }
+    else if (c === ",") { row.push(cell); cell = ""; }
+    else if (c === "\n" || c === "\r") { if (c === "\r" && s[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += c;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.length && !(r.length === 1 && String(r[0]).trim() === ""));   // drop blank rows
+}
+// Best-guess a field type from one sample cell (used for CSV columns and label examples).
+function inferFtype(sample) {
+  const v = String(sample == null ? "" : sample).trim();
+  if (!v) return "text";
+  if (/^-?\$\s?\d[\d,]*(\.\d+)?$/.test(v) || /^-?\d[\d,]*\.\d{2}$/.test(v)) return "dollar";
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(v) || /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(v)) return "date";
+  if (/^-?\d[\d,]*(\.\d+)?$/.test(v)) return "number";
+  if (/^(yes|no|y|n|true|false)$/i.test(v)) return "yesno";
+  return "text";
+}
+// CSV → { template, rows }. Header row → one field each; type inferred from the first data
+// row; a column with few distinct values across the data becomes a choice. `rows` (the data
+// rows) is handed back so a later brick can turn each row into a submission.
+function csvToTemplate(text, name) {
+  const rows = parseCsvRows(text);
+  if (!rows.length) return null;
+  const headers = rows[0].map((h) => String(h == null ? "" : h).trim());
+  const data = rows.slice(1), sample = data[0] || [];
+  const distinct = headers.map(() => ({}));
+  data.forEach((r) => r.forEach((c, i) => { const t = String(c == null ? "" : c).trim(); if (t && distinct[i]) distinct[i][t] = 1; }));
+  const fields = headers.map((h, i) => {
+    const vals = Object.keys(distinct[i] || {});
+    let ftype = inferFtype(sample[i]), options;
+    if (ftype === "text" && vals.length && vals.length <= 6 && data.length > 3) { ftype = "choice"; options = vals.slice(0, 6); }
+    const f = { id: fieldId(), label: h || ("Field " + (i + 1)), ftype: ftype, area: "" };
+    if (options) f.options = options;
+    return f;
+  });
+  return { template: { id: formId(), type: "form", name: name || "Imported form", emoji: "📋", dated: 0, fields: fields, updated: 0, ord: 0, ordAt: 0 }, rows: data };
+}
+// Plain text (a pasted Q&A / label / checklist list) → { template }. One field per line:
+//   "Label: example"  → field, type inferred from the example
+//   "Question?"       → notes field
+//   "[ ] Did X" / "- item" → yes/no field
+//   a "(1-5)" / "/10" hint anywhere → scale field
+function textToTemplate(text, name) {
+  const lines = String(text == null ? "" : text).split(/\r?\n/).map((l) => l.trim()).filter((l) => l);
+  const scaleRe = /\(?\b1\s*[-–]\s*(?:5|10)\b\)?|\/\s*(?:5|10)\b/;   // "(1-5)", "1-10", "/10"
+  const fields = [];
+  lines.forEach((line) => {
+    const stripped = line.replace(/^([-*•]|\d+[.)])\s+/, "");
+    const wasBullet = stripped !== line;
+    let label = stripped, ftype = "notes", m;
+    // scale hint FIRST — so a dash inside "(1-5)" is never mistaken for a label separator
+    if (scaleRe.test(stripped)) { ftype = "scale"; label = stripped.replace(/\s*\(?\b1\s*[-–]\s*(?:5|10)\b\)?/, "").replace(/\s*\/\s*(?:5|10)\b/, "").trim() || stripped; }
+    else if (/^\[.?\]/.test(stripped)) { label = stripped.replace(/^\[.?\]\s*/, ""); ftype = "yesno"; }
+    // "Label: value" (tight colon) or "Label – value" (dash only when space-surrounded, so
+    // "1-5" and "co-op" never split); the example seeds the type.
+    else if ((m = stripped.match(/^(.+?)(?:\s*[:：]\s*|\s+[-–]\s+)(.+)$/))) { label = m[1].trim(); ftype = inferFtype(m[2].trim()); if (ftype === "text") ftype = "notes"; }
+    else if (/\?\s*$/.test(stripped)) { label = stripped; ftype = "notes"; }
+    else if (wasBullet) { label = stripped; ftype = "yesno"; }
+    if (label) fields.push({ id: fieldId(), label: label, ftype: ftype, area: "" });
+  });
+  if (!fields.length) return null;
+  return { template: { id: formId(), type: "form", name: name || "Imported form", emoji: "📝", dated: 0, fields: fields, updated: 0, ord: 0, ordAt: 0 } };
+}
+
 // ── Thing EVENTS → the check-in log (§4) ─────────────────────────────────────────────
 // Completions, habit occurrences, and field values are NOT stored on the Thing — they are
 // append-only LOG events. Why: a `done` flag never resets, so it can't express "checked
@@ -8234,6 +8397,7 @@ function openDeck() {
       "</div>" +
       '<div class="deck-sec-h deck-sec-h2">Tasks &amp; habits</div>' +
       '<div class="deck-sp-tasks" id="deckSpTasks"></div>' +
+      '<button class="deck-forms-link" id="deckFormsLink"><span>🗒️ Your forms</span><span class="deck-fl-go" aria-hidden="true">▸</span></button>' +
     "</div>";
   document.body.appendChild(root);
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
@@ -8251,6 +8415,7 @@ function openDeck() {
     ciHead.setAttribute("aria-expanded", collapsed ? "false" : "true");
     try { localStorage.setItem("deckCiCollapsed", collapsed ? "1" : "0"); } catch (e) {}
   });
+  const fl = root.querySelector("#deckFormsLink"); if (fl) fl.addEventListener("click", () => { try { openFormsHome(); } catch (e) {} });   // your build-your-own forms, one tap from the front door
   try { if (typeof RENDERERS === "object" && RENDERERS.tasks) RENDERERS.tasks(root.querySelector("#deckSpTasks")); } catch (e) {}   // the real Tasks/Habits widget, mounted full-screen
 }
 // ── Task / habit DETAIL — tap a row's bar to open the full editor, like any task manager:
@@ -8411,6 +8576,285 @@ function openQuestionDetail(qid) {
     root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { save({ dest: areaDest(b.dataset.area, get().dest) }); render(); }));
   }
   render();
+}
+
+// ── FORMS UI — the library widget, the designer, the filler, and document import ─────
+// Build your own data-intake forms, route each field into your 12 areas, and fill them —
+// on a board widget OR from the deck front door. Templates + submissions merge per-item via
+// the money.forms / money.formData store (reusing the things algorithm). The doc importers
+// turn a CSV or a pasted list into a DRAFT template you confirm in the designer.
+const FTYPE_LABEL = { text: "Text", number: "Number", dollar: "Dollar $", date: "Date", choice: "Choice", yesno: "Yes / no", notes: "Long notes", scale: "1–5 scale", count: "Count", duration: "Hours" };
+// Coerce a raw input value to what the submission stores (numbers as numbers, yes/no as 0|1
+// ints per the merge-canon rule). Empty → null (a blank field is simply not answered).
+function coerceFormValue(ft, raw) {
+  if (raw === "" || raw == null) return null;
+  if (ft === "number" || ft === "dollar" || ft === "count" || ft === "duration") { const n = parseFloat(String(raw).replace(/[$,\s]/g, "")); return isNaN(n) ? null : n; }
+  if (ft === "yesno") return (raw === "1" || raw === 1 || /^y/i.test(String(raw))) ? 1 : 0;
+  if (ft === "scale") { const n = parseInt(raw, 10); return isNaN(n) ? null : n; }
+  return String(raw);
+}
+// A routed check-in-log entry for a field WHOSE AREA HAS A LIVE READER — Money+numeric →
+// the spend building, Health+scale → the energy pattern. Everything else lives only in the
+// durable submission (a future area reader picks it up). `at` is the day's midnight so a
+// re-fill of the same day REPLACES rather than double-counts (the (at,itemId) union converges
+// cross-device to one entry). Returns null when there's nothing a reader would correctly claim.
+function formFieldLogEntry(field, coerced, day) {
+  if (coerced == null || coerced === "" || !field || !field.area) return null;
+  const at = Date.parse(day + "T00:00:00") || 0;
+  if (field.area === "Money" && (field.ftype === "dollar" || field.ftype === "number"))
+    return { ts: day, at: at, itemId: field.id, prompt: field.label, input: "amount", value: coerced, dest: { kind: "money", target: field.target || "" } };
+  if (field.area === "Health" && field.ftype === "scale")
+    return { ts: day, at: at, itemId: field.id, prompt: field.label, input: "scale", value: coerced, dest: { kind: "health", target: "energy" } };
+  return null;
+}
+// Write routed entries into the check-in log, REPLACING any prior entry for the same
+// (field, day) so a re-fill edits instead of duplicating. Then fan out like a check-in does.
+function appendFormLogEntries(entries) {
+  if (!entries || !entries.length) return true;
+  let log = loadLog();
+  entries.forEach((en) => { const key = (en.at || 0) + "|" + en.itemId; log = log.filter((e) => ((e.at || 0) + "|" + (e.itemId || "")) !== key); log.push(en); });
+  const ok = saveLog(log);
+  if (ok) { try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {} try { if (typeof ckPush === "function") ckPush(entries); } catch (e) {} }
+  return ok;
+}
+// Shared rows for the widget AND the full-screen home (one markup, no drift).
+function formsRowsHTML() {
+  const forms = formsLive(loadForms()).slice().sort((a, b) => (+a.ord || 0) - (+b.ord || 0));
+  if (!forms.length) return '<div class="frm-empty sub">No forms yet — build one, or import a CSV / a pasted list to start.</div>';
+  return '<div class="frm-list">' + forms.map((f) => {
+    const n = (f.fields || []).length;
+    return '<div class="frm-row" data-id="' + escapeHtml(f.id) + '">' +
+      '<button class="frm-fill" data-act="fill" title="fill this form">' +
+        '<span class="frm-emoji" aria-hidden="true">' + escapeHtml(f.emoji || "📋") + "</span>" +
+        '<span class="frm-nm"><span class="frm-nm-t">' + escapeHtml(f.name || "Untitled form") + "</span>" +
+        '<span class="frm-meta">' + n + " field" + (n === 1 ? "" : "s") + (f.dated ? " · one a day" : "") + "</span></span></button>" +
+      '<button class="frm-ic" data-act="edit" aria-label="edit form">✎</button>' +
+      '<button class="frm-ic" data-act="del" aria-label="delete form">✕</button>' +
+    "</div>";
+  }).join("") + "</div>";
+}
+function wireFormsList(scope) {
+  scope.querySelectorAll(".frm-row").forEach((row) => {
+    const id = row.dataset.id;
+    const fill = row.querySelector('[data-act="fill"]'); if (fill) fill.addEventListener("click", () => openFormFill(id));
+    const ed = row.querySelector('[data-act="edit"]'); if (ed) ed.addEventListener("click", () => openFormEditor(id));
+    const del = row.querySelector('[data-act="del"]'); if (del) del.addEventListener("click", () => {
+      const f = loadForms().find((x) => x && x.id === id); if (!f) return;
+      if (typeof confirm === "function" && !confirm("Delete “" + (f.name || "this form") + "”? Your past entries stay saved.")) return;
+      saveForms([Object.assign({}, f, { deleted: 1, updated: Date.now() })]);   // tombstone, never absence
+    });
+  });
+  const nw = scope.querySelector('[data-act="new"]'); if (nw) nw.addEventListener("click", () => openFormEditor());
+  const doc = scope.querySelector('[data-act="doc"]'); if (doc) doc.addEventListener("click", () => openFormDocPicker());
+}
+// The full-screen forms home (the deck / phone path). The board widget is the desktop lens;
+// this is the same list reachable without the board.
+function openFormsHome() {
+  if (document.getElementById("formsHome")) return;
+  const root = document.createElement("div"); root.id = "formsHome"; root.className = "daily-space forms-home";
+  const paint = () => {
+    root.innerHTML =
+      '<div class="daily-top"><button class="daily-icn" id="fhClose" aria-label="close">✕</button><div class="deck-sp-title">🗒️ Your forms</div><span class="daily-icn" aria-hidden="true"></span></div>' +
+      '<div class="deck-sp-scroll">' + formsRowsHTML() +
+        '<div class="frm-foot"><button class="frm-btn" data-act="new">＋ New form</button><button class="frm-btn ghost" data-act="doc">⬆ From a document</button></div>' +
+      "</div>";
+    drawIcons(); wireFormsList(root);
+    const c = root.querySelector("#fhClose"); if (c) c.addEventListener("click", close);
+  };
+  const onKey = (e) => { if (e.key === "Escape" && !document.getElementById("formEditor") && !document.getElementById("formFill") && !document.getElementById("formDoc")) close(); };
+  const onChange = () => { if (root.isConnected) paint(); };
+  function close() { root.remove(); document.removeEventListener("keydown", onKey); document.removeEventListener("cache:forms", onChange); }
+  document.body.appendChild(root);
+  document.addEventListener("keydown", onKey);
+  document.addEventListener("cache:forms", onChange);
+  paint();
+}
+
+// The DESIGNER. arg: a form id (edit), a draft template object (from a doc import — persisted
+// on open), or nothing (a blank new form, persisted on first edit). Mirrors openDeckEditor:
+// every edit stamps updated AT the point of edit, then saveForms merges per-item.
+function openFormEditor(arg) {
+  if (document.getElementById("formEditor")) return;
+  let form, fromDoc = false;
+  if (arg && typeof arg === "object") { form = arg; fromDoc = true; }
+  else if (typeof arg === "string") { form = loadForms().find((f) => f && f.id === arg); if (!form) return; form = JSON.parse(JSON.stringify(form)); }
+  else {
+    const last = formsLive(loadForms()).slice(-1)[0];
+    form = { id: formId(), type: "form", name: "", emoji: "📋", dated: 0, fields: [], updated: 0, ord: (last ? (+last.ord || 0) : 0) + 1, ordAt: 0 };
+  }
+  const persist = () => { form.updated = Date.now(); saveForms([form]); };
+  if (fromDoc) persist();   // a doc import is intentional — make it real immediately (stamps a real `updated`)
+  const root = document.createElement("div"); root.id = "formEditor"; root.className = "daily-space deck-editor form-editor";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  function fieldRowHTML(fl, idx) {
+    const ftype = fl.ftype || "text", opt = ftype === "choice";
+    return '<div class="fe-row" data-idx="' + idx + '">' +
+      '<div class="fe-row-top"><button class="deck-grip" aria-label="drag to reorder">⠿</button>' +
+        '<input class="fe-label" value="' + esc(fl.label) + '" placeholder="field label…" aria-label="field label">' +
+        '<button class="deck-del fe-del" aria-label="remove field">✕</button></div>' +
+      '<div class="fe-row-cfg">' +
+        '<label>Type<select class="fe-type">' + FORM_FTYPES.map((t) => '<option value="' + t + '"' + (t === ftype ? " selected" : "") + ">" + FTYPE_LABEL[t] + "</option>").join("") + "</select></label>" +
+        '<label>Area<select class="fe-area"><option value=""' + (!fl.area ? " selected" : "") + ">—</option>" + TD_AREAS.map((a) => '<option value="' + esc(a[1]) + '"' + (fl.area === a[1] ? " selected" : "") + ">" + a[0] + " " + esc(a[1]) + "</option>").join("") + "</select></label>" +
+        (fl.area === "Money" ? '<label class="fe-tgt-l">Building<input class="fe-tgt" value="' + esc(fl.target) + '" placeholder="e.g. Groceries"></label>' : "") +
+      "</div>" +
+      (opt ? '<div class="fe-row-cfg"><label class="fe-opt-l">Choices<input class="fe-opts" value="' + esc((fl.options || []).join(", ")) + '" placeholder="Cooked, Ate out, Both"></label></div>' : "") +
+      ((ftype === "number" || ftype === "duration" || ftype === "count") ? '<div class="fe-row-cfg"><label class="fe-opt-l">Unit<input class="fe-unit" value="' + esc(fl.unit) + '" placeholder="min, reps, pages…"></label></div>' : "");
+  }
+  function attachFieldDrag(row, listEl) {
+    const grip = row.querySelector(".deck-grip"); if (!grip) return;
+    grip.addEventListener("pointerdown", (e) => {
+      e.preventDefault(); row.classList.add("dragging");
+      try { grip.setPointerCapture(e.pointerId); } catch (er) {}
+      const move = (ev) => { const rows = [...listEl.querySelectorAll(".fe-row")]; for (const r of rows) { if (r === row) continue; const rect = r.getBoundingClientRect(); if (ev.clientY >= rect.top && ev.clientY <= rect.bottom) { listEl.insertBefore(row, ev.clientY < rect.top + rect.height / 2 ? r : r.nextSibling); break; } } };
+      const up = () => {
+        grip.removeEventListener("pointermove", move); grip.removeEventListener("pointerup", up); grip.removeEventListener("pointercancel", up); row.classList.remove("dragging");
+        // fields are nested in ONE merge unit (the form) — reordering is just the array order,
+        // stamped on the form. (No per-field ord/ordAt: the form is the merge granularity.)
+        const order = [...listEl.querySelectorAll(".fe-row")].map((r) => parseInt(r.dataset.idx, 10));
+        form.fields = order.map((i) => form.fields[i]);
+        persist(); render();
+      };
+      grip.addEventListener("pointermove", move); grip.addEventListener("pointerup", up); grip.addEventListener("pointercancel", up);
+    });
+  }
+  function render() {
+    root.innerHTML =
+      '<div class="daily-top"><div class="deck-title">Build a form</div><button class="daily-cta sm" id="feDone">Done</button></div>' +
+      '<div class="fe-meta"><input class="deck-emoji fe-emoji" id="feEmoji" value="' + esc(form.emoji || "📋") + '" maxlength="4" aria-label="emoji">' +
+        '<input class="fe-name" id="feName" value="' + esc(form.name) + '" placeholder="form name — e.g. Daily journal"></div>' +
+      '<label class="fe-dated"><input type="checkbox" id="feDated"' + (form.dated ? " checked" : "") + '> One entry per day <span class="sub">(a dated journal — fill in or fix past days)</span></label>' +
+      '<div class="deck-help">Each field routes where you point it: 💰 Money + a dollar/number lands on your spending · 🩺 Health + a 1–5 scale feeds your energy pattern · every other area is saved on the entry for that area to read.</div>' +
+      '<div class="deck-scroll fe-list" id="feList"></div>' +
+      '<div class="deck-foot"><button class="daily-cta ghost" id="feAdd">＋ Add a field</button><button class="daily-cta" id="feFill">▶ Fill it out</button></div>';
+    const listEl = root.querySelector("#feList");
+    (form.fields || []).forEach((fl, idx) => { const wrap = document.createElement("div"); wrap.innerHTML = fieldRowHTML(fl, idx); const row = wrap.firstChild; listEl.appendChild(row); wireFieldRow(row, fl, listEl); });
+    wireHead();
+  }
+  function wireFieldRow(row, fl, listEl) {
+    const lab = row.querySelector(".fe-label"); lab.addEventListener("input", (e) => { fl.label = e.target.value; persist(); });
+    row.querySelector(".fe-type").addEventListener("change", (e) => { fl.ftype = e.target.value; persist(); render(); });
+    row.querySelector(".fe-area").addEventListener("change", (e) => { fl.area = e.target.value || ""; if (fl.area !== "Money") delete fl.target; persist(); render(); });
+    const tgt = row.querySelector(".fe-tgt"); if (tgt) tgt.addEventListener("input", (e) => { fl.target = e.target.value; persist(); });
+    const opts = row.querySelector(".fe-opts"); if (opts) opts.addEventListener("input", (e) => { fl.options = e.target.value.split(",").map((x) => x.trim()).filter(Boolean); persist(); });
+    const unit = row.querySelector(".fe-unit"); if (unit) unit.addEventListener("input", (e) => { fl.unit = e.target.value; persist(); });
+    row.querySelector(".fe-del").addEventListener("click", () => { form.fields = form.fields.filter((x) => x !== fl); persist(); render(); });
+    attachFieldDrag(row, listEl);
+  }
+  function wireHead() {
+    root.querySelector("#feDone").addEventListener("click", close);
+    root.querySelector("#feEmoji").addEventListener("input", (e) => { form.emoji = e.target.value || "📋"; persist(); });
+    root.querySelector("#feName").addEventListener("input", (e) => { form.name = e.target.value; persist(); });
+    root.querySelector("#feDated").addEventListener("change", (e) => { form.dated = e.target.checked ? 1 : 0; persist(); });
+    root.querySelector("#feAdd").addEventListener("click", () => { form.fields = (form.fields || []).concat([{ id: fieldId(), label: "", ftype: "text", area: "" }]); persist(); render(); const inp = root.querySelector(".fe-row:last-child .fe-label"); if (inp) inp.focus(); });
+    root.querySelector("#feFill").addEventListener("click", () => { if (!(form.fields || []).length) { flash("Add a field first"); return; } const id = form.id; close(); openFormFill(id); });
+  }
+  const onKey = (e) => { if (e.key === "Escape" && !document.getElementById("formFill")) close(); };
+  function close() { root.remove(); document.removeEventListener("keydown", onKey); }
+  document.addEventListener("keydown", onKey);
+  render();
+}
+
+// The FILLER — a single scrollable form (native inputs, big targets). On save it writes a
+// money.formData submission and routes money/health fields into the check-in log. A dated form
+// lets you pick the day and EDIT that day's entry (prefilled) instead of piling up duplicates.
+function openFormFill(formIdArg, opts) {
+  if (document.getElementById("formFill")) return;
+  const form = loadForms().find((f) => f && f.id === formIdArg && !f.deleted);
+  if (!form) return;
+  const fields = (form.fields || []);
+  if (!fields.length) { flash("This form has no fields yet — tap ✎ to add some"); return; }
+  opts = opts || {};
+  const root = document.createElement("div"); root.id = "formFill"; root.className = "daily-space form-fill";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  let day = form.dated ? (opts.date || todayKey()) : todayKey();
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  function close() { root.remove(); document.removeEventListener("keydown", onKey); }
+  document.addEventListener("keydown", onKey);
+  // prefill from an existing submission for this (form, day) so a dated form edits its day
+  function existingSub() { return form.dated ? formDataLive(loadFormData()).find((s) => s && s.formId === form.id && s.date === day) : null; }
+  function valOf(sub, fid) { if (!sub) return ""; const v = (sub.values || []).find((x) => x && x.fieldId === fid); return v ? (v.value == null ? "" : v.value) : ""; }
+  function fieldInputHTML(fl, val) {
+    const ft = fl.ftype || "text", id = "ffi_" + esc(fl.id);
+    if (ft === "notes") return '<textarea class="ff-in" id="' + id + '" placeholder="…">' + esc(val) + "</textarea>";
+    if (ft === "date") return '<input class="ff-in" id="' + id + '" type="date" value="' + esc(val) + '">';
+    if (ft === "number" || ft === "count") return '<input class="ff-in" id="' + id + '" type="number" inputmode="decimal" value="' + esc(val) + '" placeholder="' + esc(fl.unit || "number") + '">';
+    if (ft === "dollar") return '<div class="ff-dollar"><span>$</span><input class="ff-in" id="' + id + '" type="number" inputmode="decimal" step="0.01" value="' + esc(val) + '" placeholder="0.00"></div>';
+    if (ft === "duration") return '<input class="ff-in" id="' + id + '" type="number" inputmode="decimal" value="' + esc(val) + '" placeholder="hours">';
+    if (ft === "choice") { const os = (fl.options || []); return '<select class="ff-in" id="' + id + '"><option value="">—</option>' + os.map((o) => '<option value="' + esc(o) + '"' + (String(val) === String(o) ? " selected" : "") + ">" + esc(o) + "</option>").join("") + "</select>"; }
+    if (ft === "yesno") return '<div class="ff-chips" data-fid="' + esc(fl.id) + '" data-val="' + (val === 1 || val === "1" ? "1" : val === 0 || val === "0" ? "0" : "") + '">' + [["1", "✅ Yes"], ["0", "🚫 No"]].map((o) => '<button type="button" class="ff-chip' + (String(val) === o[0] ? " on" : "") + '" data-v="' + o[0] + '">' + o[1] + "</button>").join("") + "</div>";
+    if (ft === "scale") return '<div class="ff-chips" data-fid="' + esc(fl.id) + '" data-val="' + (val === "" ? "" : esc(val)) + '">' + [1, 2, 3, 4, 5].map((n) => '<button type="button" class="ff-chip' + (String(val) === String(n) ? " on" : "") + '" data-v="' + n + '">' + n + "</button>").join("") + "</div>";
+    return '<input class="ff-in" id="' + id + '" type="text" value="' + esc(val) + '" placeholder="…">';
+  }
+  function render() {
+    const sub = existingSub();
+    root.innerHTML =
+      '<div class="daily-top"><button class="daily-icn" id="ffClose" aria-label="close">✕</button>' +
+        '<div class="ff-title">' + esc(form.emoji || "📋") + " " + esc(form.name || "Form") + "</div>" +
+        '<button class="daily-cta sm" id="ffSave">Save</button></div>' +
+      '<div class="ff-scroll">' +
+        (form.dated ? '<div class="ff-datebar"><label>Day</label><input type="date" id="ffDate" value="' + esc(day) + '">' + (sub ? '<span class="ff-editing">editing this day</span>' : "") + "</div>" : "") +
+        '<div class="ff-fields">' + fields.map((fl) => '<div class="ff-field" data-fid="' + esc(fl.id) + '" data-ftype="' + esc(fl.ftype || "text") + '"><label class="ff-lbl">' + esc(fl.label || "Field") + (fl.area ? ' <span class="ff-area">' + esc(fl.area) + "</span>" : "") + "</label>" + fieldInputHTML(fl, valOf(sub, fl.id)) + "</div>").join("") + "</div>" +
+      "</div>";
+    root.querySelector("#ffClose").addEventListener("click", close);
+    root.querySelector("#ffSave").addEventListener("click", save);
+    const dEl = root.querySelector("#ffDate"); if (dEl) dEl.addEventListener("change", (e) => { day = e.target.value || todayKey(); render(); });
+    root.querySelectorAll(".ff-chips").forEach((grp) => grp.querySelectorAll(".ff-chip").forEach((b) => b.addEventListener("click", () => { grp.dataset.val = b.dataset.v; grp.querySelectorAll(".ff-chip").forEach((x) => x.classList.toggle("on", x === b)); })));
+  }
+  function readValues() {
+    return fields.map((fl) => {
+      const cont = root.querySelector('.ff-field[data-fid="' + (window.CSS && CSS.escape ? CSS.escape(fl.id) : fl.id) + '"]');
+      let raw = "";
+      if (cont) { if (fl.ftype === "yesno" || fl.ftype === "scale") { const g = cont.querySelector(".ff-chips"); raw = g ? (g.dataset.val || "") : ""; } else { const inp = cont.querySelector(".ff-in"); raw = inp ? inp.value : ""; } }
+      return { fieldId: fl.id, value: coerceFormValue(fl.ftype, raw) };
+    });
+  }
+  function save() {
+    const values = readValues();
+    const answered = values.filter((v) => v.value !== null && v.value !== "");
+    if (!answered.length) { flash("Nothing filled in yet"); return; }
+    const prev = existingSub();
+    const sub = prev
+      ? Object.assign({}, prev, { values: values, updated: Date.now() })
+      : { id: formSubId(), type: "formsub", formId: form.id, date: day, values: values, updated: Date.now(), ord: Date.now(), ordAt: 0 };
+    saveFormData([sub]);
+    // route the fields a live reader understands (money spend, health energy) into the log
+    const entries = []; fields.forEach((fl) => { const v = values.find((x) => x.fieldId === fl.id); const en = formFieldLogEntry(fl, v ? v.value : null, day); if (en) entries.push(en); });
+    appendFormLogEntries(entries);
+    const gained = Math.min(10, 2 + answered.length);
+    try { if (typeof addExp === "function") addExp(gained); } catch (e) {}
+    try { if (typeof logChar === "function") logChar("log", "Form: " + (form.name || "entry") + " · +" + gained + " EXP"); } catch (e) {}
+    try { document.dispatchEvent(new CustomEvent("cache:forms")); } catch (e) {}
+    flash("Saved to your cache · +" + gained + " EXP ✨");
+    close();
+  }
+  render();
+}
+
+// Document → form: upload a CSV (headers become fields) or paste a list (Q&A / labels /
+// checkboxes). The parse only SEEDS a draft — you land in the designer to confirm.
+function openFormDocPicker() {
+  if (document.getElementById("formDoc")) return;
+  const root = document.createElement("div"); root.id = "formDoc"; root.className = "daily-space form-doc";
+  document.body.appendChild(root);
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  function close() { root.remove(); document.removeEventListener("keydown", onKey); }
+  document.addEventListener("keydown", onKey);
+  root.innerHTML =
+    '<div class="daily-top"><button class="daily-icn" id="fdClose" aria-label="close">✕</button><div class="deck-sp-title">⬆ Start from a document</div><span class="daily-icn" aria-hidden="true"></span></div>' +
+    '<div class="fd-scroll">' +
+      '<div class="fd-card"><div class="fd-h">📄 A spreadsheet (CSV)</div><div class="fd-p sub">Its column headers become your fields — types are guessed from the first row. Export from a bank, a tracker, a Google Sheet…</div><button class="frm-btn" id="fdCsv">Choose a .csv file</button></div>' +
+      '<div class="fd-card"><div class="fd-h">📝 A list you already have</div><div class="fd-p sub">Paste your questions or labels — one per line. “Weight: 175”, “How did you sleep?”, “[ ] Took meds”, “Mood (1-5)”.</div>' +
+        '<textarea class="fd-paste" id="fdPaste" placeholder="Weight: 175&#10;How did you sleep?&#10;[ ] Took meds&#10;Mood (1-5)"></textarea>' +
+        '<button class="frm-btn" id="fdBuild">Build a form from this</button></div>' +
+      '<div class="fd-note sub">Nothing is saved until you confirm it in the designer.</div>' +
+    "</div>";
+  root.querySelector("#fdClose").addEventListener("click", close);
+  const fileInput = document.createElement("input"); fileInput.type = "file"; fileInput.accept = ".csv,text/csv,.txt,text/plain"; fileInput.style.display = "none"; root.appendChild(fileInput);
+  root.querySelector("#fdCsv").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => { const f = fileInput.files[0]; if (!f) return; const reader = new FileReader(); reader.onload = () => { const name = f.name.replace(/\.[^.]+$/, ""); const out = /\.csv$/i.test(f.name) ? csvToTemplate(String(reader.result || ""), name) : textToTemplate(String(reader.result || ""), name); if (!out || !out.template.fields.length) { flash("Couldn’t find any fields in that file"); return; } close(); openFormEditor(out.template); }; reader.readAsText(f); fileInput.value = ""; });
+  root.querySelector("#fdBuild").addEventListener("click", () => { const txt = root.querySelector("#fdPaste").value; const out = textToTemplate(txt, "Imported form"); if (!out || !out.template.fields.length) { flash("Add a line or two first — one field per line"); return; } close(); openFormEditor(out.template); });
 }
 // A ROUTINE's detail sheet — name, emoji, the recurrence schedule (feeds routineDueOn), and
 // delete (cascades to its steps). Same td-space shell as tasks/questions. Steps are added from
