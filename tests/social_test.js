@@ -84,39 +84,93 @@ ok("too-long handle rejected", !S.socialHandleValid("x".repeat(21)));
   ok("tampered ciphertext rejected", !!(await threw(() => S.socialUnseal(bPub, tampered))));
   ok("malformed body rejected", !!(await threw(() => S.socialUnseal(bPub, "no-colon-here"))));
 
-  // ── account logout / switch must NOT leak the messaging identity across accounts ──
-  // The guarantee: cloudLogout drops the token but KEEPS userId, so the next login of a
-  // DIFFERENT account trips cloudLogin's clear of the old @handle + private key + DM cache.
-  // If logout wiped userId (its old behavior), account B would silently inherit A's private
-  // key — this whole block goes red if that regresses.
+  // ── account logout / switch must fully ISOLATE each account (no blend, no leak, no loss) ──
+  // Logout keeps userId so the next DIFFERENT-account login trips the swap. That swap silos the
+  // outgoing account's ENTIRE local cache — messages AND deck/tasks/journal — under its userId,
+  // then loads the incoming account's silo (clean slate if new). Device settings (zoom) + the
+  // vault key are NOT siloed. Switching back restores the first account exactly. This whole block
+  // goes red if account data ever blends across accounts, or an account's data is lost on switch.
   {
     const CLS = makeLS();
-    const cloudCode = slice("app.js", /^const CLOUD_KEY = "money\.cloud"/, /^async function cloudAuthCheck/);
+    const cloudCode = slice("app.js", /^const CLOUD_KEY = "money\.cloud"/, /^function lhash/);
     const pre =
       'var CLOUDKEY_KEY="money.cloudKey";' +
       'function cloudKeySet(b){if(b){localStorage.setItem(CLOUDKEY_KEY,b);}else{localStorage.removeItem(CLOUDKEY_KEY);}}' +
       'function cloudErr(d){return (d&&d.message)||"";}' +
       'var __L=null;var fetch=function(){return Promise.resolve({ok:true,json:function(){return Promise.resolve(__L);}});};';
-    const CL = Function("localStorage", pre + "\n" + cloudCode + "\nreturn {cloudState,cloudSaveState,cloudLogout,cloudLogin,__setLogin:function(v){__L=v;}};")(CLS);
-    // account A: fully signed in, holding a live session + vault key
+    const CL = Function("localStorage", pre + "\n" + cloudCode + "\nreturn {cloudState,cloudSaveState,cloudLogout,cloudLogin,isAccountDataKey,__setLogin:function(v){__L=v;}};")(CLS);
+    // the account-data classifier: money.* data + dms, but NOT device/cloud internals or the silo
+    ok("classifier: deck is account data", CL.isAccountDataKey("money.deck"));
+    ok("classifier: a generic key (note) is account data", CL.isAccountDataKey("money.note"));
+    ok("classifier: dms is account data (its own messages)", CL.isAccountDataKey("money.dms"));
+    ok("classifier: zoom (device ergonomics) is NOT account data", !CL.isAccountDataKey("money.zoom"));
+    ok("classifier: modal geometry (money.settings.w) is device-scoped, NOT account data", !CL.isAccountDataKey("money.settings.w"));
+    ok("classifier: the vault key is NOT account data", !CL.isAccountDataKey("money.cloudKey"));
+    ok("classifier: the merge bookkeeping (__lmeta) is NOT account data by class", !CL.isAccountDataKey("money.__lmeta"));
+    ok("classifier: the silo namespace is NOT account data", !CL.isAccountDataKey("cacheprof.USER_A"));
+    // account A signed in with a WHOLE cache: messages + deck/tasks/journal, a device zoom, a
+    // resized Settings modal (device geometry), and per-key merge bookkeeping (__lmeta).
     CLS.setItem("money.cloudKey", "A_VAULT_KEY");
+    CLS.setItem("money.zoom", "1.25");
+    CLS.setItem("money.settings.w", "640");
+    CLS.setItem("money.__lmeta", JSON.stringify({ "money.note": { m: 12345, h: 7 } }));
+    CLS.setItem("money.deck", JSON.stringify([{ id: "d1", q: "A's card" }]));
+    CLS.setItem("money.things", JSON.stringify([{ id: "t1", title: "A's task" }]));
+    CLS.setItem("money.note", "A's private note");
+    CLS.setItem("money.social", JSON.stringify({ username: "kingcozy", optedIn: true }));
+    CLS.setItem("money.msgKey", JSON.stringify({ priv: "A_PRIV", pub: "A_PUB" }));
+    CLS.setItem("money.dms", JSON.stringify({ threads: { x: 1 }, reqs: [] }));
     CL.cloudSaveState({ url: "u", token: "TOKEN_A", userId: "USER_A", email: "a@x.co", mode: "zk", lastPush: 7 });
     CL.cloudLogout();
     const aOut = CL.cloudState();
     ok("logout drops the session token", !aOut.token);
     ok("logout wipes this device's vault key", CLS.getItem("money.cloudKey") === null);
-    ok("logout KEEPS userId (arms the different-account identity clear)", aOut.userId === "USER_A");
+    ok("logout KEEPS userId (arms the different-account swap)", aOut.userId === "USER_A");
     ok("logout keeps email for one-tap re-login", aOut.email === "a@x.co");
-    // A's messaging identity is still on the device; now a DIFFERENT account signs in here
-    CLS.setItem("money.social", JSON.stringify({ username: "kingcozy", optedIn: true }));
-    CLS.setItem("money.msgKey", JSON.stringify({ priv: "A_PRIV", pub: "A_PUB" }));
-    CLS.setItem("money.dms", JSON.stringify({ threads: {}, reqs: [] }));
+    ok("logout leaves your local data on the device (local-first)", CLS.getItem("money.deck") !== null);
+    // a DIFFERENT account signs in on this same browser
     CL.__setLogin({ token: "TOKEN_B", record: { id: "USER_B", email: "b@x.co", verified: true } });
     await CL.cloudLogin("u", "b@x.co", "pw");
-    ok("switch to a different account clears the old @handle", CLS.getItem("money.social") === null);
-    ok("switch to a different account clears the old PRIVATE KEY", CLS.getItem("money.msgKey") === null);
-    ok("switch to a different account clears the old DM cache", CLS.getItem("money.dms") === null);
-    ok("the new account's session is active", CL.cloudState().token === "TOKEN_B" && CL.cloudState().userId === "USER_B");
+    ok("B does not inherit A's @handle", CLS.getItem("money.social") === null);
+    ok("B does not inherit A's PRIVATE KEY", CLS.getItem("money.msgKey") === null);
+    ok("B does not inherit A's message cache", CLS.getItem("money.dms") === null);
+    ok("B does not inherit A's deck", CLS.getItem("money.deck") === null);
+    ok("B does not inherit A's tasks", CLS.getItem("money.things") === null);
+    ok("B does not inherit A's private note", CLS.getItem("money.note") === null);
+    ok("B does not inherit A's merge bookkeeping (__lmeta siloed away)", CLS.getItem("money.__lmeta") === null);
+    ok("B keeps THIS DEVICE's zoom (not account data)", CLS.getItem("money.zoom") === "1.25");
+    ok("B keeps THIS DEVICE's modal geometry (device suffix, not siloed)", CLS.getItem("money.settings.w") === "640");
+    ok("B's session is active", CL.cloudState().token === "TOKEN_B" && CL.cloudState().userId === "USER_B");
+    // switching BACK to A restores A's world exactly — nothing was lost, including __lmeta so A's
+    // un-pushed generic edits still win the next merge instead of reverting to the older cloud copy
+    CL.__setLogin({ token: "TOKEN_A2", record: { id: "USER_A", email: "a@x.co", verified: true } });
+    await CL.cloudLogin("u", "a@x.co", "pw");
+    ok("back on A: deck restored intact", CLS.getItem("money.deck") === JSON.stringify([{ id: "d1", q: "A's card" }]));
+    ok("back on A: private note restored", CLS.getItem("money.note") === "A's private note");
+    ok("back on A: tasks restored (B's empty slate didn't clobber them)", CLS.getItem("money.things") === JSON.stringify([{ id: "t1", title: "A's task" }]));
+    ok("back on A: @handle + private key restored", CLS.getItem("money.social") !== null && CLS.getItem("money.msgKey") !== null);
+    ok("back on A: merge bookkeeping (__lmeta) restored — un-pushed edits stay protected", CLS.getItem("money.__lmeta") === JSON.stringify({ "money.note": { m: 12345, h: 7 } }));
+
+    // a FAILED silo write (storage full) must NOT delete the outgoing account's live data
+    const store = {};
+    const QLS = {
+      getItem: (k) => (k in store ? store[k] : null),
+      setItem: (k, v) => { if (String(k).indexOf("cacheprof.") === 0) { const e = new Error("QuotaExceededError"); e.name = "QuotaExceededError"; throw e; } store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; },
+      key: (i) => (Object.keys(store)[i] === undefined ? null : Object.keys(store)[i]),
+      get length() { return Object.keys(store).length; },
+    };
+    const CLq = Function("localStorage", pre + "\n" + cloudCode + "\nreturn {cloudState,cloudSaveState,cloudLogin,__setLogin:function(v){__L=v;}};")(QLS);
+    QLS.setItem("money.deck", JSON.stringify([{ id: "keepme" }]));
+    QLS.setItem("money.dms", JSON.stringify({ threads: { z: 1 } }));   // device-local, never in the vault → losing it would be permanent
+    CLq.cloudSaveState({ url: "u", token: "T_A", userId: "USER_A", email: "a@x.co" });
+    CLq.__setLogin({ token: "T_B", record: { id: "USER_B", email: "b@x.co" } });
+    let quotaThrew = false;
+    try { await CLq.cloudLogin("u", "b@x.co", "pw"); } catch (e) { quotaThrew = true; }
+    ok("quota-failed switch ABORTS the login (surfaces an error)", quotaThrew);
+    ok("quota-abort does NOT relabel the session to the new account", CLq.cloudState().userId === "USER_A");
+    ok("quota-failed silo write does NOT delete the outgoing account's deck", QLS.getItem("money.deck") !== null);
+    ok("quota-failed silo write does NOT delete the outgoing account's message cache", QLS.getItem("money.dms") !== null);
   }
 
   console.log(`\n${p} passed, ${f} failed`);

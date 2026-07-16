@@ -223,6 +223,45 @@
     return items;   // NO cap — live structure durable; tombstones uncapped in v1
   }
   function wIsGeneric(k) { return k.indexOf("money.") === 0 && W_INTERNAL.indexOf(k) === -1 && W_SPECIAL.indexOf(k) === -1; }
+  // ── per-account local isolation (mirror of app.js switchAccountData) ─────────
+  // On a different-account login the outgoing account's whole local cache is siloed
+  // under its userId (outside the money.* namespace, so sync never sees it) and the
+  // incoming account's silo is loaded — clean slate if new. Uses the SAME W_INTERNAL
+  // classification as app.js so both runtimes agree on what counts as account data.
+  var W_PROFILE_PREFIX = "cacheprof.", W_LMETA_KEY = "money.__lmeta";
+  function wIsAccountData(k) {
+    if (typeof k !== "string" || k.indexOf("money.") !== 0) return false;
+    if (W_INTERNAL.indexOf(k) !== -1) return k === "money.dms";                     // internals aren't account data — except dms (this account's messages)
+    for (var i = 0; i < W_INTERNAL.length; i++) { if (k.indexOf(W_INTERNAL[i] + ".") === 0) return false; }   // a suffixed device key stays device-scoped (money.settings.w modal geometry)
+    return true;
+  }
+  // saves account data + money.__lmeta to the silo, THEN clears the active slot; returns false
+  // WITHOUT deleting anything if the silo write fails (quota) so a failed write never loses data.
+  function wStashAccount(uid) {
+    if (!uid) return false;
+    var keys = [], snap = {}, i, k;
+    for (i = 0; i < localStorage.length; i++) { k = localStorage.key(i); if (wIsAccountData(k)) keys.push(k); }
+    keys.forEach(function (kk) { snap[kk] = localStorage.getItem(kk); });
+    var lm = localStorage.getItem(W_LMETA_KEY); if (lm != null) snap[W_LMETA_KEY] = lm;
+    var ok = false;
+    try { localStorage.setItem(W_PROFILE_PREFIX + uid, JSON.stringify(snap)); ok = true; } catch (e) {}
+    if (!ok) return false;
+    keys.forEach(function (kk) { try { localStorage.removeItem(kk); } catch (e) {} });
+    try { localStorage.removeItem(W_LMETA_KEY); } catch (e) {}
+    return true;
+  }
+  function wLoadAccount(uid) {
+    if (!uid) return;
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(W_PROFILE_PREFIX + uid) || "null"); } catch (e) {}
+    if (saved && typeof saved === "object") Object.keys(saved).forEach(function (kk) { if (wIsAccountData(kk) || kk === W_LMETA_KEY) { try { localStorage.setItem(kk, saved[kk]); } catch (e) {} } });
+  }
+  function wSwitchAccount(oldUid, newUid) {
+    if (!newUid || oldUid === newUid) return false;
+    if (!wStashAccount(oldUid)) return false;   // abort rather than risk losing the outgoing account
+    wLoadAccount(newUid);
+    return true;
+  }
   function wStampGeneric(lm) {
     lm = lm || wLmetaGet();
     try {
@@ -250,8 +289,13 @@
     var d = await r.json();
     if (!r.ok || !d.token) throw new Error(errMsg(d) || "login failed");
     var prev = cloudState();
-    // a different account on this browser → drop the old account's device key + mode
-    if (prev.userId && d.record && d.record.id !== prev.userId) { keySet(""); prev.recordId = null; prev.mode = null; }
+    // a different account on this browser → silo its whole local cache FIRST so this account starts
+    // clean (nothing blended, nothing lost); if it can't be safely siloed (storage full), ABORT
+    // before relabeling the session — otherwise a later backup could seal one account into another's vault.
+    if (prev.userId && d.record && d.record.id !== prev.userId) {
+      if (!wSwitchAccount(prev.userId, d.record.id)) throw new Error("Not enough storage to switch accounts safely — free up space and try again. Your data is untouched.");
+      keySet(""); prev.recordId = null; prev.mode = null;
+    }
     cloudSave({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: prev.recordId, mode: prev.mode || null });
   }
   async function signup(email, pass) {

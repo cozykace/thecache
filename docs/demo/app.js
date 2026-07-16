@@ -3424,10 +3424,16 @@ async function cloudLogin(url, email, password) {
   // a DIFFERENT account is signing in on this browser → drop the old account's
   // device key, seal-mode memory, and record pointer, or the vaults would entangle
   if (prev.userId && d.record && d.record.id !== prev.userId) {
+    // FULL per-account isolation: silo the outgoing account's ENTIRE local cache (deck, tasks,
+    // journal, layout, forms, character — AND its @handle, private key, message cache) under its
+    // userId, then load the incoming account's silo (a clean slate if it's new here), so this
+    // account can never inherit another's data and switching back restores each account exactly.
+    // If the outgoing account can't be safely siloed (storage full), ABORT the whole login BEFORE
+    // relabeling the session — never leave the session pointing at the new account while the old
+    // account's data (incl. its private key) is still live, or a later backup would seal one
+    // account's data into another's vault. Data stays untouched on abort.
+    if (!switchAccountData(prev.userId, d.record.id)) throw new Error("Not enough storage to switch accounts safely — free up space (or back up and remove an account's cloud copy) and try again. Your data is untouched.");
     cloudKeySet(""); prev.recordId = null; prev.lastPush = null; prev.lastHash = null; prev.lastSeenVault = null; prev.mode = null;
-    // a new identity → drop the prior account's messaging identity (handle, keypair) + message
-    // cache, or this account would inherit someone else's @username and private key
-    try { localStorage.removeItem("money.social"); localStorage.removeItem("money.msgKey"); localStorage.removeItem("money.dms"); } catch (e) {}
   }
   // same account → mode RIDES ALONG: the zero-knowledge downgrade guard reads it,
   // and losing it on a routine re-login would disarm the guard exactly when a
@@ -3526,6 +3532,53 @@ const MAP_FILE_NAMES = ["categories.json", "income.json", "subs.json", "income_l
 function isInternalKey(k) { return CLOUD_INTERNAL_KEYS.indexOf(k) !== -1 || DEVICE_LOCAL_KEYS.indexOf(k) !== -1; }
 function isSpecialKey(k) { return SPECIAL_MERGE_KEYS.indexOf(k) !== -1; }
 function isGenericKey(k) { return k.indexOf("money.") === 0 && !isInternalKey(k) && !isSpecialKey(k); }
+// ── per-account local isolation (one browser, many accounts) ─────────────────
+// Each account's data is siloed so logging in as B never shows — or absorbs — A's
+// cache. The silo lives OUTSIDE the "money." namespace (prefix "cacheprof.") so the
+// vault/sync engine, which only ever touches money.*, never sees it. Account-scoped =
+// every money.* key that isn't a device/cloud internal, PLUS money.dms (device-local by
+// sync-class, but it IS this account's message cache). money.cloudKey (the vault key) is
+// deliberately NOT siloed — the switch clears it so no account keeps another's key.
+const PROFILE_PREFIX = "cacheprof.", LMETA_KEY = "money.__lmeta";
+function isAccountDataKey(k) {
+  if (typeof k !== "string" || k.indexOf("money.") !== 0) return false;
+  if (isInternalKey(k)) return k === "money.dms";                                  // internals aren't account data — except dms (this account's messages)
+  if (DEVICE_LOCAL_KEYS.some((dk) => k.indexOf(dk + ".") === 0)) return false;     // a suffixed device key stays device-scoped (e.g. money.settings.w modal geometry)
+  return true;
+}
+function accountDataKeys() { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (isAccountDataKey(k)) out.push(k); } return out; }
+// Save this account's whole local cache — PLUS its money.__lmeta merge bookkeeping, so its
+// un-pushed generic edits keep winning merges after a round-trip — to its silo, THEN clear the
+// active slot. Returns false WITHOUT deleting anything if the silo can't be written (quota), so a
+// failed write never destroys the outgoing account's data.
+function stashAccountData(uid) {
+  if (!uid) return false;
+  const keys = accountDataKeys(), snap = {};
+  keys.forEach((k) => { snap[k] = localStorage.getItem(k); });
+  const lm = localStorage.getItem(LMETA_KEY); if (lm != null) snap[LMETA_KEY] = lm;
+  let ok = false;
+  try { localStorage.setItem(PROFILE_PREFIX + uid, JSON.stringify(snap)); ok = true; } catch (e) {}
+  if (!ok) return false;   // couldn't silo it → keep the live data put; never delete what wasn't saved
+  keys.forEach((k) => { try { localStorage.removeItem(k); } catch (e) {} });
+  try { localStorage.removeItem(LMETA_KEY); } catch (e) {}   // its own __lmeta went into the silo; the incoming account's is loaded next (or absent = fresh)
+  return true;
+}
+function loadAccountData(uid) {   // restore this account's siloed cache + its __lmeta (clean slate + fresh bookkeeping if it's new here)
+  if (!uid) return;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(PROFILE_PREFIX + uid) || "null"); } catch (e) {}
+  if (saved && typeof saved === "object") Object.keys(saved).forEach((k) => { if (isAccountDataKey(k) || k === LMETA_KEY) { try { localStorage.setItem(k, saved[k]); } catch (e) {} } });
+}
+// The whole account swap. Stash the outgoing account BEFORE loading the incoming one so B never
+// inherits A's keys; ABORT (leaving the outgoing account active) if the stash couldn't be saved,
+// so nothing is ever lost. A brand-new incoming account loads no silo → clean slate + no __lmeta
+// (fresh bookkeeping). Returns whether the swap actually happened.
+function switchAccountData(oldUid, newUid) {
+  if (!newUid || oldUid === newUid) return false;
+  if (!stashAccountData(oldUid)) return false;
+  loadAccountData(newUid);
+  return true;
+}
 // djb2 — a cheap content fingerprint so we can tell a real local edit apart from a
 // key we merely re-read (must match webcache.js's wLhash exactly).
 function lhash(s) { let h = 5381; s = s || ""; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h; }
@@ -4714,7 +4767,6 @@ function openSettings() {
       '<div class="cloud-account" id="setCloudAccount" style="display:none">' +
         '<span class="cloud-acct-who">Signed in as <b id="setCloudWho"></b></span>' +
         '<span class="cloud-acct-acts">' +
-          '<button class="set-btn cloud-btn-sub" id="setCloudSwitch">Switch account</button>' +
           '<button class="set-btn cloud-btn-sub" id="setCloudLogout">Log out</button>' +
         '</span>' +
       '</div>' +
@@ -4874,7 +4926,6 @@ function openSettings() {
         clSignup = modal.querySelector("#setCloudSignup"), clLogin = modal.querySelector("#setCloudLogin"),
         clLogout = modal.querySelector("#setCloudLogout"),
         clAccount = modal.querySelector("#setCloudAccount"), clWho = modal.querySelector("#setCloudWho"),
-        clSwitch = modal.querySelector("#setCloudSwitch"),
         clStep = [null, modal.querySelector("#cloudStep1"), modal.querySelector("#cloudStep2"), modal.querySelector("#cloudStep3")],
         clChk = [null, modal.querySelector("#cloudChk1"), modal.querySelector("#cloudChk2"), modal.querySelector("#cloudChk3")];
   // the URL is locked by default — everyone uses the official cloud, and a typo here
@@ -4987,20 +5038,29 @@ function openSettings() {
     // Repaint either way: a success may have just learned the verified flag.
     if (s.token) cloudAuthCheck().then((ok) => { refreshCloud(); if (!ok) clSay("Your cloud login expired — enter your password and hit Log in. Your data is safe.", "err"); });
   })();
+  // when a DIFFERENT account takes over this browser, switchAccountData has already swapped
+  // localStorage to the new account — but the board/theme/character render from in-memory state
+  // loaded once at boot, so a full reload is the safe way to come up cleanly as the new account
+  // (a stale board could even write the old account's layout into the new account's vault).
+  // Mirrors the Restore path, which reloads after its wholesale localStorage swap.
+  const reloadIfSwitched = (before) => {
+    const now = cloudState().userId;
+    if (before && now && now !== before) { clSay("✓ Switched account — reloading…", "ok"); setTimeout(() => location.reload(), 500); return true; }
+    return false;
+  };
   clSignup.addEventListener("click", async () => {
     clSay("Creating account…", "work");
-    try { await cloudSignup(clUrl.value.trim(), clEmail.value.trim(), clPass.value); refreshCloud(); clSay("✓ Account created — you’re signed in. Hit ⬆ Back up to cloud and you’re done.", "ok"); }
+    const before = cloudState().userId;
+    try { await cloudSignup(clUrl.value.trim(), clEmail.value.trim(), clPass.value); if (reloadIfSwitched(before)) return; refreshCloud(); clSay("✓ Account created — you’re signed in. Hit ⬆ Back up to cloud and you’re done.", "ok"); }
     catch (e) { clSay("Couldn’t create account: " + (e.message || e), "err"); }
   });
   clLogin.addEventListener("click", async () => {
     clSay("Logging in…", "work");
-    try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); refreshCloud(); cloudChip(); cloudAutoPull(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
+    const before = cloudState().userId;
+    try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); if (reloadIfSwitched(before)) return; refreshCloud(); cloudChip(); cloudAutoPull(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
     catch (e) { clSay("Login failed: " + (e.message || e), "err"); }
   });
   clLogout.addEventListener("click", () => { cloudLogout(); clPass.value = ""; refreshCloud(); try { cloudChip(); } catch (e) {} try { socialUpdateBadge(); } catch (e) {} clSay("Logged out.", ""); });
-  // Switch account = log out, then clear the fields + focus email so a DIFFERENT account
-  // can sign in right here. (The different-account login clears the old messaging identity.)
-  if (clSwitch) clSwitch.addEventListener("click", () => { cloudLogout(); clEmail.value = ""; clPass.value = ""; refreshCloud(); try { cloudChip(); } catch (e) {} try { socialUpdateBadge(); } catch (e) {} clSay("Logged out — sign in with another account below.", ""); try { clEmail.focus(); } catch (e) {} });
   clPush.addEventListener("click", async () => {
     if (!cloudState().token) { clSay("Do Step 1 first — create or log into your account.", "err"); return; }
     if (phrase() && phrase().length < 6) { clSay("A zero-knowledge passphrase needs 6+ characters (or clear the field for the simple default).", "err"); return; }
@@ -9826,7 +9886,6 @@ function openMessages() {
     const em = cloudState().email || "your account";
     return '<div class="msg-account"><span class="msg-acct-who">signed in as <b>' + esc(em) + "</b></span>" +
       '<span class="msg-acct-acts">' +
-      '<button class="msg-acct-btn" id="msgSwitch">Switch account</button>' +
       '<button class="msg-acct-btn msg-acct-out" id="msgLogout">Log out</button>' +
       "</span></div>";
   };
@@ -9917,8 +9976,6 @@ function openMessages() {
     // (log out + jump to the cloud sign-in so a different account can take over)
     const lo = root.querySelector("#msgLogout");
     if (lo) lo.addEventListener("click", () => { cloudLogout(); view = "list"; activeUid = null; results = null; findErr = ""; claimErr = ""; try { cloudChip(); } catch (e) {} socialUpdateBadge(); render(); flash("Logged out."); });
-    const sw = root.querySelector("#msgSwitch");
-    if (sw) sw.addEventListener("click", () => { cloudLogout(); try { cloudChip(); } catch (e) {} socialUpdateBadge(); close(); try { openSettings(); } catch (e) {} });
     const claimGo = root.querySelector("#msgClaimGo"), claimIn = root.querySelector("#msgClaimIn");
     if (claimGo && claimIn) {
       const go = async () => { claimErr = ""; try { await socialClaimUsername(claimIn.value); flash("You're on — @" + socialState().username); } catch (e) { claimErr = e.message || "couldn't claim that"; render(); } };
