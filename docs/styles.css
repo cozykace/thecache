@@ -1410,6 +1410,9 @@ body.panning .cursor-ball { display: none !important; }
   transition: opacity 0.2s ease, background 0.15s ease;
 }
 .sidebar-toggle:hover { background: var(--panel); }
+/* Pad the hit area to 44px (SOP) WITHOUT enlarging the visible box, and reach ~3px toward the
+   corner so a fast flick to it (the jelly cursor lags + dents on press) still lands on the button. */
+.sidebar-toggle::before { content: ""; position: absolute; inset: -3px; border-radius: 12px; }
 body.sidebar-open .sidebar-toggle { opacity: 0; pointer-events: none; }
 
 /* Pages button (top-left) + pages window */
@@ -1422,6 +1425,7 @@ body.sidebar-open .sidebar-toggle { opacity: 0; pointer-events: none; }
 }
 .pages-toggle:hover { background: var(--panel); }
 .pages-toggle:active { transform: scale(0.94); }
+.pages-toggle::before { content: ""; position: absolute; inset: -3px; border-radius: 12px; }   /* 44px hit area, visible box unchanged (matches the hamburger) */
 .pages-toggle.pg-add-btn { font-size: 20px; font-weight: 400; line-height: 1; }
 .pg-num { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .pages-pop {
