@@ -1409,7 +1409,7 @@ const RENDERERS = {
       el.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => {
         const id = b.dataset.id, act = b.dataset.act;
         if (act === "toggle") toggle(id);
-        else if (act === "del") del(id);
+        else if (act === "del") { const dt = loadThings().find((x) => x && x.id === id); confirmDelete(dt ? (dt.title || dt.name || "this") : "this", () => del(id)); }
         else if (act === "detail") openTaskDetail(id);
         else if (act === "rdetail") { try { openRoutineDetail(id); } catch (e) {} }
         else if (act === "caret") { const ct = loadThings().find((x) => x && x.id === id); setOpen(id, !(ct ? isOpen(ct) : false)); render(); }
@@ -8568,8 +8568,10 @@ function openDeck() {
     });
     host.querySelectorAll(".deck-note-x").forEach((b) => b.addEventListener("click", () => {
       const n = loadThings().find((x) => x && x.id === b.dataset.nid); if (!n) return;
-      saveThings([Object.assign({}, n, { deleted: 1, updated: Date.now() })]);   // notes have no children → a plain tombstone
-      renderNotes(); try { flash("Note deleted"); } catch (e) {}
+      confirmDelete("this note", () => {
+        saveThings([Object.assign({}, n, { deleted: 1, updated: Date.now() })]);   // notes have no children → a plain tombstone
+        renderNotes(); try { flash("Note deleted"); } catch (e) {}
+      });
     }));
   }
   function mkThing(extra) {   // a new top-level Thing with a collision-proof id + real stamps (deck contract)
@@ -8642,6 +8644,30 @@ function thingSetTrack(id, mode) {
   const t = loadThings().find((x) => x && x.id === id); if (!t) return;
   saveThings([Object.assign({}, t, { track: mode, updated: Date.now() })]);
 }
+// A reusable "confirm deletion" gate — NOTHING gets deleted without an explicit second tap.
+// Non-negotiable for the people we build for (ADHD/TBI/overwhelmed): a mis-tapped ✕ or 🗑 must
+// never silently destroy data. Every delete routes through this: confirmDelete(label, () => …).
+// Default focus lands on the SAFE choice ("Keep it"), the destructive button is clearly red.
+function confirmDelete(label, onConfirm) {
+  const ex = document.getElementById("confirmDel"); if (ex) ex.remove();
+  const root = document.createElement("div"); root.id = "confirmDel"; root.className = "confirm-del";
+  root.innerHTML =
+    '<div class="cd-backdrop"></div>' +
+    '<div class="cd-card" role="alertdialog" aria-modal="true" aria-label="confirm deletion">' +
+      '<div class="cd-icon" aria-hidden="true">🗑️</div>' +
+      '<div class="cd-title">Delete ' + escapeHtml(label || "this") + "?</div>" +
+      '<div class="cd-sub">This removes it from your cache.</div>' +
+      '<div class="cd-row"><button class="cd-cancel" type="button">Keep it</button><button class="cd-go" type="button">Delete</button></div>' +
+    "</div>";
+  document.body.appendChild(root);
+  function close() { root.remove(); document.removeEventListener("keydown", onKey); }
+  function onKey(e) { if (e.key === "Escape") close(); }
+  document.addEventListener("keydown", onKey);
+  root.querySelector(".cd-backdrop").addEventListener("click", close);
+  root.querySelector(".cd-cancel").addEventListener("click", close);
+  root.querySelector(".cd-go").addEventListener("click", () => { close(); try { onConfirm(); } catch (e) {} });
+  try { root.querySelector(".cd-cancel").focus(); } catch (e) {}
+}
 function openTaskDetail(id) {
   const t0 = loadThings().find((x) => x && x.id === id);
   if (!t0 || t0.deleted) return;
@@ -8702,10 +8728,13 @@ function openTaskDetail(id) {
   function wire() {
     root.querySelector("#tdClose").addEventListener("click", close);
     root.querySelector("#tdDel").addEventListener("click", () => {
-      const all = loadThings(), now = Date.now(), liveBefore = {};
-      all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
-      saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));
-      close();
+      const t = get();
+      confirmDelete(t && t.title ? t.title : "this", () => {
+        const all = loadThings(), now = Date.now(), liveBefore = {};
+        all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+        saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));
+        close();
+      });
     });
     const title = root.querySelector("#tdTitle");
     title.addEventListener("change", () => { const v = title.value.trim(); if (v) patch({ title: v }); });   // save on blur / Enter
@@ -8786,7 +8815,7 @@ function openQuestionDetail(qid) {
   }
   function wire() {
     root.querySelector("#qdClose").addEventListener("click", close);
-    root.querySelector("#qdDel").addEventListener("click", () => { save({ deleted: 1 }); close(); });   // tombstone (never absence) — the deck merge relies on it
+    root.querySelector("#qdDel").addEventListener("click", () => { const q = get(); confirmDelete(q && q.prompt ? "this question" : "this question", () => { save({ deleted: 1 }); close(); }); });   // tombstone (never absence) — the deck merge relies on it
     const em = root.querySelector("#qdEmoji"); em.addEventListener("change", () => save({ emoji: em.value }));
     const pr = root.querySelector("#qdPrompt"); pr.addEventListener("change", () => { const v = pr.value.trim(); if (v) save({ prompt: v }); });
     const inp = root.querySelector("#qdInput"); inp.addEventListener("change", () => { save({ input: inp.value }); render(); });
@@ -9112,9 +9141,12 @@ function openRoutineDetail(id) {
   function wire() {
     root.querySelector("#rdClose").addEventListener("click", close);
     root.querySelector("#rdDel").addEventListener("click", () => {
-      const all = loadThings(), now = Date.now(), liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
-      saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));   // cascade tombstones its steps too
-      close();
+      const r = get();
+      confirmDelete(r && r.name ? r.name : "this routine", () => {
+        const all = loadThings(), now = Date.now(), liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+        saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));   // cascade tombstones its steps too
+        close();
+      });
     });
     const em = root.querySelector("#rdEmoji"); em.addEventListener("change", () => patch({ emoji: em.value }));
     const nm = root.querySelector("#rdName"); nm.addEventListener("change", () => { const v = nm.value.trim(); if (v) patch({ name: v }); });
@@ -9415,9 +9447,12 @@ function openEventDetail(id) {
   function wire() {
     root.querySelector("#edClose").addEventListener("click", close);
     root.querySelector("#edDel").addEventListener("click", () => {
-      const all = loadThings(), now = Date.now(), liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
-      saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));
-      close();
+      const ev = loadThings().find((x) => x && x.id === id);
+      confirmDelete(ev && ev.title ? ev.title : "this event", () => {
+        const all = loadThings(), now = Date.now(), liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+        saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));
+        close();
+      });
     });
     const em = root.querySelector("#edEmoji"); em.addEventListener("change", () => patch({ emoji: em.value }));
     const ti = root.querySelector("#edTitle"); ti.addEventListener("change", () => { const v = ti.value.trim(); if (v) patch({ title: v }); });

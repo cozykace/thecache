@@ -583,6 +583,19 @@ body.panning .cursor-ball { display: none !important; }
   opacity: 0; pointer-events: none; transition: opacity 0.25s ease, transform 0.25s ease;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* confirm-deletion gate — a mis-tapped ✕/🗑 must never silently destroy data (who we build for) */
+.confirm-del { position: fixed; inset: 0; z-index: 500; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.cd-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }
+.cd-card { position: relative; width: min(92vw, 320px); background: var(--panel); border: 1px solid var(--edge);
+  border-radius: 18px; padding: 22px 20px 18px; text-align: center; box-shadow: 0 20px 55px rgba(0, 0, 0, 0.35); }
+.cd-icon { font-size: 30px; margin-bottom: 8px; }
+.cd-title { font-size: 17px; font-weight: 700; color: var(--ink); margin-bottom: 5px; word-break: break-word; }
+.cd-sub { font-size: 13px; color: rgba(var(--ink-rgb), 0.6); margin-bottom: 18px; line-height: 1.45; }
+.cd-row { display: flex; gap: 10px; }
+.cd-cancel, .cd-go { flex: 1; min-height: 48px; border-radius: 13px; font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer; transition: transform .1s; }
+.cd-cancel { border: 1px solid var(--edge); background: none; color: var(--ink); }
+.cd-go { border: none; background: #e5484d; color: #fff; }
+.cd-cancel:active, .cd-go:active { transform: scale(0.97); }
 .csv-drop {
   position: fixed; inset: 0; z-index: 380; display: none; pointer-events: none;
   align-items: center; justify-content: center; background: rgba(var(--ink-rgb), 0.16);
@@ -1094,16 +1107,17 @@ body.panning .cursor-ball { display: none !important; }
   transform: translateY(4px) scale(0.96);
   box-shadow: 0 0 0 rgba(0, 0, 0, 0.28), inset 0 2px 8px rgba(0, 0, 0, 0.24);
 }
-/* the calendar button: the deck's PEER — same circular size + 3-D press, but a secondary
-   (outlined) look so the gold ＋ stays the primary action. Pinned right after the ＋. */
+/* the calendar button: the deck's PEER — same circular size + 3-D press, accent-filled so it's
+   clearly visible on EVERY theme (a panel/outline fill went white-on-white on light themes and
+   read as a ghost behind the ＋). Differentiated from the ＋ by its calendar glyph. */
 .ledger-pill.cal-cta {
-  background: var(--panel); border: 1.5px solid var(--accent); color: var(--accent);
+  background: var(--accent); border: 1px solid var(--accent); color: var(--paper);
   width: 48px; height: 48px; min-height: 48px; padding: 0; border-radius: 50%; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
   box-shadow: 0 4px 0 rgba(0, 0, 0, 0.28), 0 6px 14px rgba(0, 0, 0, 0.16);
   transition: transform 0.09s ease, box-shadow 0.09s ease;
 }
-.ledger-pill.cal-cta svg { width: 22px; height: 22px; }
+.ledger-pill.cal-cta svg { width: 24px; height: 24px; }
 .ledger-pill.cal-cta:hover { transform: scale(1.06); filter: none; }
 .ledger-pill.cal-cta:active {
   transform: translateY(4px) scale(0.96);
