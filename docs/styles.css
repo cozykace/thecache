@@ -1070,6 +1070,11 @@ body.panning .cursor-ball { display: none !important; }
 .cloud-guide .cloud-sub { display: block; font-size: 11.5px; font-weight: 400; color: rgba(var(--ink-rgb), 0.6); margin-top: 3px; line-height: 1.45; }
 .cloud-guide.mid { border-left-color: var(--accent); }
 .cloud-guide.done { border-left-color: #2ec16b; background: rgba(46, 193, 107, 0.07); }
+/* signed-in account row — leads the panel so log out / switch is never buried */
+.cloud-account { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; justify-content: space-between; margin: 8px 0 10px; padding: 10px 12px; border: 1px solid var(--edge-soft); border-radius: 11px; background: var(--panel); }
+.cloud-acct-who { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.6); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cloud-acct-who b { color: var(--ink); font-weight: 600; }
+.cloud-acct-acts { display: flex; gap: 8px; flex: 0 0 auto; }
 /* each numbered step card */
 .cloud-step { border: 1px solid var(--edge-soft); border-radius: 11px; padding: 9px 11px 4px; margin: 0 0 8px;
   opacity: 0.62; transition: opacity 0.18s ease, border-color 0.18s ease; }

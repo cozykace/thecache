@@ -4709,6 +4709,15 @@ function openSettings() {
       '<div class="set-hint">how much of the app you want to see — <b>Minimalist</b> keeps it simple, <b>Legendary</b> shows every button</div>' +
       (window.__CACHE_DEMO__ ? "" :
       '<div class="set-sec">☁️ Cache cloud</div>' +
+      // when signed in, your account (+ log out / switch) is the FIRST thing here — not
+      // buried in the stepper below. Hidden while logged out (the stepper handles sign-in).
+      '<div class="cloud-account" id="setCloudAccount" style="display:none">' +
+        '<span class="cloud-acct-who">Signed in as <b id="setCloudWho"></b></span>' +
+        '<span class="cloud-acct-acts">' +
+          '<button class="set-btn cloud-btn-sub" id="setCloudSwitch">Switch account</button>' +
+          '<button class="set-btn cloud-btn-sub" id="setCloudLogout">Log out</button>' +
+        '</span>' +
+      '</div>' +
       '<div class="set-hint">Sign in and your cache <b>follows you to any device</b> — sealed on this device before it leaves. Prefer to keep everything on this machine? Flip sync off below.</div>' +
       '<button class="set-toggle" id="setCloudSync"><span>Sync to cloud</span><span class="set-state">on</span></button>' +
       '<div class="set-hint" id="setCloudSyncHint"></div>' +
@@ -4724,7 +4733,6 @@ function openSettings() {
         '<div class="set-bk-row">' +
           '<button class="set-btn" id="setCloudSignup">Create account</button>' +
           '<button class="set-btn" id="setCloudLogin">Log in</button>' +
-          '<button class="set-btn cloud-btn-sub" id="setCloudLogout">Log out</button>' +
         '</div>' +
         '<div class="set-hint cloud-verify" id="setCloudVerify" style="display:none"></div>' +
       '</div>' +
@@ -4865,6 +4873,8 @@ function openSettings() {
         clPush = modal.querySelector("#setCloudPush"), clPull = modal.querySelector("#setCloudPull"),
         clSignup = modal.querySelector("#setCloudSignup"), clLogin = modal.querySelector("#setCloudLogin"),
         clLogout = modal.querySelector("#setCloudLogout"),
+        clAccount = modal.querySelector("#setCloudAccount"), clWho = modal.querySelector("#setCloudWho"),
+        clSwitch = modal.querySelector("#setCloudSwitch"),
         clStep = [null, modal.querySelector("#cloudStep1"), modal.querySelector("#cloudStep2"), modal.querySelector("#cloudStep3")],
         clChk = [null, modal.querySelector("#cloudChk1"), modal.querySelector("#cloudChk2"), modal.querySelector("#cloudChk3")];
   // the URL is locked by default — everyone uses the official cloud, and a typo here
@@ -4935,7 +4945,9 @@ function openSettings() {
     // account buttons
     clSignup.style.display = inAccount ? "none" : "";
     clLogin.style.display = inAccount ? "none" : "";
-    clLogout.style.display = inAccount ? "" : "none";
+    // the prominent account row (with log out / switch) leads the panel when signed in
+    if (clAccount) clAccount.style.display = inAccount ? "" : "none";
+    if (clWho) clWho.textContent = s.email || "your account";
     // sync buttons need a login AND sync switched on — while it's off, the
     // toggle's "nothing leaves this device" promise is kept to the letter
     const canSync = inAccount && !cloudPaused();
@@ -4985,7 +4997,10 @@ function openSettings() {
     try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); refreshCloud(); cloudChip(); cloudAutoPull(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
     catch (e) { clSay("Login failed: " + (e.message || e), "err"); }
   });
-  clLogout.addEventListener("click", () => { cloudLogout(); clPass.value = ""; refreshCloud(); clSay("Logged out.", ""); });
+  clLogout.addEventListener("click", () => { cloudLogout(); clPass.value = ""; refreshCloud(); try { cloudChip(); } catch (e) {} try { socialUpdateBadge(); } catch (e) {} clSay("Logged out.", ""); });
+  // Switch account = log out, then clear the fields + focus email so a DIFFERENT account
+  // can sign in right here. (The different-account login clears the old messaging identity.)
+  if (clSwitch) clSwitch.addEventListener("click", () => { cloudLogout(); clEmail.value = ""; clPass.value = ""; refreshCloud(); try { cloudChip(); } catch (e) {} try { socialUpdateBadge(); } catch (e) {} clSay("Logged out — sign in with another account below.", ""); try { clEmail.focus(); } catch (e) {} });
   clPush.addEventListener("click", async () => {
     if (!cloudState().token) { clSay("Do Step 1 first — create or log into your account.", "err"); return; }
     if (phrase() && phrase().length < 6) { clSay("A zero-knowledge passphrase needs 6+ characters (or clear the field for the simple default).", "err"); return; }
