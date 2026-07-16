@@ -1678,6 +1678,9 @@ body.sidebar-open .sidebar { transform: none; }
 
 .sidebar-head {
   display: flex; align-items: center; justify-content: space-between;
+  /* gap = a guaranteed buffer: a long cache name used to grow flush against the ✕, so a
+     near-miss on close hit the (click-to-rename) name instead of closing the menu */
+  gap: 12px;
   padding: 16px; border-bottom: 1px solid var(--edge-soft); flex-shrink: 0;
 }
 .brand { display: inline-flex; align-items: center; min-width: 0; }
@@ -1710,7 +1713,11 @@ body.sidebar-open .sidebar { transform: none; }
   display: flex; align-items: center; gap: 10px;
 }
 .ver-url { font-size: 10px; letter-spacing: 0.04em; color: rgba(var(--ink-rgb), 0.4); }
-.sidebar-close { border: none; background: none; cursor: pointer; color: rgba(var(--ink-rgb), 0.45); font-size: 13px; padding: 4px 6px; border-radius: 6px; }
+/* flex-shrink:0 — the ✕ must never be squeezed by a long cache name; position+::before pad
+   its hit area to 44px (SOP). The pad reaches into the 12px header gap, never onto the name,
+   so closing the menu stays easy without stealing the rename button's clicks. */
+.sidebar-close { border: none; background: none; cursor: pointer; color: rgba(var(--ink-rgb), 0.45); font-size: 13px; padding: 4px 6px; border-radius: 6px; flex-shrink: 0; position: relative; }
+.sidebar-close::before { content: ""; position: absolute; inset: -10px -11px; }
 .sidebar-close:hover { color: var(--accent); background: rgba(var(--ink-rgb), 0.06); }
 
 .sidebar-scroll { overflow-y: auto; flex: 1; }
