@@ -67,6 +67,23 @@ ok("L1 things: a real reorder (changed ord) IS detected",
 ok("L1 things: a content edit IS detected",
    authoredHash({"money.things":tA},{}) !== authoredHash({"money.things":tD},{}));
 
+// money.forms + money.formData are per-item merges too (they reuse the things algorithm),
+// so their witness MUST be array-order-INsensitive (else two converged devices ping-pong
+// corrective pushes forever) while still catching a real reorder + any content change. This
+// directly guards the two _authoredProject branches added for the form-builder.
+["money.forms","money.formData"].forEach((KEY) => {
+  const fA = JSON.stringify([{id:"f1",name:"one",ord:0,updated:5},{id:"f2",name:"two",ord:1,updated:5}]);
+  const fB = JSON.stringify([{id:"f2",name:"two",ord:1,updated:5},{id:"f1",name:"one",ord:0,updated:5}]); // reversed
+  const fC = JSON.stringify([{id:"f1",name:"one",ord:9,updated:5},{id:"f2",name:"two",ord:1,updated:5}]); // f1 reordered
+  const fD = JSON.stringify([{id:"f1",name:"CHANGED",ord:0,updated:9},{id:"f2",name:"two",ord:1,updated:5}]); // content edit
+  ok("L1 "+KEY+": array order ignored (no livelock between converged devices)",
+     authoredHash({[KEY]:fA},{}) === authoredHash({[KEY]:fB},{}));
+  ok("L1 "+KEY+": a real reorder (changed ord) IS detected",
+     authoredHash({[KEY]:fA},{}) !== authoredHash({[KEY]:fC},{}));
+  ok("L1 "+KEY+": a content edit IS detected",
+     authoredHash({[KEY]:fA},{}) !== authoredHash({[KEY]:fD},{}));
+});
+
 // ── LIVELOCK 2: generic mtime tie tie-break is a symmetric total order ──
 // _valWins(a,b) XOR _valWins(b,a) for a!==b, and both devices pick the SAME winner
 function pickWinner(a,b){ // device with local=a adopts b iff _valWins(b,a); device with local=b adopts a iff _valWins(a,b)
