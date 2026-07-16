@@ -8493,7 +8493,7 @@ function openDeck() {
   root.innerHTML =
     '<div class="daily-top">' +
       '<button class="daily-icn" id="deckSpClose" aria-label="close">✕</button>' +
-      '<div class="deck-sp-title">🃏 Your deck</div>' +
+      '<div class="deck-sp-title" id="deckDateHdr"></div>' +   // shows the day you're viewing (+ "Today" when it is)
       '<button class="daily-icn" id="deckSpGear" aria-label="deck settings" title="deck settings">⚙</button>' +
     '</div>' +
     '<div class="deck-sp-scroll">' +
@@ -8523,7 +8523,14 @@ function openDeck() {
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); document.removeEventListener("cache:things", onDeckThings); document.removeEventListener("cache:deckday", onDeckDay); };
   function onKey(e) { if (e.key === "Escape" && !document.getElementById("dailySpace")) close(); }   // if the check-in is open on top, its own Escape handles it first
   document.addEventListener("keydown", onKey);
-  function onDeckDay() { root.classList.toggle("deck-not-today", deckViewDay() !== todayKey()); }   // grey the deck when browsing a non-today day (still fully editable)
+  function onDeckDay() { root.classList.toggle("deck-not-today", deckViewDay() !== todayKey()); renderDeckDate(); }   // grey the deck + refresh the header date when browsing a non-today day
+  function renderDeckDate() {   // the viewed day at the top of the deck — with a small blue "Today" when it is
+    const hdr = root.querySelector("#deckDateHdr"); if (!hdr) return;
+    const ymd = (typeof deckViewDay === "function") ? deckViewDay() : todayKey(), isToday = ymd === todayKey();
+    const p = String(ymd).split("-").map(Number), dt = new Date(p[0], (p[1] || 1) - 1, p[2] || 1);
+    const label = isNaN(dt) ? String(ymd) : dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    hdr.innerHTML = '<span class="deck-hdr-date">' + escapeHtml(label) + "</span>" + (isToday ? '<span class="deck-hdr-today">Today</span>' : "");
+  }
   document.addEventListener("cache:deckday", onDeckDay);
   root.querySelector("#deckSpClose").addEventListener("click", close);
   root.querySelector("#deckSpGear").addEventListener("click", () => { try { openSettings(); } catch (e) {} });   // DECK-level settings (overall) — separate from the check-in form builder
@@ -8612,6 +8619,7 @@ function openDeck() {
   document.addEventListener("cache:things", onDeckThings);
   renderNotes();
   root.classList.toggle("deck-not-today", deckViewDay() !== todayKey());   // date-nav: obvious at a glance when you're not on today
+  try { renderDeckDate(); } catch (e) {}   // seed the header date on open
   try { renderDeckDayWheel(root.querySelector("#deckDayBar")); } catch (e) {}   // the satisfying day scrollwheel at the bottom
 }
 // ── Task / habit DETAIL — tap a row's bar to open the full editor, like any task manager:
@@ -10296,6 +10304,7 @@ const DOCK_DEFS = [
   { id: "datetime", label: "Date / time" },
   { id: "period", label: "Period" },
   { id: "daily", label: "The deck (daily check-in)" },
+  { id: "cal", label: "Calendar" },
   { id: "base", label: "The Base" },
   { id: "ledger", label: "Visit your cache" },
   { id: "status", label: "Status" },
@@ -10324,12 +10333,16 @@ function applyDockConfig(dock) {
   // External memory needs one findable anchor; a hideable, driftable button isn't one.
   const deck = dock.querySelector('[data-dock="daily"]');
   if (deck) { deck.style.display = ""; dock.insertBefore(deck, dock.firstChild); }
+  // the calendar is the deck's PEER — a prominent circular button pinned right after it,
+  // always visible (like the deck) so "see your month" is one tap on every device.
+  const cal = dock.querySelector('[data-dock="cal"]');
+  if (cal && deck) { cal.style.display = ""; deck.after(cal); }
 }
 function renderDockMenu() {
   const host = document.getElementById("dockMenu");
   if (!host) return;
   const hidden = new Set(dockList(DOCK_HIDDEN_KEY)), f = favs();
-  const defs = DOCK_DEFS.filter((d) => d.id !== "daily");   // the deck can't be hidden — it's the front door of the day
+  const defs = DOCK_DEFS.filter((d) => d.id !== "daily" && d.id !== "cal");   // the deck + calendar can't be hidden — the day's two anchors
   if (autoPinOn()) defs.sort((a, b) => (f.has("dock:" + b.id) ? 1 : 0) - (f.has("dock:" + a.id) ? 1 : 0));
   host.innerHTML = defs.map((d) => {
     const on = !hidden.has(d.id), fav = f.has("dock:" + d.id);
@@ -10464,6 +10477,7 @@ function openClockSettings(anchor) {
     datetime: dt,
     period: pd,
     daily: document.getElementById("dailyBtn"),
+    cal: document.getElementById("calBtn"),
     base: document.getElementById("baseBtn"),
     ledger: document.getElementById("ledgerBtn"),
     status: document.getElementById("statusBtn"),

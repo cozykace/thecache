@@ -1964,7 +1964,10 @@ body.view-base #board { display: none; }               /* board hides while the 
 .daily-stage { flex: 1 1 auto; display: flex; overflow-y: auto; }
 /* The DECK surface — the full-screen front door the action button opens. Reuses .daily-space
    (fixed, flex column). A scrollable body holds the check-in entry + the mounted Tasks widget. */
-.deck-sp-title { flex: 1 1 auto; text-align: center; font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: 0.02em; }
+.deck-sp-title { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; line-height: 1.1; }
+.deck-hdr-date { font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: 0.02em; }
+/* small blue "Today" under the date — blue blended toward ink so it reads on any theme's paper */
+.deck-hdr-today { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in srgb, #3b82f6 72%, var(--ink)); }
 .deck-sp-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 560px; margin: 0 auto; box-sizing: border-box;
   padding: 4px 16px 80px; }   /* bottom room so the corner ＋ FAB never covers the last item; the day-wheel bar sits below and owns the safe-area */
 .deck-ci { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; min-height: 66px; padding: 13px 16px; margin: 4px 0 20px;
