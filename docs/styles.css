@@ -1534,31 +1534,35 @@ html[data-contrast="high"] :focus-visible { outline-width: 3px; }
 /* Text & UI size — scale the whole interface. */
 html[data-text="lg"] { zoom: 1.12; }
 html[data-text="xl"] { zoom: 1.26; }
-/* The Accessibility panel */
-.a11y-modal { max-width: 470px; }
-.a11y-body { padding: 4px 16px 14px; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
-.a11y-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 0; border-bottom: 1px solid var(--edge-soft); }
-.a11y-row:last-of-type { border-bottom: none; }
-.a11y-lbl { display: flex; flex-direction: column; gap: 3px; }
-.a11y-lbl b { font-size: 13px; color: var(--ink); }
-.a11y-lbl span { font-size: 11px; line-height: 1.45; color: rgba(var(--ink-rgb), 0.62); max-width: 250px; }
-.a11y-lbl em { font-style: normal; color: var(--accent); }
-.a11y-seg { display: inline-flex; flex-shrink: 0; background: rgba(var(--ink-rgb), 0.06); border: 1px solid var(--edge-soft); border-radius: 9px; padding: 2px; gap: 2px; }
-.a11y-opt { font-family: inherit; font-size: 11px; padding: 6px 11px; border: none; border-radius: 7px; background: none; color: rgba(var(--ink-rgb), 0.7); cursor: pointer; white-space: nowrap; transition: background 0.12s, color 0.12s; }
-.a11y-opt:hover { color: var(--ink); }
-.a11y-opt.on { background: var(--ink); color: var(--paper); font-weight: 700; }
-.a11y-note { font-size: 11px; color: rgba(var(--ink-rgb), 0.5); padding-top: 12px; line-height: 1.5; }
-.a11y-intro { font-size: 12.5px; line-height: 1.5; color: rgba(var(--ink-rgb), 0.78); padding: 4px 0 10px; }
+/* The Accessibility Hub — a calm, high-legibility surface that models the app's
+   accessibility-first direction: generous spacing, one clear choice at a time. */
+.a11y-modal { max-width: 460px; }
+.a11y-modal .cat-head { padding: 15px 16px 15px 20px; font-size: 14px; }
+/* Bigger, easier-to-hit close — this hub practises what it preaches */
+.a11y-modal .cat-close { display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; margin: -7px -6px -7px 0; border-radius: 11px; font-size: 17px; line-height: 1;
+  transition: background 0.12s, color 0.12s; }
+.a11y-modal .cat-close:hover { background: rgba(var(--ink-rgb), 0.06); color: var(--accent); }
+.a11y-body { padding: 4px 20px 20px; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
+.a11y-intro { font-size: 13.5px; line-height: 1.6; color: rgba(var(--ink-rgb), 0.82); margin: 6px 0 16px; }
 .a11y-intro em { font-style: normal; color: var(--accent); font-weight: 700; }
-.a11y-sec { font-size: 9px; text-transform: uppercase; letter-spacing: 0.18em; color: rgba(var(--ink-rgb), 0.45); padding: 12px 0 7px; }
-.a11y-presets { display: flex; gap: 8px; flex-wrap: wrap; }
-.a11y-preset { flex: 1 1 120px; display: flex; flex-direction: column; gap: 3px; text-align: left; cursor: pointer;
-  padding: 11px 13px; border-radius: 12px; background: rgba(var(--ink-rgb), 0.05); border: 1px solid var(--edge-soft);
-  font-family: inherit; transition: border-color 0.15s, background 0.15s, transform 0.12s; }
-.a11y-preset:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
-.a11y-preset b { font-size: 13px; color: var(--ink); }
-.a11y-preset span { font-size: 10px; line-height: 1.35; color: rgba(var(--ink-rgb), 0.6); }
-.a11y-preset.on { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.a11y-controls { display: flex; flex-direction: column; gap: 12px; }
+.a11y-ctrl { padding: 15px 16px 16px; border: 1px solid var(--edge-soft); border-radius: 14px;
+  background: rgba(var(--ink-rgb), 0.025); }
+.a11y-ctrl-head { margin-bottom: 12px; }
+.a11y-ctrl-head b { display: block; font-size: 14.5px; font-weight: 700; color: var(--ink); }
+.a11y-ctrl-head p { margin: 5px 0 0; font-size: 12.5px; line-height: 1.5; color: rgba(var(--ink-rgb), 0.6); }
+.a11y-ctrl-head em { font-style: normal; color: var(--accent); font-weight: 600; }
+/* Full-width segmented control — each option a real, thumb-sized target */
+.a11y-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px;
+  background: rgba(var(--ink-rgb), 0.05); border: 1px solid var(--edge-soft); border-radius: 11px; padding: 4px; }
+.a11y-opt { display: flex; align-items: center; justify-content: center; text-align: center;
+  min-height: 42px; padding: 8px 6px; font-family: inherit; font-size: 12.5px; border: none; border-radius: 8px;
+  background: none; color: rgba(var(--ink-rgb), 0.72); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.a11y-opt:hover { color: var(--ink); background: rgba(var(--ink-rgb), 0.05); }
+.a11y-opt.on, .a11y-opt.on:hover { background: var(--ink); color: var(--paper); font-weight: 700; }
+.a11y-note { font-size: 12px; line-height: 1.55; color: rgba(var(--ink-rgb), 0.55);
+  margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--edge-soft); }
 .theme-pop {
   position: fixed; top: 58px; right: 14px; z-index: 320; width: 196px;
   background: var(--paper); border: 1px solid var(--edge); border-radius: 12px;
@@ -1978,10 +1982,19 @@ body.view-base #board { display: none; }               /* board hides while the 
 .daily-stage { flex: 1 1 auto; display: flex; overflow-y: auto; }
 /* The DECK surface — the full-screen front door the action button opens. Reuses .daily-space
    (fixed, flex column). A scrollable body holds the check-in entry + the mounted Tasks widget. */
-.deck-sp-title { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; line-height: 1.1; }
-.deck-hdr-date { font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: 0.02em; }
+/* the top date is a SLIDER (swipe to change day) — overflow-hidden so the new date slides in cleanly */
+.deck-sp-title { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  touch-action: pan-y; cursor: ew-resize; user-select: none; -webkit-user-select: none; }
+.deck-hdr-inner { display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.1; }
+.deck-hdr-date { font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: 0.02em; white-space: nowrap; }
 /* small blue "Today" under the date — blue blended toward ink so it reads on any theme's paper */
 .deck-hdr-today { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in srgb, #3b82f6 72%, var(--ink)); }
+/* every other day gets a muted "N days ago" / "in N days" cue in its place */
+.deck-hdr-rel { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); white-space: nowrap; }
+/* the date slides in from the direction it moved — a tandem cue with the bottom wheel */
+@keyframes deckDateInR { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes deckDateInL { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes deckDateIn { from { opacity: 0.4; } to { opacity: 1; } }
 .deck-sp-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 560px; margin: 0 auto; box-sizing: border-box;
   padding: 4px 16px 80px; }   /* bottom room so the corner ＋ FAB never covers the last item; the day-wheel bar sits below and owns the safe-area */
 .deck-ci { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; min-height: 66px; padding: 13px 16px; margin: 4px 0 20px;

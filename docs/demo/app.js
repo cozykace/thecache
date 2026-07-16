@@ -4623,56 +4623,40 @@ document.addEventListener("keydown", (e) => {
 });
 
 function closeA11y() { ["a11yBackdrop", "a11yModal"].forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); }); }
-// One-click comfort loadouts — bundle the fine-tune settings into a vibe.
-const A11Y_PRESETS = [
-  { id: "calm",  t: "🌙 Calm",    d: "Gentle motion · high contrast · larger", set: { motion: "reduce", contrast: "high",   text: "lg" } },
-  { id: "crisp", t: "🔆 Crisp",   d: "Max readability, motion as-is",          set: { motion: "auto",   contrast: "high",   text: "lg" } },
-  { id: "full",  t: "🚀 Full FX", d: "Every effect, default size",             set: { motion: "full",   contrast: "normal", text: "base" } },
-];
-function a11yMatchesPreset(p) { return Object.keys(p.set).every((k) => a11yGet(k) === p.set[k]); }
-function a11yApplyPreset(p) {
-  Object.keys(p.set).forEach((k) => {
-    const v = p.set[k];
-    if (v && v !== A11Y[k].def) localStorage.setItem(A11Y[k].key, v); else localStorage.removeItem(A11Y[k].key);
-  });
-  applyA11y();
-}
+// The hub: one calm control block per need. Presets (one-tap loadouts that bundle
+// these into a vibe) are deferred — we want this single surface to be excellent
+// first. See BACKLOG "Comfort presets (deferred)".
 function openA11y() {
   closeA11y();
   const back = document.createElement("div"); back.className = "cat-backdrop"; back.id = "a11yBackdrop";
   back.addEventListener("pointerdown", (e) => { if (e.target === back) closeA11y(); });
   const modal = document.createElement("div"); modal.className = "cat-modal a11y-modal"; modal.id = "a11yModal";
-  const seg = (name, opts) => '<div class="a11y-seg" role="group" aria-label="' + name + '" data-name="' + name + '">' +
-    opts.map((o) => '<button class="a11y-opt' + (a11yGet(name) === o.v ? " on" : "") + '" data-v="' + o.v + '" aria-pressed="' + (a11yGet(name) === o.v) + '">' + o.t + "</button>").join("") + "</div>";
+  // A heading, a plain-language line, and a full-width segmented choice you set one at a time.
+  const ctrl = (name, title, desc, opts) =>
+    '<section class="a11y-ctrl">' +
+      '<div class="a11y-ctrl-head"><b>' + title + '</b><p>' + desc + "</p></div>" +
+      '<div class="a11y-seg" role="group" aria-label="' + title.replace(/&amp;/g, "and") + '" data-name="' + name + '">' +
+        opts.map((o) => '<button class="a11y-opt' + (a11yGet(name) === o.v ? " on" : "") + '" data-v="' + o.v + '" aria-pressed="' + (a11yGet(name) === o.v) + '">' + o.t + "</button>").join("") +
+      "</div>" +
+    "</section>";
   modal.innerHTML =
     '<div class="cat-head"><span>♿ Accessibility Hub</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="a11y-body">' +
-      '<div class="a11y-intro">Built for how <em>you</em> actually use it. Tune anything here — and if something you need is missing, that request comes first.</div>' +
-      '<div class="a11y-sec">Comfort presets</div>' +
-      '<div class="a11y-presets">' +
-        A11Y_PRESETS.map((p) => '<button class="a11y-preset' + (a11yMatchesPreset(p) ? " on" : "") + '" data-p="' + p.id + '" aria-pressed="' + a11yMatchesPreset(p) + '"><b>' + p.t + "</b><span>" + p.d + "</span></button>").join("") +
+      '<p class="a11y-intro">Built for how <em>you</em> actually use it. Adjust anything here, one thing at a time — and if something you need is missing, that request comes first.</p>' +
+      '<div class="a11y-controls">' +
+        ctrl("motion", "Motion &amp; flashing", "Calms the warp, removes the white flash, and stops looping animation — seizure-safe. <em>System</em> follows your device.", [{ v: "auto", t: "System" }, { v: "reduce", t: "Reduce" }, { v: "full", t: "Full" }]) +
+        ctrl("contrast", "Contrast", "Stronger borders and text, so edges and numbers are easier to read.", [{ v: "normal", t: "Normal" }, { v: "high", t: "High" }]) +
+        ctrl("text", "Text &amp; UI size", "Scale the whole interface up until it feels comfortable.", [{ v: "base", t: "Default" }, { v: "lg", t: "Large" }, { v: "xl", t: "Largest" }]) +
+        ctrl("colorblind", "Color vision", "A color-blind-safe palette (Okabe-Ito) for the cache visualizer — and every value keeps its +/− sign, so color is never the only signal.", [{ v: "off", t: "Standard" }, { v: "on", t: "Safe palette" }]) +
       "</div>" +
-      '<div class="a11y-sec">Fine-tune</div>' +
-      '<div class="a11y-row"><div class="a11y-lbl"><b>Motion &amp; flashing</b><span>Calms the warp, removes the white flash, and stops looping animation — seizure-safe. <em>System</em> follows your device setting.</span></div>' +
-        seg("motion", [{ v: "auto", t: "System" }, { v: "reduce", t: "Reduce" }, { v: "full", t: "Full" }]) + "</div>" +
-      '<div class="a11y-row"><div class="a11y-lbl"><b>Contrast</b><span>Stronger borders and text for easier reading.</span></div>' +
-        seg("contrast", [{ v: "normal", t: "Normal" }, { v: "high", t: "High" }]) + "</div>" +
-      '<div class="a11y-row"><div class="a11y-lbl"><b>Text &amp; UI size</b><span>Scale the whole interface up.</span></div>' +
-        seg("text", [{ v: "base", t: "Default" }, { v: "lg", t: "Large" }, { v: "xl", t: "Largest" }]) + "</div>" +
-      '<div class="a11y-row"><div class="a11y-lbl"><b>Color vision</b><span>A color-blind-safe palette (Okabe-Ito) for the cache visualizer — and it always shows +/− so color is never the only signal.</span></div>' +
-        seg("colorblind", [{ v: "off", t: "Standard" }, { v: "on", t: "Safe palette" }]) + "</div>" +
-      '<div class="a11y-note">This hub grows with the people who use it. Need a screen-reader pass, a color-blind-safe palette, bigger touch targets, anything? Menu → ⚑ Report a bug or request — accessibility asks jump the line.</div>' +
+      '<p class="a11y-note">This hub grows with the people who use it. Need a dyslexia-friendly font, reduced transparency, a full screen-reader pass — anything at all? Menu → ⚑ Report a bug or request. Accessibility asks jump the line.</p>' +
     "</div>";
   document.body.appendChild(back); document.body.appendChild(modal);
   modal.querySelector(".cat-close").addEventListener("click", closeA11y);
-  const sync = () => {  // reflect current state across segments + presets (class + aria-pressed)
+  const sync = () => {  // reflect current state across every segment (class + aria-pressed)
     modal.querySelectorAll(".a11y-seg").forEach((segEl) => {
       const name = segEl.dataset.name;
       segEl.querySelectorAll(".a11y-opt").forEach((b) => { const on = b.dataset.v === a11yGet(name); b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
-    });
-    modal.querySelectorAll(".a11y-preset").forEach((pb) => {
-      const p = A11Y_PRESETS.find((x) => x.id === pb.dataset.p);
-      const on = !!p && a11yMatchesPreset(p); pb.classList.toggle("on", on); pb.setAttribute("aria-pressed", on);
     });
   };
   modal.querySelectorAll(".a11y-seg").forEach((segEl) => {
@@ -4680,9 +4664,6 @@ function openA11y() {
     segEl.querySelectorAll(".a11y-opt").forEach((btn) => {
       btn.addEventListener("click", () => { a11ySet(name, btn.dataset.v); sync(); });
     });
-  });
-  modal.querySelectorAll(".a11y-preset").forEach((pb) => {
-    pb.addEventListener("click", () => { const p = A11Y_PRESETS.find((x) => x.id === pb.dataset.p); if (p) { a11yApplyPreset(p); sync(); } });
   });
 }
 
@@ -8472,6 +8453,15 @@ function renderDeckDayWheel(host) {
   host.querySelector("#deckWheelPrev").addEventListener("click", () => { const i = dayCells.indexOf(nearest()); if (i > 0) centerCell(dayCells[i - 1], true); });
   host.querySelector("#deckWheelNext").addEventListener("click", () => { const i = dayCells.indexOf(nearest()); if (i >= 0 && i < dayCells.length - 1) centerCell(dayCells[i + 1], true); });
   if (jump) jump.addEventListener("click", () => centerCell(dayCells.filter((c) => c.classList.contains("istoday"))[0], true));
+  // 1:1 with the top date: if the day changes from ELSEWHERE (the top swipe), glide the wheel to match.
+  function onWheelExtDay() {
+    if (!host.isConnected) { document.removeEventListener("cache:deckday", onWheelExtDay); return; }   // self-clean when the deck closes
+    const vd = deckViewDay(), cur = nearest();
+    if (cur && cur.dataset.ymd === vd) return;   // already here (or this change came FROM the wheel) — no feedback loop
+    const target = dayCells.filter((c) => c.dataset.ymd === vd)[0];
+    if (target) { centerCell(target, true); highlight(target); updJump(vd); }
+  }
+  document.addEventListener("cache:deckday", onWheelExtDay);
 }
 // ── The DECK — the full-screen front door the action button opens (mobile AND desktop). It
 //    holds "every kind of thing you want to track": today's check-in, and your tasks + habits
@@ -8523,13 +8513,38 @@ function openDeck() {
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); document.removeEventListener("cache:things", onDeckThings); document.removeEventListener("cache:deckday", onDeckDay); };
   function onKey(e) { if (e.key === "Escape" && !document.getElementById("dailySpace")) close(); }   // if the check-in is open on top, its own Escape handles it first
   document.addEventListener("keydown", onKey);
+  let deckLastDay = null;   // remembers the prior viewed day so the header can slide in the right direction
   function onDeckDay() { root.classList.toggle("deck-not-today", deckViewDay() !== todayKey()); renderDeckDate(); }   // grey the deck + refresh the header date when browsing a non-today day
-  function renderDeckDate() {   // the viewed day at the top of the deck — with a small blue "Today" when it is
+  function renderDeckDate() {   // the viewed day + a relative cue ("Today" blue, else "in N days" / "N days ago"), sliding in tandem with the wheel
     const hdr = root.querySelector("#deckDateHdr"); if (!hdr) return;
-    const ymd = (typeof deckViewDay === "function") ? deckViewDay() : todayKey(), isToday = ymd === todayKey();
+    const ymd = (typeof deckViewDay === "function") ? deckViewDay() : todayKey(), today = todayKey();
     const p = String(ymd).split("-").map(Number), dt = new Date(p[0], (p[1] || 1) - 1, p[2] || 1);
     const label = isNaN(dt) ? String(ymd) : dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-    hdr.innerHTML = '<span class="deck-hdr-date">' + escapeHtml(label) + "</span>" + (isToday ? '<span class="deck-hdr-today">Today</span>' : "");
+    const tp = String(today).split("-").map(Number), td = new Date(tp[0], tp[1] - 1, tp[2]);
+    const diff = Math.round((dt - td) / 86400000);   // signed day offset from today
+    let sub;
+    if (diff === 0) sub = '<span class="deck-hdr-today">Today</span>';
+    else { const n = Math.abs(diff), rel = diff < 0 ? (n === 1 ? "Yesterday" : n + " days ago") : (n === 1 ? "Tomorrow" : "in " + n + " days"); sub = '<span class="deck-hdr-rel">' + rel + "</span>"; }
+    let anim = "deckDateIn";   // a NEW day slides in from the side it moved — the tandem cue
+    if (deckLastDay && deckLastDay !== ymd) anim = ymd > deckLastDay ? "deckDateInR" : "deckDateInL";
+    deckLastDay = ymd;
+    hdr.innerHTML = '<div class="deck-hdr-inner" style="animation:' + anim + ' .22s ease">' + '<span class="deck-hdr-date">' + escapeHtml(label) + "</span>" + sub + "</div>";
+  }
+  // The top date is ALSO a slider: a horizontal swipe steps the day ±1, 1:1 with the bottom wheel
+  // (both drive setDeckViewDay → cache:deckday, so each mirrors the other). Swipe left = next day.
+  function wireDateSwipe() {
+    const hdr = root.querySelector("#deckDateHdr"); if (!hdr) return;
+    let sx = 0, sy = 0, active = false;
+    hdr.addEventListener("pointerdown", (e) => { sx = e.clientX; sy = e.clientY; active = true; });
+    hdr.addEventListener("pointerup", (e) => {
+      if (!active) return; active = false;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (Math.abs(dx) > 38 && Math.abs(dx) > Math.abs(dy)) {
+        const d = _ymd2date(deckViewDay()) || new Date();
+        try { setDeckViewDay(ymdOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + (dx < 0 ? 1 : -1)))); } catch (er) {}
+      }
+    });
+    hdr.addEventListener("pointercancel", () => { active = false; });
   }
   document.addEventListener("cache:deckday", onDeckDay);
   root.querySelector("#deckSpClose").addEventListener("click", close);
@@ -8622,6 +8637,7 @@ function openDeck() {
   renderNotes();
   root.classList.toggle("deck-not-today", deckViewDay() !== todayKey());   // date-nav: obvious at a glance when you're not on today
   try { renderDeckDate(); } catch (e) {}   // seed the header date on open
+  try { wireDateSwipe(); } catch (e) {}    // make the top date swipeable, 1:1 with the wheel
   try { renderDeckDayWheel(root.querySelector("#deckDayBar")); } catch (e) {}   // the satisfying day scrollwheel at the bottom
 }
 // ── Task / habit DETAIL — tap a row's bar to open the full editor, like any task manager:
