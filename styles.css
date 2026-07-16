@@ -3218,6 +3218,14 @@ textarea.ff-in { min-height: 88px; resize: vertical; line-height: 1.5; }
 .msg-find-go { flex: 0 0 auto; min-height: 48px; padding: 0 16px; border: none; border-radius: 12px; background: var(--accent); color: var(--paper); font-family: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
 .msg-cta-btn { min-height: 48px; padding: 0 22px; border: none; border-radius: 14px; background: var(--accent); color: var(--paper); font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
 .msg-cta-btn:active { transform: scale(0.97); }
+/* account strip — switch / log out, on every logged-in Messages view (calm, not alarming) */
+.msg-account { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; margin: 18px 16px calc(4px + env(safe-area-inset-bottom)); padding: 12px 14px; border: 1px solid var(--edge-soft); border-radius: 14px; }
+.msg-acct-who { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.55); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.msg-acct-who b { color: rgba(var(--ink-rgb), 0.8); font-weight: 600; }
+.msg-acct-acts { display: flex; gap: 8px; flex: 0 0 auto; }
+.msg-acct-btn { min-height: 44px; padding: 0 14px; border: 1px solid var(--edge-soft); border-radius: 11px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.msg-acct-btn:hover { background: rgba(var(--ink-rgb), 0.05); }
+.msg-acct-btn:active { transform: scale(0.97); }
 /* conversations list */
 .msg-list { display: flex; flex-direction: column; }
 .msg-conv { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; min-height: 64px; padding: 10px 16px; border: none; border-bottom: 1px solid var(--edge-soft); background: none; color: var(--ink); cursor: pointer; text-align: left; }

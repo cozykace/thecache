@@ -84,6 +84,41 @@ ok("too-long handle rejected", !S.socialHandleValid("x".repeat(21)));
   ok("tampered ciphertext rejected", !!(await threw(() => S.socialUnseal(bPub, tampered))));
   ok("malformed body rejected", !!(await threw(() => S.socialUnseal(bPub, "no-colon-here"))));
 
+  // ── account logout / switch must NOT leak the messaging identity across accounts ──
+  // The guarantee: cloudLogout drops the token but KEEPS userId, so the next login of a
+  // DIFFERENT account trips cloudLogin's clear of the old @handle + private key + DM cache.
+  // If logout wiped userId (its old behavior), account B would silently inherit A's private
+  // key — this whole block goes red if that regresses.
+  {
+    const CLS = makeLS();
+    const cloudCode = slice("app.js", /^const CLOUD_KEY = "money\.cloud"/, /^async function cloudAuthCheck/);
+    const pre =
+      'var CLOUDKEY_KEY="money.cloudKey";' +
+      'function cloudKeySet(b){if(b){localStorage.setItem(CLOUDKEY_KEY,b);}else{localStorage.removeItem(CLOUDKEY_KEY);}}' +
+      'function cloudErr(d){return (d&&d.message)||"";}' +
+      'var __L=null;var fetch=function(){return Promise.resolve({ok:true,json:function(){return Promise.resolve(__L);}});};';
+    const CL = Function("localStorage", pre + "\n" + cloudCode + "\nreturn {cloudState,cloudSaveState,cloudLogout,cloudLogin,__setLogin:function(v){__L=v;}};")(CLS);
+    // account A: fully signed in, holding a live session + vault key
+    CLS.setItem("money.cloudKey", "A_VAULT_KEY");
+    CL.cloudSaveState({ url: "u", token: "TOKEN_A", userId: "USER_A", email: "a@x.co", mode: "zk", lastPush: 7 });
+    CL.cloudLogout();
+    const aOut = CL.cloudState();
+    ok("logout drops the session token", !aOut.token);
+    ok("logout wipes this device's vault key", CLS.getItem("money.cloudKey") === null);
+    ok("logout KEEPS userId (arms the different-account identity clear)", aOut.userId === "USER_A");
+    ok("logout keeps email for one-tap re-login", aOut.email === "a@x.co");
+    // A's messaging identity is still on the device; now a DIFFERENT account signs in here
+    CLS.setItem("money.social", JSON.stringify({ username: "kingcozy", optedIn: true }));
+    CLS.setItem("money.msgKey", JSON.stringify({ priv: "A_PRIV", pub: "A_PUB" }));
+    CLS.setItem("money.dms", JSON.stringify({ threads: {}, reqs: [] }));
+    CL.__setLogin({ token: "TOKEN_B", record: { id: "USER_B", email: "b@x.co", verified: true } });
+    await CL.cloudLogin("u", "b@x.co", "pw");
+    ok("switch to a different account clears the old @handle", CLS.getItem("money.social") === null);
+    ok("switch to a different account clears the old PRIVATE KEY", CLS.getItem("money.msgKey") === null);
+    ok("switch to a different account clears the old DM cache", CLS.getItem("money.dms") === null);
+    ok("the new account's session is active", CL.cloudState().token === "TOKEN_B" && CL.cloudState().userId === "USER_B");
+  }
+
   console.log(`\n${p} passed, ${f} failed`);
   process.exit(f ? 1 : 0);
 })();

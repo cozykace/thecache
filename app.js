@@ -3447,7 +3447,16 @@ async function cloudSignup(url, email, password) {
   try { fetch(base + "/api/collections/users/request-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).catch(() => {}); } catch (e) {}
   return cloudLogin(base, email, password);   // auto log in
 }
-function cloudLogout() { cloudKeySet(""); cloudSaveState({ url: cloudState().url || CLOUD_DEFAULT_URL }); }
+function cloudLogout() {
+  const s = cloudState();
+  cloudKeySet("");   // drop this device's vault data key (explicit logout is stricter than an expiry)
+  // Same shape as an expired session (see cloudAuthCheck): drop only the TOKEN, KEEP the
+  // account pointer (userId/email/mode + sync marks). Wiping userId would blind cloudLogin's
+  // different-account guard, so the NEXT account to log in on this browser would inherit the
+  // previous one's messaging identity — its @handle AND private key. Keeping userId means a
+  // switch to a different account correctly clears money.social/msgKey/dms.
+  cloudSaveState({ url: s.url || CLOUD_DEFAULT_URL, email: s.email, userId: s.userId, recordId: s.recordId, mode: s.mode || null, lastPush: s.lastPush, lastHash: s.lastHash, lastSeenVault: s.lastSeenVault });
+}
 // PocketBase auth tokens expire (~14 days). Refresh on every real cloud touch so
 // regular use never logs you out — and when a session is truly dead, log out
 // honestly instead of letting requests degrade to guest and fail with a cryptic
@@ -4960,7 +4969,7 @@ function openSettings() {
     if (kind === "ok") { clMsg.classList.remove("flash"); void clMsg.offsetWidth; clMsg.classList.add("flash"); }
   }
   (function initCloud() {
-    const s = cloudState(); if (s.url) clUrl.value = s.url; if (s.token) clEmail.value = s.email || ""; if (bkPass && bkPass.value) clPhrase.value = bkPass.value; refreshCloud();
+    const s = cloudState(); if (s.url) clUrl.value = s.url; if (s.email) clEmail.value = s.email; if (bkPass && bkPass.value) clPhrase.value = bkPass.value; refreshCloud();
     // validate the stored session for real — a token quietly expires after ~14 days,
     // and an eternal green check that fails on sync is worse than an honest re-login ask.
     // Repaint either way: a success may have just learned the verified flag.
@@ -9795,6 +9804,17 @@ function openMessages() {
         : "") + "</div>" +
     "</div>";
 
+  // the account strip — "signed in as X · Switch account · Log out" — shown on every
+  // logged-in Messages view so you can always leave or swap accounts from here.
+  const acctFooter = () => {
+    if (!socialLoggedIn()) return "";
+    const em = cloudState().email || "your account";
+    return '<div class="msg-account"><span class="msg-acct-who">signed in as <b>' + esc(em) + "</b></span>" +
+      '<span class="msg-acct-acts">' +
+      '<button class="msg-acct-btn" id="msgSwitch">Switch account</button>' +
+      '<button class="msg-acct-btn msg-acct-out" id="msgLogout">Log out</button>' +
+      "</span></div>";
+  };
   function renderOnboard() {
     if (!socialLoggedIn())
       return header("Messages", false) + '<div class="msg-body"><div class="msg-onboard">' +
@@ -9812,7 +9832,7 @@ function openMessages() {
       '<div class="msg-claimrow"><span class="msg-at">@</span><input class="msg-claim-in" id="msgClaimIn" placeholder="username" autocomplete="off" autocapitalize="none" spellcheck="false" value="' + esc((st.username || "")) + '" maxlength="20" inputmode="text"></div>' +
       (claimErr ? '<p class="msg-err">' + esc(claimErr) + "</p>" : '<p class="msg-fine">3–20 letters, numbers or _</p>') +
       '<button class="msg-cta-btn" id="msgClaimGo">Claim &amp; turn on messages</button>' +
-      "</div></div>";
+      "</div>" + acctFooter() + "</div>";
   }
   function convRows() {
     const o = dmsGet();
@@ -9870,7 +9890,7 @@ function openMessages() {
     else if (view === "thread") root.innerHTML = renderThread();
     else if (view === "find") root.innerHTML = renderFind();
     else if (view === "requests") root.innerHTML = renderRequests();
-    else root.innerHTML = header("Messages", false) + '<div class="msg-body">' + convRows() + "</div>";
+    else root.innerHTML = header("Messages", false) + '<div class="msg-body">' + convRows() + acctFooter() + "</div>";
     wire();
     if (view === "thread") { const box = root.querySelector("#msgThreadMsgs"); if (box) box.scrollTop = box.scrollHeight; dmsMarkRead(activeUid); }
   }
@@ -9878,6 +9898,12 @@ function openMessages() {
     const c = root.querySelector("#msgClose"); if (c) c.addEventListener("click", close);
     const bk = root.querySelector("#msgBack"); if (bk) bk.addEventListener("click", () => { view = "list"; activeUid = null; results = null; findErr = ""; render(); });
     const toS = root.querySelector("#msgToSettings"); if (toS) toS.addEventListener("click", () => { try { openSettings(); } catch (e) {} });
+    // account strip — log out (stay here, drop to the logged-out onboard) or switch
+    // (log out + jump to the cloud sign-in so a different account can take over)
+    const lo = root.querySelector("#msgLogout");
+    if (lo) lo.addEventListener("click", () => { cloudLogout(); view = "list"; activeUid = null; results = null; findErr = ""; claimErr = ""; try { cloudChip(); } catch (e) {} socialUpdateBadge(); render(); flash("Logged out."); });
+    const sw = root.querySelector("#msgSwitch");
+    if (sw) sw.addEventListener("click", () => { cloudLogout(); try { cloudChip(); } catch (e) {} socialUpdateBadge(); close(); try { openSettings(); } catch (e) {} });
     const claimGo = root.querySelector("#msgClaimGo"), claimIn = root.querySelector("#msgClaimIn");
     if (claimGo && claimIn) {
       const go = async () => { claimErr = ""; try { await socialClaimUsername(claimIn.value); flash("You're on — @" + socialState().username); } catch (e) { claimErr = e.message || "couldn't claim that"; render(); } };
