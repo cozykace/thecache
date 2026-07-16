@@ -3423,7 +3423,12 @@ async function cloudLogin(url, email, password) {
   const prev = cloudState();
   // a DIFFERENT account is signing in on this browser → drop the old account's
   // device key, seal-mode memory, and record pointer, or the vaults would entangle
-  if (prev.userId && d.record && d.record.id !== prev.userId) { cloudKeySet(""); prev.recordId = null; prev.lastPush = null; prev.lastHash = null; prev.lastSeenVault = null; prev.mode = null; }
+  if (prev.userId && d.record && d.record.id !== prev.userId) {
+    cloudKeySet(""); prev.recordId = null; prev.lastPush = null; prev.lastHash = null; prev.lastSeenVault = null; prev.mode = null;
+    // a new identity → drop the prior account's messaging identity (handle, keypair) + message
+    // cache, or this account would inherit someone else's @username and private key
+    try { localStorage.removeItem("money.social"); localStorage.removeItem("money.msgKey"); localStorage.removeItem("money.dms"); } catch (e) {}
+  }
   // same account → mode RIDES ALONG: the zero-knowledge downgrade guard reads it,
   // and losing it on a routine re-login would disarm the guard exactly when a
   // tampering server would love that
@@ -3501,7 +3506,7 @@ async function cloudFindVaultId(s) {
 //              a fresher edit and the web app can't blind-adopt on every unlock.
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
-const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay"];   // + deckDay (calendar)
+const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms"];   // + deckDay (calendar) + dms (the messages cache — a mirror of server data + per-thread read marks; per-device, never rides the vault)
 const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];   // + forms/formData (reuse the things per-item merge)
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
@@ -9563,6 +9568,356 @@ function openEventDetail(id) {
 }
 (function () { const b = document.getElementById("calBtn"); if (b) b.addEventListener("click", openCalendar); })();   // the calendar's OWN launcher — never the action button
 
+// ══ SOCIAL MESSAGES (Community area #7 · P5 social layer) ═══════════════════════════════
+//    End-to-end-encrypted DMs between Cache accounts, found by a public @username. The three
+//    non-negotiables from the docs: OPT-IN (undiscoverable until you claim a handle), lone-wolf
+//    stays 100% local (nothing here fires without a cloud login + opt-in), and the SERVER NEVER
+//    READS a message body (sealed client-side; PocketBase stores ciphertext only).
+//
+//    Backend: three PocketBase collections Cozy creates in the pockethost admin —
+//      profiles     {owner(rel users, uniq), username(text, uniq), pubkey(text), name(text)}
+//      friendships  {from(rel users), to(rel users), status(select pending/accepted/blocked)}
+//      messages     {from(rel users), to(rel users), body(text "iv:ct"), epub(text, reserved)}
+//    All three no-op gracefully (try/catch per call) until they exist, so a half-set-up account
+//    just sees a calm empty state instead of an error. See the hand-off note for exact schemas.
+//
+//    Crypto: a per-account static ECDH P-256 keypair. The PUBLIC key is published in the profile;
+//    the PRIVATE key lives in money.msgKey which rides the E2E vault (GENERIC, encrypted), so your
+//    identity follows you across your own devices. A→B seals with AES-GCM under the ECDH shared
+//    secret of (myPriv, theirPub); B opens with (theirPub, myPriv) — the same symmetric key, so
+//    both ends read the thread and only the pair can. Known v1 limits: TOFU trust on published
+//    pubkeys (no out-of-band verify yet) and no forward secrecy (the reserved `epub` field is the
+//    hook for a future ephemeral/ratchet upgrade).
+const SOCIAL_KEY = "money.social", MSGKEY_KEY = "money.msgKey", DMS_KEY = "money.dms";
+function socialState() { try { return JSON.parse(localStorage.getItem(SOCIAL_KEY) || "{}") || {}; } catch (e) { return {}; } }
+function socialSaveState(s) { try { localStorage.setItem(SOCIAL_KEY, JSON.stringify(s)); } catch (e) {} }
+function socialLoggedIn() { return !!cloudState().token; }                       // messaging follows the LOGIN, not the vault-pause toggle
+function socialReady() { return socialLoggedIn() && !!socialState().optedIn; }   // logged in AND claimed a handle
+function socialNormHandle(h) { return String(h == null ? "" : h).trim().replace(/^@+/, "").toLowerCase().replace(/[^a-z0-9_]/g, ""); }
+function socialHandleValid(h) { return /^[a-z0-9_]{3,20}$/.test(h); }
+// ── the identity keypair (ECDH P-256) ──
+function msgKeyGet() { try { return JSON.parse(localStorage.getItem(MSGKEY_KEY) || "null"); } catch (e) { return null; } }
+function msgKeySet(o) { try { localStorage.setItem(MSGKEY_KEY, JSON.stringify(o)); } catch (e) {} }
+async function socialEnsureKeypair() {
+  let kp = msgKeyGet();
+  if (kp && kp.priv && kp.pub) return kp;
+  const g = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
+  kp = { priv: await crypto.subtle.exportKey("jwk", g.privateKey), pub: await crypto.subtle.exportKey("jwk", g.publicKey) };
+  msgKeySet(kp);
+  return kp;
+}
+async function socialMyPub() {   // the compact raw public key (base64) we publish to the profile
+  const kp = await socialEnsureKeypair();
+  const pk = await crypto.subtle.importKey("jwk", kp.pub, { name: "ECDH", namedCurve: "P-256" }, true, []);
+  return _b64(await crypto.subtle.exportKey("raw", pk));
+}
+async function socialSharedKey(theirPubB64) {   // AES-GCM key from ECDH(myPriv, theirPub)
+  const kp = await socialEnsureKeypair();
+  const myPriv = await crypto.subtle.importKey("jwk", kp.priv, { name: "ECDH", namedCurve: "P-256" }, false, ["deriveKey"]);
+  const theirPub = await crypto.subtle.importKey("raw", _unb64(theirPubB64), { name: "ECDH", namedCurve: "P-256" }, false, []);
+  return crypto.subtle.deriveKey({ name: "ECDH", public: theirPub }, myPriv, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+async function socialSeal(theirPubB64, text) {
+  const key = await socialSharedKey(theirPubB64);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(text));
+  return _b64(iv) + ":" + _b64(ct);
+}
+async function socialUnseal(theirPubB64, body) {
+  const parts = String(body == null ? "" : body).split(":");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error("bad ciphertext");
+  const key = await socialSharedKey(theirPubB64);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(parts[0]) }, key, _unb64(parts[1]));
+  return new TextDecoder().decode(pt);
+}
+// ── the local message cache (money.dms — DEVICE_LOCAL, a mirror of server data + read marks) ──
+function dmsGet() { try { const o = JSON.parse(localStorage.getItem(DMS_KEY) || "{}") || {}; o.threads = o.threads || {}; o.reqs = o.reqs || []; return o; } catch (e) { return { threads: {}, reqs: [] }; } }
+function dmsSet(o) { try { localStorage.setItem(DMS_KEY, JSON.stringify(o)); } catch (e) {} }
+function dmsThread(o, uid, prof) {
+  let th = o.threads[uid];
+  if (!th) th = o.threads[uid] = { uid: uid, handle: "", name: "", pub: "", msgs: [], readTs: "" };
+  if (prof) { th.handle = prof.username || th.handle; th.name = prof.name || th.name; th.pub = prof.pubkey || th.pub; }
+  return th;
+}
+function socialUnreadCount() {
+  const o = dmsGet(); let n = 0;
+  Object.keys(o.threads).forEach((uid) => { const th = o.threads[uid]; (th.msgs || []).forEach((m) => { if (!m.mine && (!th.readTs || m.ts > th.readTs)) n++; }); });
+  return n + (o.reqs || []).length;
+}
+function socialUpdateBadge() {
+  const b = document.getElementById("msgBtn"); if (!b) return;
+  const dot = b.querySelector(".msg-unread"); if (!dot) return;
+  const c = socialReady() ? socialUnreadCount() : 0;
+  if (c > 0) { dot.textContent = c > 99 ? "99+" : String(c); dot.hidden = false; }
+  else { dot.hidden = true; dot.textContent = ""; }
+}
+function dmsMarkRead(uid) {
+  const o = dmsGet(), th = o.threads[uid]; if (!th) return;
+  th.readTs = (th.msgs || []).reduce((mx, m) => (m.ts > mx ? m.ts : mx), th.readTs || "");
+  dmsSet(o); socialUpdateBadge();
+}
+// ── PocketBase calls (mirror the vault engine's auth: refresh the token, raw Authorization header) ──
+async function socialApi(path, opts) {
+  await cloudAuthCheck();
+  const s = cloudState();
+  if (!s.token) throw new Error("log in to your cloud account first");
+  opts = opts || {};
+  const hdr = { Authorization: s.token };
+  if (opts.body) hdr["Content-Type"] = "application/json";
+  const r = await fetch(cloudUrl() + path, Object.assign({}, opts, { headers: Object.assign(hdr, opts.headers || {}) }));
+  const d = await r.json().catch(() => null);
+  if (!r.ok) { const e = new Error(cloudErr(d) || ("request failed (" + r.status + ")")); e.status = r.status; throw e; }
+  return d;
+}
+function socialFilter(expr) { return "?perPage=200&filter=" + encodeURIComponent(expr); }
+async function socialProfiles(uids) {   // owner-uid → profile row, one batched fetch
+  uids = Array.from(new Set((uids || []).filter(Boolean)));
+  if (!uids.length) return {};
+  const d = await socialApi("/api/collections/profiles/records" + socialFilter(uids.map((u) => 'owner="' + u + '"').join(" || ")));
+  const map = {}; (d.items || []).forEach((p) => { map[p.owner] = p; }); return map;
+}
+async function socialFriendships() {
+  const s = cloudState();
+  const d = await socialApi("/api/collections/friendships/records" + socialFilter('from="' + s.userId + '" || to="' + s.userId + '"'));
+  return d.items || [];
+}
+async function socialSearch(raw) {
+  const username = socialNormHandle(raw);
+  if (!username) return [];
+  const s = cloudState();
+  const d = await socialApi("/api/collections/profiles/records?perPage=8&filter=" + encodeURIComponent('username="' + username + '"'));
+  return (d.items || []).filter((p) => p.owner !== s.userId);   // never return yourself
+}
+async function socialClaimUsername(raw) {
+  const username = socialNormHandle(raw);
+  if (!socialHandleValid(username)) throw new Error("Handle must be 3–20 letters, numbers or _");
+  const s = cloudState();
+  if (!s.token) throw new Error("log in to your cloud account first");
+  const found = await socialApi("/api/collections/profiles/records?perPage=2&filter=" + encodeURIComponent('username="' + username + '"'));
+  if ((found.items || []).some((p) => p.owner !== s.userId)) throw new Error("@" + username + " is taken — try another");
+  const pubkey = await socialMyPub();
+  const own = await socialApi("/api/collections/profiles/records" + socialFilter('owner="' + s.userId + '"'));
+  const row = (own.items || [])[0];
+  // Guard the multi-device key fork: if the account already published a DIFFERENT key from
+  // another device, overwriting it would orphan every message sealed to it. Ask to sync first
+  // (the vault carries the private half) rather than mint a competing identity.
+  if (row && row.pubkey && row.pubkey !== pubkey) throw new Error("This account set up messaging on another device. Sync this device first (Settings → cloud), then reopen Messages.");
+  const body = JSON.stringify({ owner: s.userId, username: username, pubkey: pubkey });
+  if (row) await socialApi("/api/collections/profiles/records/" + row.id, { method: "PATCH", body: body });
+  else await socialApi("/api/collections/profiles/records", { method: "POST", body: body });
+  socialSaveState(Object.assign(socialState(), { username: username, optedIn: true }));
+  document.dispatchEvent(new CustomEvent("cache:social"));
+  return username;
+}
+async function socialRequest(toUid) {
+  const s = cloudState();
+  const existing = (await socialFriendships()).find((r) => r.from === toUid || r.to === toUid);
+  if (existing) {
+    if (existing.status === "accepted") throw new Error("You're already friends");
+    if (existing.status === "pending") { if (existing.to === s.userId) return socialAccept(existing.id); throw new Error("Request already sent"); }
+  }
+  await socialApi("/api/collections/friendships/records", { method: "POST", body: JSON.stringify({ from: s.userId, to: toUid, status: "pending" }) });
+  document.dispatchEvent(new CustomEvent("cache:social"));
+}
+async function socialAccept(id) { await socialApi("/api/collections/friendships/records/" + id, { method: "PATCH", body: JSON.stringify({ status: "accepted" }) }); document.dispatchEvent(new CustomEvent("cache:social")); }
+async function socialIgnore(id) { await socialApi("/api/collections/friendships/records/" + id, { method: "PATCH", body: JSON.stringify({ status: "blocked" }) }); document.dispatchEvent(new CustomEvent("cache:social")); }
+async function socialSend(toUid, text) {
+  text = String(text == null ? "" : text).trim();
+  if (!text) return;
+  const prof = (await socialProfiles([toUid]))[toUid];
+  if (!prof || !prof.pubkey) throw new Error("This friend hasn't set up messaging yet");
+  const s = cloudState();
+  const rec = await socialApi("/api/collections/messages/records", { method: "POST", body: JSON.stringify({ from: s.userId, to: toUid, body: await socialSeal(prof.pubkey, text) }) });
+  const o = dmsGet(), th = dmsThread(o, toUid, prof);
+  if (!th.msgs.some((x) => x.id === rec.id)) th.msgs.push({ id: rec.id, mine: true, text: text, ts: rec.created || new Date().toISOString() });
+  th.readTs = th.msgs.reduce((mx, m) => (m.ts > mx ? m.ts : mx), th.readTs || "");   // my own send is "read"
+  dmsSet(o);
+  document.dispatchEvent(new CustomEvent("cache:messages"));
+  return rec;
+}
+// The poll: pull friendships + messages, decrypt, mirror into money.dms. Robust to a
+// not-yet-created collection (each call try/caught) so it never throws into the console.
+let _socialPolling = false;
+async function socialPoll() {
+  if (!socialReady() || _socialPolling) { socialUpdateBadge(); return; }
+  _socialPolling = true;
+  try {
+    const s = cloudState(), o = dmsGet();
+    let fr = []; try { fr = await socialFriendships(); } catch (e) {}
+    const accepted = fr.filter((r) => r.status === "accepted");
+    const pendingIn = fr.filter((r) => r.to === s.userId && r.status === "pending");
+    const friendUids = accepted.map((r) => (r.from === s.userId ? r.to : r.from));
+    let msgs = []; try { const d = await socialApi("/api/collections/messages/records?perPage=100&sort=-created&filter=" + encodeURIComponent('from="' + s.userId + '" || to="' + s.userId + '"')); msgs = (d.items || []).reverse(); } catch (e) {}
+    const need = Array.from(new Set([].concat(friendUids, msgs.map((m) => (m.from === s.userId ? m.to : m.from)), pendingIn.map((r) => r.from)).filter(Boolean)));
+    let profs = {}; try { profs = await socialProfiles(need); } catch (e) {}
+    friendUids.forEach((uid) => dmsThread(o, uid, profs[uid]));   // accepted friends show even with no messages yet
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i], otherUid = m.from === s.userId ? m.to : m.from, th = dmsThread(o, otherUid, profs[otherUid]);
+      if (th.msgs.some((x) => x.id === m.id)) continue;
+      let text = "🔒";
+      const prof = profs[otherUid];
+      if (prof && prof.pubkey) { try { text = await socialUnseal(prof.pubkey, m.body); } catch (e) { text = "🔒 couldn't read this one"; } }
+      th.msgs.push({ id: m.id, mine: m.from === s.userId, text: text, ts: m.created });
+    }
+    Object.keys(o.threads).forEach((uid) => o.threads[uid].msgs.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0)));
+    o.reqs = pendingIn.map((r) => ({ id: r.id, uid: r.from, handle: (profs[r.from] || {}).username || "", name: (profs[r.from] || {}).name || "" }));
+    dmsSet(o); socialUpdateBadge();
+    document.dispatchEvent(new CustomEvent("cache:messages"));
+  } finally { _socialPolling = false; }
+}
+
+// ── The Messages surface — a full-screen lens, cloned from openCalendar (daily-space shell).
+//    One surface, several views: onboarding (connect / claim handle) · list · thread · find · requests.
+function openMessages() {
+  if (document.getElementById("msgSpace")) return;
+  const root = document.createElement("div"); root.id = "msgSpace"; root.className = "daily-space msg-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  let view = "list", activeUid = null, results = null, findErr = "", claimErr = "";
+  const draft = {};
+  const timeOf = (ts) => { try { return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } };
+  const onKey = (e) => { if (e.key !== "Escape") return; if (view === "list") close(); else { view = "list"; activeUid = null; render(); } };
+  const onCache = () => { if (!root.isConnected) { cleanup(); return; } if (view === "thread") { paintThreadMsgs(); } else render(); socialUpdateBadge(); };
+  const pollTimer = setInterval(() => { if (!document.hidden && socialReady()) socialPoll().catch(() => {}); }, 15000);   // near-live while open
+  const cleanup = () => { clearInterval(pollTimer); document.removeEventListener("keydown", onKey); document.removeEventListener("cache:messages", onCache); document.removeEventListener("cache:social", onCache); };
+  const close = () => { root.remove(); cleanup(); };
+  document.addEventListener("keydown", onKey);
+  document.addEventListener("cache:messages", onCache);
+  document.addEventListener("cache:social", onCache);
+  socialPoll().catch(() => {});   // fresh pull the moment it opens
+
+  const header = (title, back) =>
+    '<div class="daily-top">' +
+      (back ? '<button class="daily-icn" id="msgBack" aria-label="back">‹</button>' : '<button class="daily-icn" id="msgClose" aria-label="close">✕</button>') +
+      '<div class="cal-title">' + esc(title) + "</div>" +
+      '<div class="msg-headright">' + (view === "list" && socialReady()
+        ? '<button class="daily-icn msg-hbtn" id="msgReq" aria-label="friend requests" title="friend requests">👋</button><button class="daily-icn msg-hbtn" id="msgFind" aria-label="find friends" title="find friends">🔍</button>'
+        : "") + "</div>" +
+    "</div>";
+
+  function renderOnboard() {
+    if (!socialLoggedIn())
+      return header("Messages", false) + '<div class="msg-body"><div class="msg-onboard">' +
+        '<div class="msg-onboard-em">💬</div>' +
+        "<h2>Chat with your friends</h2>" +
+        "<p>Messages are end-to-end encrypted and ride your Cache cloud account. Log in (or make a free account) to turn them on.</p>" +
+        '<button class="msg-cta-btn" id="msgToSettings">Set up your cloud account</button>' +
+        '<p class="msg-fine">Local-only? That\'s fine — messaging is fully opt-in and nothing syncs until you turn it on.</p>' +
+        "</div></div>";
+    const st = socialState();
+    return header("Messages", false) + '<div class="msg-body"><div class="msg-onboard">' +
+      '<div class="msg-onboard-em">🪪</div>' +
+      "<h2>Claim your @username</h2>" +
+      "<p>This is how friends find you. Your email stays private — only your handle is searchable, and only once you claim it.</p>" +
+      '<div class="msg-claimrow"><span class="msg-at">@</span><input class="msg-claim-in" id="msgClaimIn" placeholder="username" autocomplete="off" autocapitalize="none" spellcheck="false" value="' + esc((st.username || "")) + '" maxlength="20" inputmode="text"></div>' +
+      (claimErr ? '<p class="msg-err">' + esc(claimErr) + "</p>" : '<p class="msg-fine">3–20 letters, numbers or _</p>') +
+      '<button class="msg-cta-btn" id="msgClaimGo">Claim &amp; turn on messages</button>' +
+      "</div></div>";
+  }
+  function convRows() {
+    const o = dmsGet();
+    const threads = Object.keys(o.threads).map((k) => o.threads[k]).sort((a, b) => {
+      const la = (a.msgs[a.msgs.length - 1] || {}).ts || "", lb = (b.msgs[b.msgs.length - 1] || {}).ts || "";
+      if (la !== lb) return la < lb ? 1 : -1;
+      return (a.handle || a.name || "") < (b.handle || b.name || "") ? -1 : 1;
+    });
+    if (!threads.length) return '<div class="msg-empty"><div class="msg-empty-em">💬</div><p>No conversations yet.</p><p class="sub">Find a friend by their @username to say hi.</p><button class="msg-cta-btn" id="msgFindEmpty">🔍 Find a friend</button></div>';
+    return '<div class="msg-list">' + threads.map((th) => {
+      const last = th.msgs[th.msgs.length - 1];
+      const unread = th.msgs.filter((m) => !m.mine && (!th.readTs || m.ts > th.readTs)).length;
+      const preview = last ? (last.mine ? "You: " : "") + last.text : "Say hi 👋";
+      const nm = th.handle ? "@" + th.handle : (th.name || "friend");
+      return '<button class="msg-conv" data-uid="' + esc(th.uid) + '">' +
+        '<span class="msg-ava">' + esc((th.handle || th.name || "?").slice(0, 1).toUpperCase()) + "</span>" +
+        '<span class="msg-conv-mid"><span class="msg-conv-name">' + esc(nm) + '</span><span class="msg-conv-prev">' + esc(preview) + "</span></span>" +
+        (unread ? '<span class="msg-conv-badge">' + unread + "</span>" : "") + "</button>";
+    }).join("") + "</div>";
+  }
+  function threadMsgsHtml() {
+    const o = dmsGet(), th = o.threads[activeUid];
+    if (!th || !th.msgs.length) return '<div class="msg-empty2">No messages yet — say something 👋</div>';
+    return th.msgs.map((m) => '<div class="msg-b' + (m.mine ? " me" : "") + '"><span class="msg-b-tx">' + esc(m.text) + '</span><span class="msg-b-ts">' + esc(timeOf(m.ts)) + "</span></div>").join("");
+  }
+  function paintThreadMsgs() {
+    const box = root.querySelector("#msgThreadMsgs"); if (!box) return;
+    box.innerHTML = threadMsgsHtml(); box.scrollTop = box.scrollHeight;
+    dmsMarkRead(activeUid);
+  }
+  function renderThread() {
+    const o = dmsGet(), th = o.threads[activeUid] || { handle: "", name: "" };
+    const nm = th.handle ? "@" + th.handle : (th.name || "friend");
+    return header(nm, true) +
+      '<div class="msg-thread"><div class="msg-thread-msgs" id="msgThreadMsgs">' + threadMsgsHtml() + "</div>" +
+      '<div class="msg-composer"><textarea class="msg-ta" id="msgTa" rows="1" placeholder="Message…" aria-label="message"></textarea><button class="msg-send" id="msgSend" aria-label="send">➤</button></div></div>';
+  }
+  function renderFind() {
+    const rows = results == null ? "" : (results.length
+      ? '<div class="msg-list">' + results.map((p) => '<div class="msg-result"><span class="msg-ava">' + esc((p.username || "?").slice(0, 1).toUpperCase()) + '</span><span class="msg-conv-mid"><span class="msg-conv-name">@' + esc(p.username) + "</span>" + (p.name ? '<span class="msg-conv-prev">' + esc(p.name) + "</span>" : "") + '</span><button class="msg-add" data-uid="' + esc(p.owner) + '">Add</button></div>').join("") + "</div>"
+      : '<div class="msg-empty2">No one found with that handle.</div>');
+    return header("Find friends", true) + '<div class="msg-body">' +
+      '<div class="msg-findbar"><span class="msg-at">@</span><input class="msg-claim-in" id="msgFindIn" placeholder="their username" autocomplete="off" autocapitalize="none" spellcheck="false"><button class="msg-find-go" id="msgFindGo">Search</button></div>' +
+      (findErr ? '<p class="msg-err">' + esc(findErr) + "</p>" : "") + rows + "</div>";
+  }
+  function renderRequests() {
+    const o = dmsGet();
+    const rows = (o.reqs || []).length
+      ? (o.reqs || []).map((r) => '<div class="msg-req"><span class="msg-ava">' + esc((r.handle || r.name || "?").slice(0, 1).toUpperCase()) + '</span><span class="msg-conv-mid"><span class="msg-conv-name">' + (r.handle ? "@" + esc(r.handle) : esc(r.name || "someone")) + '</span><span class="msg-conv-prev">wants to be friends</span></span><button class="msg-add" data-acc="' + esc(r.id) + '">Accept</button><button class="msg-ign" data-ign="' + esc(r.id) + '">Ignore</button></div>').join("")
+      : '<div class="msg-empty2">No friend requests right now.</div>';
+    return header("Friend requests", true) + '<div class="msg-body"><div class="msg-list">' + rows + "</div></div>";
+  }
+  function render() {
+    if (!socialReady()) root.innerHTML = renderOnboard();
+    else if (view === "thread") root.innerHTML = renderThread();
+    else if (view === "find") root.innerHTML = renderFind();
+    else if (view === "requests") root.innerHTML = renderRequests();
+    else root.innerHTML = header("Messages", false) + '<div class="msg-body">' + convRows() + "</div>";
+    wire();
+    if (view === "thread") { const box = root.querySelector("#msgThreadMsgs"); if (box) box.scrollTop = box.scrollHeight; dmsMarkRead(activeUid); }
+  }
+  function wire() {
+    const c = root.querySelector("#msgClose"); if (c) c.addEventListener("click", close);
+    const bk = root.querySelector("#msgBack"); if (bk) bk.addEventListener("click", () => { view = "list"; activeUid = null; results = null; findErr = ""; render(); });
+    const toS = root.querySelector("#msgToSettings"); if (toS) toS.addEventListener("click", () => { try { openSettings(); } catch (e) {} });
+    const claimGo = root.querySelector("#msgClaimGo"), claimIn = root.querySelector("#msgClaimIn");
+    if (claimGo && claimIn) {
+      const go = async () => { claimErr = ""; try { await socialClaimUsername(claimIn.value); flash("You're on — @" + socialState().username); } catch (e) { claimErr = e.message || "couldn't claim that"; render(); } };
+      claimGo.addEventListener("click", go);
+      claimIn.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
+    }
+    root.querySelectorAll(".msg-conv").forEach((r) => r.addEventListener("click", () => { activeUid = r.dataset.uid; view = "thread"; render(); }));
+    const req = root.querySelector("#msgReq"); if (req) req.addEventListener("click", () => { view = "requests"; render(); });
+    const find = root.querySelector("#msgFind"); if (find) find.addEventListener("click", () => { view = "find"; results = null; findErr = ""; render(); });
+    const findEmpty = root.querySelector("#msgFindEmpty"); if (findEmpty) findEmpty.addEventListener("click", () => { view = "find"; results = null; findErr = ""; render(); });
+    const findGo = root.querySelector("#msgFindGo"), findIn = root.querySelector("#msgFindIn");
+    if (findGo && findIn) {
+      const go = async () => { findErr = ""; results = null; render(); try { results = await socialSearch(findIn.value); } catch (e) { findErr = e.message || "search failed"; } render(); const fi = root.querySelector("#msgFindIn"); if (fi) { fi.value = findIn.value; fi.focus(); } };
+      findGo.addEventListener("click", go);
+      findIn.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
+      findIn.focus();
+    }
+    root.querySelectorAll(".msg-add[data-uid]").forEach((b) => b.addEventListener("click", async () => { b.disabled = true; try { await socialRequest(b.dataset.uid); flash("Request sent"); view = "list"; socialPoll().catch(() => {}); render(); } catch (e) { b.disabled = false; flash(e.message || "couldn't send request"); } }));
+    root.querySelectorAll(".msg-add[data-acc]").forEach((b) => b.addEventListener("click", async () => { b.disabled = true; try { await socialAccept(b.dataset.acc); flash("You're friends now"); socialPoll().catch(() => {}); render(); } catch (e) { b.disabled = false; flash(e.message || "couldn't accept"); } }));
+    root.querySelectorAll(".msg-ign[data-ign]").forEach((b) => b.addEventListener("click", async () => { b.disabled = true; try { await socialIgnore(b.dataset.ign); socialPoll().catch(() => {}); render(); } catch (e) { b.disabled = false; flash(e.message || "couldn't ignore"); } }));
+    const ta = root.querySelector("#msgTa"), send = root.querySelector("#msgSend");
+    if (ta && send) {
+      ta.value = draft[activeUid] || "";
+      const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; };
+      const doSend = async () => {
+        const text = ta.value.trim(); if (!text) return;
+        ta.value = ""; draft[activeUid] = ""; grow();
+        try { await socialSend(activeUid, text); } catch (e) { ta.value = text; draft[activeUid] = text; grow(); flash(e.message || "couldn't send"); return; }
+        paintThreadMsgs();
+      };
+      ta.addEventListener("input", () => { draft[activeUid] = ta.value; grow(); });
+      ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); doSend(); } });
+      send.addEventListener("click", doSend);
+      grow(); ta.focus();
+    }
+  }
+  render();
+}
+(function () { const b = document.getElementById("msgBtn"); if (b) b.addEventListener("click", openMessages); })();   // messages' OWN launcher — never the action button
+
 // ── Setup wizard — coached first-run screens (design locked 2026-07-13, Working Docs/3_ROADMAP.md).
 //    A coached version of the check-in experience: one question per screen, chunky one-tap
 //    buttons, a plain hint under every question, everything skippable with zero shame.
@@ -10420,6 +10775,7 @@ const DOCK_DEFS = [
   { id: "scale", label: "Scale" },
   { id: "datetime", label: "Date / time" },
   { id: "period", label: "Period" },
+  { id: "msg", label: "Messages" },
   { id: "daily", label: "The deck (daily check-in)" },
   { id: "cal", label: "Calendar" },
   { id: "base", label: "The Base" },
@@ -10454,12 +10810,17 @@ function applyDockConfig(dock) {
   // always visible (like the deck) so "see your month" is one tap on every device.
   const cal = dock.querySelector('[data-dock="cal"]');
   if (cal && deck) { cal.style.display = ""; deck.after(cal); }
+  // messages is the third day-anchor — pinned to the FAR LEFT of the deck/calendar cluster,
+  // always visible (chatting with friends is one tap on every device). Inserted last so it
+  // lands before the deck (order: [msg][＋][cal]).
+  const msg = dock.querySelector('[data-dock="msg"]');
+  if (msg) { msg.style.display = ""; dock.insertBefore(msg, dock.firstChild); }
 }
 function renderDockMenu() {
   const host = document.getElementById("dockMenu");
   if (!host) return;
   const hidden = new Set(dockList(DOCK_HIDDEN_KEY)), f = favs();
-  const defs = DOCK_DEFS.filter((d) => d.id !== "daily" && d.id !== "cal");   // the deck + calendar can't be hidden — the day's two anchors
+  const defs = DOCK_DEFS.filter((d) => d.id !== "daily" && d.id !== "cal" && d.id !== "msg");   // the deck + calendar + messages can't be hidden — the day's three anchors
   if (autoPinOn()) defs.sort((a, b) => (f.has("dock:" + b.id) ? 1 : 0) - (f.has("dock:" + a.id) ? 1 : 0));
   host.innerHTML = defs.map((d) => {
     const on = !hidden.has(d.id), fav = f.has("dock:" + d.id);
@@ -10593,6 +10954,7 @@ function openClockSettings(anchor) {
     scale: document.querySelector(".zoom-control"),
     datetime: dt,
     period: pd,
+    msg: document.getElementById("msgBtn"),
     daily: document.getElementById("dailyBtn"),
     cal: document.getElementById("calBtn"),
     base: document.getElementById("baseBtn"),
@@ -10896,4 +11258,7 @@ cloudChip();               // the chip tells the truth from the first paint
 cloudAutoPull();           // adopt whatever another device left in the cloud
 setInterval(() => { if (!document.hidden) cloudAutoPull(); }, 75000);   // near-live: a tiny two-field check while you're looking
 document.addEventListener("cache:logged", autoPushSoon);   // a finished check-in is worth syncing
+socialUpdateBadge();       // show any unread count from the last session's cache immediately
+if (socialReady()) socialPoll().catch(() => {});   // pull new messages + friend requests on load
+setInterval(() => { if (!document.hidden && socialReady()) socialPoll().catch(() => {}); }, 75000);   // near-live message check (the open surface polls faster)
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint
