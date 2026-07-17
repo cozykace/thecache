@@ -8583,35 +8583,48 @@ function renderDeckDayWheel(host) {
   const highlight = (cell) => dayCells.forEach((c) => { const on = c === cell; c.classList.toggle("on", on); c.setAttribute("aria-selected", on ? "true" : "false"); });
   const jump = host.querySelector("#deckTodayJump"), updJump = (ymd) => { if (jump) jump.classList.toggle("show", ymd !== todayKey()); };
   const selChip = () => dayCells.filter((c) => c.dataset.ymd === deckViewDay())[0] || dayCells.filter((c) => c.classList.contains("istoday"))[0];
+  // A saved day OUTSIDE the wheel's range (a device untouched for 45+ days) used to be silently
+  // "healed" to today by the settle-commit; commits are user-only now, so heal it explicitly —
+  // otherwise the header/body would sit greyed on the old day while the wheel shows today.
+  // The cache:deckday listeners (already attached by openDeck) refresh the header + grey state.
+  if (!dayCells.some((c) => c.dataset.ymd === deckViewDay())) {
+    try { setDeckViewDay(todayKey()); } catch (e) {}
+    const c0 = selChip(); if (c0) highlight(c0);
+  }
   centerCell(selChip(), false);
-  updJump(sel);
+  updJump(deckViewDay());
   // Re-assert the opening position once layout truly settles (web fonts resize the chips and a
   // mandatory-snap container may re-snap on that reflow) — but never fight a user who has
   // already touched the wheel. Any interaction anywhere in the daybar hands over control.
-  let userTook = false;
+  let userTook = false, extGlide = false;   // extGlide: a top-date-swipe glide is in charge — disarm the one-shot re-centers without arming commits
   const takeOver = () => { userTook = true; };
   host.addEventListener("pointerdown", takeOver, { capture: true });
   host.addEventListener("wheel", takeOver, { capture: true, passive: true });
   host.addEventListener("keydown", takeOver, { capture: true });
-  requestAnimationFrame(() => { if (!userTook && host.isConnected) centerCell(selChip(), false); });
-  try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (!userTook && host.isConnected) { centerCell(selChip(), false); const c = selChip(); if (c) highlight(c); } }); } catch (e) {}
+  requestAnimationFrame(() => { if (!userTook && !extGlide && host.isConnected) centerCell(selChip(), false); });
+  try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (!userTook && !extGlide && host.isConnected) { centerCell(selChip(), false); const c = selChip(); if (c) highlight(c); } }); } catch (e) {}
   let raf = 0, settle = 0;
   wheel.addEventListener("scroll", () => {
     if (!raf) raf = requestAnimationFrame(() => { raf = 0; const c = nearest(); if (c) highlight(c); });   // live highlight tracks the scroll
     clearTimeout(settle);
-    settle = setTimeout(() => { const c = nearest(); if (userTook && c && c.dataset.ymd !== deckViewDay()) { setDeckViewDay(c.dataset.ymd); updJump(c.dataset.ymd); } }, 110);   // commit once it settles — but only motion the USER started (programmatic centering/re-snap drift must never rewrite the selected day)
+    settle = setTimeout(() => {
+      if (!wheel.isConnected) return;   // deck closed mid-coast: a detached wheel's rects are all zero, nearest() degenerates to the FIRST cell (today-45) and would persist it — the review's close-race blocker
+      const c = nearest(); if (userTook && c && c.dataset.ymd !== deckViewDay()) { setDeckViewDay(c.dataset.ymd); updJump(c.dataset.ymd); }
+    }, 110);   // commit once it settles — but only motion the USER started (programmatic centering/re-snap drift must never rewrite the selected day)
   });
-  dayCells.forEach((c) => c.addEventListener("click", () => centerCell(c, true)));
-  host.querySelector("#deckWheelPrev").addEventListener("click", () => { const i = dayCells.indexOf(nearest()); if (i > 0) centerCell(dayCells[i - 1], true); });
-  host.querySelector("#deckWheelNext").addEventListener("click", () => { const i = dayCells.indexOf(nearest()); if (i >= 0 && i < dayCells.length - 1) centerCell(dayCells[i + 1], true); });
-  if (jump) jump.addEventListener("click", () => centerCell(dayCells.filter((c) => c.classList.contains("istoday"))[0], true));
+  // takeOver() in these handlers too: an assistive-tech activation can be a bare click with no
+  // pointerdown/keydown — a click on a day control is user intent by definition, so it must commit.
+  dayCells.forEach((c) => c.addEventListener("click", () => { takeOver(); centerCell(c, true); }));
+  host.querySelector("#deckWheelPrev").addEventListener("click", () => { takeOver(); const i = dayCells.indexOf(nearest()); if (i > 0) centerCell(dayCells[i - 1], true); });
+  host.querySelector("#deckWheelNext").addEventListener("click", () => { takeOver(); const i = dayCells.indexOf(nearest()); if (i >= 0 && i < dayCells.length - 1) centerCell(dayCells[i + 1], true); });
+  if (jump) jump.addEventListener("click", () => { takeOver(); centerCell(dayCells.filter((c) => c.classList.contains("istoday"))[0], true); });
   // 1:1 with the top date: if the day changes from ELSEWHERE (the top swipe), glide the wheel to match.
   function onWheelExtDay() {
     if (!host.isConnected) { document.removeEventListener("cache:deckday", onWheelExtDay); return; }   // self-clean when the deck closes
     const vd = deckViewDay(), cur = nearest();
     if (cur && cur.dataset.ymd === vd) return;   // already here (or this change came FROM the wheel) — no feedback loop
     const target = dayCells.filter((c) => c.dataset.ymd === vd)[0];
-    if (target) { centerCell(target, true); highlight(target); updJump(vd); }
+    if (target) { extGlide = true; centerCell(target, true); highlight(target); updJump(vd); }   // extGlide: don't let the fonts-settle re-center teleport-cancel this glide
   }
   document.addEventListener("cache:deckday", onWheelExtDay);
 }
