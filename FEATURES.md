@@ -4,7 +4,7 @@ A living, product-facing list of what THE CACHE does — kept current as we ship
 
 **The promise:** have a good time facing the skeletons in your closet. THE CACHE is a **free**, calm, playful, provably-private **life OS** — one secure home for the parts of your life you want to track, built from real research to work for brains that struggle with executive function (ADHD, autism, brain injury — and honestly, anyone overwhelmed). Your executive energy varies day to day; that's not a flaw. Cache exists to show you your own pattern and help you plan around it, instead of fighting it. Money is the first area of life it masters — because money has the highest stakes — and the same home is growing to hold your health, tasks, meals, and more.
 
-_Last updated: 2026-07-15_
+_Last updated: 2026-07-16_
 
 ## Log your life in one tap
 - **🃏 The deck** — the one button to remember. Always in the same spot on every device, it opens your day one card at a time: big friendly buttons, one question per screen, confetti and EXP when you finish. One minute keeps your whole cache fed — and a one-time coaching card teaches the habit the first day.
@@ -82,6 +82,9 @@ _Last updated: 2026-07-15_
 - **Every device keeps its own edits** — sync reconciles setting-by-setting, not last-one-wins: a real change on one device always beats a stale copy on another, badges and streak-marks combine instead of clobbering, and your journey's founding date can only ever move earlier. A phone that hasn't caught up can never silently undo something you just set on your desktop — and the per-device stuff (zoom, sidebar width, panel positions) stays where you put it on each device.
 - **Encrypted file & WebDAV backups** — seal everything with your passphrase into a `.cache` file you own, or push it to your own WebDAV server. Those bundles open anywhere with just the passphrase.
 - **A security promise you can actually read** — a plain-language `SECURITY.md` lays out exactly how your data is protected and where the line is: the encryption is open on purpose (secrecy that depends on hidden code isn't security), and it says straight out that only passphrase mode is a true "not even we can read it" guarantee. No jargon, no overselling — plus a clear, private way to report anything you find.
+
+## Free, and backed by choice
+- **💛 Back the Cache** — the Cache is free and stays free; nothing that runs on your machine is ever locked, timed, or nagged about. If you *want* to chip in, a calm "Back the Cache" page (in the menu and Settings) links out to the founder's sponsor pages — no payment forms in the app, no guilt, and backing never unlocks features. Free is the whole point.
 
 ## What's coming
 The roadmap tab (right in the app) shows what's next: tasks that reward showing up, meals, per-task energy estimates, and the rest of the twelve areas of life — one honest brick at a time.

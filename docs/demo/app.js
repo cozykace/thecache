@@ -4846,6 +4846,9 @@ function openSettings() {
       '<div class="set-themes" id="setThemes"></div>' +
       '<div class="set-sec">Fonts</div>' +
       '<div class="set-fonts" id="setFonts"></div>' +
+      '<div class="set-sec">💛 Back the Cache</div>' +
+      '<div class="set-hint">the Cache is free and stays free — this is only for people who feel like chipping in</div>' +
+      '<div class="set-bk-row"><button class="set-btn" id="setBackCache">💛 Back the Cache</button></div>' +
       '<div class="set-sec" data-tier="3">Stats bar</div>' +
       '<div class="set-hint" data-tier="3">the live numbers along the top — toggle any on or off · drag them in the bar to reorder</div>' +
       '<div id="setStats" class="set-stats" data-tier="3"></div>' +
@@ -4854,6 +4857,7 @@ function openSettings() {
   document.body.appendChild(modal);
   makeModalResizable(modal, "money.settings");
   modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer());
+  modal.querySelector("#setBackCache").addEventListener("click", () => openBackCache());
 
   const saveProfile = () => setProfile({
     name: modal.querySelector("#setName").value.trim(),
@@ -6971,6 +6975,41 @@ function openBugReport() {
   input.focus();
   load();
 }
+// ── 💛 Back the Cache (Phase 1 · choose-to-pay) ─────────────
+// Free stays free: backing never gates or unlocks anything, and there is no
+// payment processing in-app — these are OUTBOUND links to the founder's sponsor
+// pages only. An entry with an empty url never renders a button, so the section
+// ships quietly hidden until the real pages exist: a dead link can never ship.
+const BACK_LINKS = [
+  { label: "GitHub Sponsors", icon: "heart", url: "" },
+  { label: "Ko-fi", icon: "coffee", url: "" },
+];
+function openBackCache() {
+  closeCategorizer();
+  const back = document.createElement("div");
+  back.className = "cat-backdrop"; back.id = "catBackdrop";
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) closeCategorizer(); });
+  const modal = document.createElement("div");
+  modal.className = "cat-modal back-modal";
+  const live = BACK_LINKS.filter((l) => l.url);
+  modal.innerHTML =
+    '<div class="cat-head"><span>💛 Back the Cache</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="back-body">' +
+      '<div class="back-em">💛</div>' +
+      '<p class="back-p">The Cache is free, and it stays free — everything that runs on your own machine is yours, no locks, no timers, no asking twice. If it’s been good to your brain and you’d like to help it grow, backing is how: it covers the servers and buys time to keep building. And if now isn’t the moment, that’s genuinely fine — using the Cache and showing a friend already helps more than you know.</p>' +
+      (live.length
+        ? '<div class="back-links">' +
+            live.map((l) => '<a class="back-link" href="' + escapeHtml(l.url) + '" target="_blank" rel="noopener noreferrer"><i data-lucide="' + l.icon + '"></i><span>' + escapeHtml(l.label) + '</span></a>').join("") +
+          "</div>"
+        : '<div class="back-soon">Backing links are still being set up — nothing to do here yet. Just knowing you’d look means a lot.</div>') +
+      '<div class="back-fine">Backing never unlocks features. Free is the whole point.</div>' +
+    "</div>";
+  document.body.appendChild(back);
+  document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer());
+  drawIcons();
+}
+(function () { const b = document.getElementById("backCache"); if (b) b.addEventListener("click", () => { openBackCache(); setSidebar(false); }); })();
 document.getElementById("connectBank").addEventListener("click", () => { openConnect(); setSidebar(false); });
 (function () { const w = document.getElementById("openWizardBtn"); if (w) w.addEventListener("click", () => { openWizard(); setSidebar(false); }); })();
 document.getElementById("openSettings").addEventListener("click", () => { openSettings(); setSidebar(false); });
