@@ -10707,14 +10707,21 @@ function isTypingTarget(t) {
   return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
 }
 window.addEventListener("keydown", (e) => {
-  if (e.code !== "Space" || e.repeat) return;
+  if (e.code !== "Space") return;
   if (isTypingTarget(e.target) || document.querySelector(".cat-modal, .subd-modal")) return;
-  e.preventDefault();           // stop the page from scrolling on space
+  e.preventDefault();           // EVERY keydown incl. repeats — held space used to scroll the board wildly while the pan-hand showed (only the first press was prevented; repeats slipped through)
+  if (e.repeat) return;
   panning = true;
   document.body.classList.add("panning");   // → grab (open hand) cursor
 });
 window.addEventListener("keyup", (e) => {
   if (e.code !== "Space") return;
+  panning = false; panStart = null;
+  document.body.classList.remove("panning", "grabbing");
+});
+// If the space keyup gets eaten (Spotlight, app switch), pan-mode used to stick forever —
+// clicks kept panning until a reload. Losing window focus now always ends the pan.
+window.addEventListener("blur", () => {
   panning = false; panStart = null;
   document.body.classList.remove("panning", "grabbing");
 });

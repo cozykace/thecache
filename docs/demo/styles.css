@@ -112,12 +112,13 @@ body {
   overflow: hidden;
 }
 
-/* hide the native cursor everywhere — our JS cursor is the only cursor.
-   Mouse-only: on touch there's no jelly ball (cursor.js gates on the same query),
-   so the native cursor must stay available for any pointer that shows up. */
-@media (hover: hover) and (pointer: fine) {
-  *, *::before, *::after { cursor: none !important; }
-}
+/* The native cursor is BACK (2026-07-17). The jelly ball used to be the ONLY cursor
+   (native hidden) — but the ball is a JS-positioned decoration that can lag or drift from
+   the true pointer, and when it does, every aim is a lie: hover lands on the neighbor,
+   clicks select text across the screen, small targets feel cursed. The OS cursor is the
+   one thing guaranteed to be exactly where clicks land, so it stays visible as the source
+   of truth and the ball trails it as jelly. (Beauty pass later: an SVG blob as a CSS
+   cursor image — brand look at OS-truth position. See BACKLOG.) */
 /* hold space to pan: native hand cursor (open → grabs closed), jelly cursor hidden */
 body.panning, body.panning * { cursor: grab !important; }
 body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
