@@ -8572,15 +8572,29 @@ function renderDeckDayWheel(host) {
   // a first open could silently select a day ~6 weeks in the past. Force instant here.
   const centerCell = (el, smooth) => {
     if (!el) return;
-    const left = el.offsetLeft - (wheel.clientWidth - el.clientWidth) / 2;
+    // Rect-based, never offsetLeft: the wheel isn't positioned, so a chip's offsetParent is the
+    // DAYBAR — offsetLeft carried a constant +~52px bias (bar padding + ‹ nav + gap) that
+    // mandatory snap rounded to the NEIGHBOR chip: taps committed the wrong day, ‹ looked dead,
+    // › skipped a day. Rects measure true geometry (and .on's scale transform is center-anchored).
+    const wr = wheel.getBoundingClientRect(), cr = el.getBoundingClientRect();
+    const left = wheel.scrollLeft + (cr.left + cr.width / 2) - (wr.left + wr.width / 2);
     if (smooth) { wheel.scrollTo({ left: left, behavior: "smooth" }); return; }
     const prev = wheel.style.scrollBehavior;
     wheel.style.scrollBehavior = "auto";
     wheel.scrollTo({ left: left, behavior: "auto" });
     wheel.style.scrollBehavior = prev;
   };
+  // The wheel's CSS padding is calc(50% - 30px) — but %-padding on a flex item resolves against
+  // the DAYBAR, not the wheel, so the row always overflowed by ~28px and the › button hung off
+  // the right screen edge. Resolve the padding in real pixels from the wheel's actual width.
+  const padWheel = () => {
+    wheel.style.paddingLeft = wheel.style.paddingRight = "0px";
+    const w = wheel.getBoundingClientRect().width;
+    const pad = Math.max(0, Math.round(w / 2 - 30));
+    wheel.style.paddingLeft = wheel.style.paddingRight = pad + "px";
+  };
   const nearest = () => { const wr = wheel.getBoundingClientRect(), cx = wr.left + wr.width / 2; let best = null, bd = Infinity; dayCells.forEach((c) => { const dd = Math.abs(centerOf(c) - cx); if (dd < bd) { bd = dd; best = c; } }); return best; };
-  const highlight = (cell) => dayCells.forEach((c) => { const on = c === cell; c.classList.toggle("on", on); c.setAttribute("aria-selected", on ? "true" : "false"); });
+  const highlight = (cell) => dayCells.forEach((c) => { const on = c === cell; c.classList.toggle("on", on); c.setAttribute("aria-selected", on ? "true" : "false"); c.tabIndex = on ? 0 : -1; });   // roving tabindex rides the highlight: exactly one tabbable chip (ARIA tabs pattern)
   const jump = host.querySelector("#deckTodayJump"), updJump = (ymd) => { if (jump) jump.classList.toggle("show", ymd !== todayKey()); };
   const selChip = () => dayCells.filter((c) => c.dataset.ymd === deckViewDay())[0] || dayCells.filter((c) => c.classList.contains("istoday"))[0];
   // A saved day OUTSIDE the wheel's range (a device untouched for 45+ days) used to be silently
@@ -8591,8 +8605,28 @@ function renderDeckDayWheel(host) {
     try { setDeckViewDay(todayKey()); } catch (e) {}
     const c0 = selChip(); if (c0) highlight(c0);
   }
+  // Roving tabindex from the start: 60 tabbable role=tab chips meant one Tab past ‹ focused the
+  // OLDEST chip (first in DOM), the browser focus-scrolled it into view, and the settle-commit
+  // (userTook armed by that very Tab's keydown) persisted a day 45 days back. Only the selected
+  // chip is in the tab order; ← → move between days.
+  dayCells.forEach((c) => { c.tabIndex = -1; });
+  (function () { const c0 = selChip(); if (c0) c0.tabIndex = 0; })();
+  padWheel();
   centerCell(selChip(), false);
   updJump(deckViewDay());
+  wheel.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const cur = document.activeElement && document.activeElement.closest ? document.activeElement.closest(".deck-day") : null;
+    const i = cur ? dayCells.indexOf(cur) : dayCells.indexOf(selChip());
+    const j = i + (e.key === "ArrowRight" ? 1 : -1);
+    if (j >= 0 && j < dayCells.length) { const t = dayCells[j]; centerCell(t, true); try { t.focus({ preventScroll: true }); } catch (err) { t.focus(); } }
+  });
+  function onWheelResize() {
+    if (!host.isConnected) { window.removeEventListener("resize", onWheelResize); return; }
+    padWheel(); const c = selChip(); if (c) centerCell(c, false);   // rotation/resize: re-resolve padding, keep the selected day centered
+  }
+  window.addEventListener("resize", onWheelResize);
   // Re-assert the opening position once layout truly settles (web fonts resize the chips and a
   // mandatory-snap container may re-snap on that reflow) — but never fight a user who has
   // already touched the wheel. Any interaction anywhere in the daybar hands over control.
@@ -8609,7 +8643,9 @@ function renderDeckDayWheel(host) {
     clearTimeout(settle);
     settle = setTimeout(() => {
       if (!wheel.isConnected) return;   // deck closed mid-coast: a detached wheel's rects are all zero, nearest() degenerates to the FIRST cell (today-45) and would persist it — the review's close-race blocker
-      const c = nearest(); if (userTook && c && c.dataset.ymd !== deckViewDay()) { setDeckViewDay(c.dataset.ymd); updJump(c.dataset.ymd); }
+      const c = nearest();
+      if (userTook && c && c.dataset.ymd !== deckViewDay()) { setDeckViewDay(c.dataset.ymd); updJump(c.dataset.ymd); }
+      else if (!userTook) { const s = selChip(); if (s) highlight(s); }   // a no-input scroll (AT focus-scroll, find-in-page) settles without committing — snap the highlight/aria back to the truth
     }, 110);   // commit once it settles — but only motion the USER started (programmatic centering/re-snap drift must never rewrite the selected day)
   });
   // takeOver() in these handlers too: an assistive-tech activation can be a bare click with no
