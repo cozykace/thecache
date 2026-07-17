@@ -8565,17 +8565,41 @@ function renderDeckDayWheel(host) {
     '<button class="deck-today-jump" id="deckTodayJump" aria-label="back to today">Today</button>';
   const wheel = host.querySelector("#deckWheel"), dayCells = Array.prototype.slice.call(wheel.querySelectorAll(".deck-day"));
   const centerOf = (el) => { const r = el.getBoundingClientRect(); return r.left + r.width / 2; };
-  const centerCell = (el, smooth) => { if (el) wheel.scrollTo({ left: el.offsetLeft - (wheel.clientWidth - el.clientWidth) / 2, behavior: smooth ? "smooth" : "auto" }); };
+  // POSITIONING must be truly instant: the wheel's CSS scroll-behavior is smooth, and
+  // scrollTo(behavior:"auto") DEFERS to CSS — so the open-center was a slow animated scroll
+  // from 0 that the very next layout pass (fonts/icons/the .on scale) cancelled a few px in.
+  // The wheel then sat at the range start, and the settle-commit below adopted that day —
+  // a first open could silently select a day ~6 weeks in the past. Force instant here.
+  const centerCell = (el, smooth) => {
+    if (!el) return;
+    const left = el.offsetLeft - (wheel.clientWidth - el.clientWidth) / 2;
+    if (smooth) { wheel.scrollTo({ left: left, behavior: "smooth" }); return; }
+    const prev = wheel.style.scrollBehavior;
+    wheel.style.scrollBehavior = "auto";
+    wheel.scrollTo({ left: left, behavior: "auto" });
+    wheel.style.scrollBehavior = prev;
+  };
   const nearest = () => { const wr = wheel.getBoundingClientRect(), cx = wr.left + wr.width / 2; let best = null, bd = Infinity; dayCells.forEach((c) => { const dd = Math.abs(centerOf(c) - cx); if (dd < bd) { bd = dd; best = c; } }); return best; };
   const highlight = (cell) => dayCells.forEach((c) => { const on = c === cell; c.classList.toggle("on", on); c.setAttribute("aria-selected", on ? "true" : "false"); });
   const jump = host.querySelector("#deckTodayJump"), updJump = (ymd) => { if (jump) jump.classList.toggle("show", ymd !== todayKey()); };
-  centerCell(dayCells.filter((c) => c.dataset.ymd === sel)[0] || dayCells.filter((c) => c.classList.contains("istoday"))[0], false);
+  const selChip = () => dayCells.filter((c) => c.dataset.ymd === deckViewDay())[0] || dayCells.filter((c) => c.classList.contains("istoday"))[0];
+  centerCell(selChip(), false);
   updJump(sel);
+  // Re-assert the opening position once layout truly settles (web fonts resize the chips and a
+  // mandatory-snap container may re-snap on that reflow) — but never fight a user who has
+  // already touched the wheel. Any interaction anywhere in the daybar hands over control.
+  let userTook = false;
+  const takeOver = () => { userTook = true; };
+  host.addEventListener("pointerdown", takeOver, { capture: true });
+  host.addEventListener("wheel", takeOver, { capture: true, passive: true });
+  host.addEventListener("keydown", takeOver, { capture: true });
+  requestAnimationFrame(() => { if (!userTook && host.isConnected) centerCell(selChip(), false); });
+  try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (!userTook && host.isConnected) { centerCell(selChip(), false); const c = selChip(); if (c) highlight(c); } }); } catch (e) {}
   let raf = 0, settle = 0;
   wheel.addEventListener("scroll", () => {
     if (!raf) raf = requestAnimationFrame(() => { raf = 0; const c = nearest(); if (c) highlight(c); });   // live highlight tracks the scroll
     clearTimeout(settle);
-    settle = setTimeout(() => { const c = nearest(); if (c && c.dataset.ymd !== deckViewDay()) { setDeckViewDay(c.dataset.ymd); updJump(c.dataset.ymd); } }, 110);   // commit once it settles
+    settle = setTimeout(() => { const c = nearest(); if (userTook && c && c.dataset.ymd !== deckViewDay()) { setDeckViewDay(c.dataset.ymd); updJump(c.dataset.ymd); } }, 110);   // commit once it settles — but only motion the USER started (programmatic centering/re-snap drift must never rewrite the selected day)
   });
   dayCells.forEach((c) => c.addEventListener("click", () => centerCell(c, true)));
   host.querySelector("#deckWheelPrev").addEventListener("click", () => { const i = dayCells.indexOf(nearest()); if (i > 0) centerCell(dayCells[i - 1], true); });
