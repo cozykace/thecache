@@ -525,11 +525,11 @@ body.panning .cursor-ball { display: none !important; }
 .inc-toggle.is-skip { color: rgba(var(--ink-rgb), 0.45); }
 
 /* category editor modal */
-.cat-backdrop { position: fixed; inset: 0; z-index: 330; background: rgba(0, 0, 0, 0.3); }
+.cat-backdrop { position: fixed; inset: 0; z-index: 100030; /* above every surface — a modal opened FROM the deck/detail must cover it, never hide under it */ background: rgba(0, 0, 0, 0.3); }
 .cat-modal {
   /* centered via inset+auto margins (NOT transform) so hit-testing stays correct under
      the Accessibility text-size zoom — a transform here makes clicks land off-target */
-  position: fixed; z-index: 340; inset: 0; margin: auto;
+  position: fixed; z-index: 100031; inset: 0; margin: auto;
   width: min(420px, 92vw); height: fit-content; max-height: 80vh; display: flex; flex-direction: column;
   background: var(--paper); color: var(--ink);
   border: 1px solid var(--edge); border-radius: 16px; overflow: hidden;
@@ -601,13 +601,13 @@ body.panning .cursor-ball { display: none !important; }
 /* import: toast + drag-drop overlay */
 .toast {
   position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%) translateY(8px);
-  z-index: 400; background: var(--ink); color: var(--paper);
+  z-index: 100060; background: var(--ink); color: var(--paper); /* flash feedback stays visible over full-screen surfaces */
   padding: 9px 16px; border-radius: 999px; font-size: 12px; max-width: 80vw; text-align: center;
   opacity: 0; pointer-events: none; transition: opacity 0.25s ease, transform 0.25s ease;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 /* confirm-deletion gate — a mis-tapped ✕/🗑 must never silently destroy data (who we build for) */
-.confirm-del { position: fixed; inset: 0; z-index: 500; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.confirm-del { position: fixed; inset: 0; z-index: 100050; display: flex; align-items: center; justify-content: center; padding: 20px; } /* the delete confirmation opened UNDER the detail sheet (z 500 vs 100001) — the "dead" trashcan bug */
 .cd-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }
 .cd-card { position: relative; width: min(92vw, 320px); background: var(--panel); border: 1px solid var(--edge);
   border-radius: 18px; padding: 22px 20px 18px; text-align: center; box-shadow: 0 20px 55px rgba(0, 0, 0, 0.35); }
