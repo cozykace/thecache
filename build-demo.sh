@@ -73,7 +73,9 @@ cat > "$STYLE_FILE" <<'EOF'
       /* demo-only chrome */
       #demoBadge {
         position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 9999;
-        background: var(--accent); color: #16140c; pointer-events: none;
+        /* fixed dark pill + white text so it reads on ANY theme — the old var(--accent)
+           background went dark-on-dark under the mono default (accent collapses to ink). */
+        background: rgba(18, 16, 12, 0.92); color: #fff; pointer-events: none;
         font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; font-weight: 700;
         letter-spacing: 0.12em; text-transform: uppercase; padding: 6px 13px; border-radius: 999px;
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
