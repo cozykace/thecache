@@ -13,10 +13,10 @@
          their host added here (rare; default is thecache.pockethost.io). -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.ytimg.com; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' https://thecache.pockethost.io https://us.i.posthog.com https://us-assets.i.posthog.com https://api.github.com https://api.web3forms.com https://raw.githubusercontent.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self' https://api.web3forms.com" />
     <title>THE CACHE</title>
-    <link rel="icon" type="image/png" href="av assets/goat-pixel.png" />
+    <link rel="icon" type="image/png" href="av assets/THECACHE_ICON.png" />
     <!-- Installable web app: "Add to Home Screen" on iPhone → fullscreen app w/ icon (needs a hosted HTTPS URL) -->
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="goat-head.png" />
+    <link rel="apple-touch-icon" href="av assets/THECACHE_ICON.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="The Cache" />
@@ -25,9 +25,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=85ab4eee32" />
+    <link rel="stylesheet" href="styles.css?v=f8e42e4c03" />
     <!-- apply saved theme before paint to avoid a flash (external so the CSP stays inline-free) -->
-    <script src="theme-preload.js?v=85ab4eee32"></script>
+    <script src="theme-preload.js?v=f8e42e4c03"></script>
   </head>
   <body>
     <a class="skip-link" href="#board">Skip to dashboard</a>
@@ -145,7 +145,7 @@
       <button id="soundtrack" class="status-pill" title="soundtrack on / off"><span class="snd-note">♪</span></button>
       <button id="roadmapBtn" class="status-pill" title="roadmap / backlog"><i data-lucide="map"></i>&nbsp;roadmap</button>
       <button id="sourcesBtn" class="status-pill" title="data sources"><span class="src-count">…</span>&nbsp;sources</button>
-      <button id="serverBtn" class="status-pill server-pill" title="local backend status"><span class="goat-head" aria-hidden="true"></span><span class="server-text">…</span></button>
+      <button id="serverBtn" class="status-pill server-pill" title="local backend status"><span class="server-dot" aria-hidden="true"></span><span class="server-text">…</span></button>
       <button id="syncHealth" class="status-pill" title="click to sync now"><span class="sync-dot"></span><span class="sync-text">…</span></button>
       <button id="cloudHealth" class="status-pill" hidden title="cloud sync"><span class="sync-dot"></span><span class="sync-text">cloud</span></button>
     </div>
@@ -158,7 +158,7 @@
          is no longer loaded here; app.js pulls it in on demand only when a soundtrack is used. -->
     <script defer src="assets/vendor/lucide.min.js"></script>
     <script type="module" src="assets/vendor/motion-init.js"></script>
-    <script defer src="webcache.js?v=85ab4eee32"></script>
-    <script defer src="app.js?v=85ab4eee32"></script>
+    <script defer src="webcache.js?v=f8e42e4c03"></script>
+    <script defer src="app.js?v=f8e42e4c03"></script>
   </body>
 </html>

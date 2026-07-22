@@ -2797,7 +2797,7 @@ function isFounder() {
 const FOUNDER_COMPLIMENTS = [
   "your code slaps harder than your morning coffee ☕",
   "certified menace to bad UX 😼",
-  "100% of caches surveyed agree: you're the GOAT 🐐",
+  "100% of caches surveyed agree: you're doing great ✨",
   "the dollar bills fear you 💸",
   "built different, debugging differenter 🛠",
   "your git history is basically poetry 📜",
@@ -2819,7 +2819,7 @@ const PUBLIC_JOKES = [
   "future you says thanks 🙏",
   "tiny gains, big brain 🧠",
   "you vs. impulse buys — and you're winning 🥊",
-  "the goat approves 🐐",
+  "your cache approves ✨",
 ];
 function updateGreeting() {
   const g = document.getElementById("greeting");
@@ -7695,7 +7695,7 @@ const DEFAULT_DECK = [
     dest: { kind: "health", target: "energy" } },
 ];
 const DAILY_FUNNIES = ["your cache thanks you 🙏", "skeletons: mildly less scary 💀", "another brick in the base 🧱",
-  "the goat is proud of you 🐐", "data so fresh it squeaks ✨", "high-res life unlocked 📈", "fed and watered 🌱"];
+  "your cache is proud of you ✨", "data so fresh it squeaks ✨", "high-res life unlocked 📈", "fed and watered 🌱"];
 // ── Deck sync: PER-ITEM merge, not whole-document last-writer-wins ──────────
 // The deck used to be one blob stamped with a client Date.now(): whoever saved last
 // won the WHOLE deck. That meant an open editor could persist its stale copy over a
@@ -8292,7 +8292,7 @@ function dailyBurst(host, x, y) {
   const C = ["#ff3b30", "#ff9500", "#ffcc00", "#2ec16b", "#0a84ff", "#7d6cf0", "#ff6bd6"];
   for (let n = 0; n < 32; n++) {
     const p = document.createElement("span"); const em = n % 6 === 0;
-    p.textContent = em ? (n % 12 === 0 ? "🐐" : "✨") : "";
+    p.textContent = em ? "✨" : "";
     p.style.cssText = "position:absolute;left:" + x + "px;top:" + y + "px;pointer-events:none;font-size:18px;" + (em ? "" : "width:9px;height:9px;border-radius:50%;background:" + C[n % C.length] + ";");
     host.appendChild(p);
     const a = (Math.PI * 2 * n) / 32 + Math.random() * 0.5, d = 70 + Math.random() * 120;
@@ -8370,7 +8370,7 @@ function openDaily() {
     const ok = saveLog(log);
     const b = document.createElement("div"); b.className = "daily-body daily-in daily-done";
     if (!ok) {   // storage full / write failed — DON'T claim success or award EXP
-      b.innerHTML = '<div class="daily-goat">😬</div><div class="daily-big">Couldn’t save</div>' +
+      b.innerHTML = '<div class="daily-emoji">😬</div><div class="daily-big">Couldn’t save</div>' +
         '<div class="daily-funny">your browser storage looks full — nothing was logged. Free up space and try again.</div>' +
         '<button class="daily-cta" id="dailyDone">Close</button>';
       stage.innerHTML = ""; stage.appendChild(b);
@@ -8386,12 +8386,12 @@ function openDaily() {
     // SEES the pattern building (the point of logging) instead of answers vanishing into a void.
     let hLine = "";
     try { if (answers.some((a) => a.item && a.item.dest && a.item.dest.kind === "health")) { const s = new Set(); log.forEach((e) => { if (e && e.dest && e.dest.kind === "health") s.add(e.ts); }); if (s.size) hLine = '<div class="daily-health">⚡ energy pattern: ' + s.size + (s.size === 1 ? " day" : " days") + " logged</div>"; } } catch (e) {}
-    b.innerHTML = '<div id="dailyGoat" class="daily-goat">🐐</div><div class="daily-big">Logged!</div>' +
+    b.innerHTML = '<div id="dailyDone" class="daily-emoji">✨</div><div class="daily-big">Logged!</div>' +
       '<div id="dailyExp" class="daily-exp">+0 EXP</div><div class="daily-funny">' + DAILY_FUNNIES[Math.floor(Math.random() * DAILY_FUNNIES.length)] + "</div>" + hLine +
       '<button class="daily-cta" id="dailyDone">Done</button>';
     stage.innerHTML = ""; stage.appendChild(b);
     const r = stage.getBoundingClientRect(); dailyBurst(stage, r.width / 2, r.height * 0.36);
-    const goat = b.querySelector("#dailyGoat"); if (!reduceMotion()) goat.animate([{ transform: "scale(.4) rotate(-12deg)" }, { transform: "scale(1.15) rotate(6deg)" }, { transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.2,1.3,.4,1)" });
+    const pop = b.querySelector("#dailyDone"); if (!reduceMotion()) pop.animate([{ transform: "scale(.4) rotate(-12deg)" }, { transform: "scale(1.15) rotate(6deg)" }, { transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.2,1.3,.4,1)" });
     const expEl = b.querySelector("#dailyExp"); let v = 0; const iv = setInterval(() => { v++; expEl.textContent = "+" + v + " EXP"; if (v >= gained) { expEl.textContent = "+" + gained + " EXP"; clearInterval(iv); } }, 42); if (gained === 0) { expEl.textContent = "+0 EXP"; clearInterval(iv); }
     b.querySelector("#dailyDone").addEventListener("click", close);
   }
@@ -10210,7 +10210,7 @@ function openWizard() {
   const skipBtn = '<button class="wiz-skip" data-skip>skip this step</button>';
 
   function wWelcome(b) {
-    b.innerHTML = '<div class="daily-goat">🐐</div><div class="daily-q">Welcome to your cache</div>' +
+    b.innerHTML = '<div class="daily-emoji">✨</div><div class="daily-q">Welcome to your cache</div>' +
       '<div class="daily-hint">A calm, private home for your life — starting with your money. Six quick steps, all of them skippable, nothing leaves your machine.</div>' +
       '<div class="daily-opts"><button class="daily-btn" data-go><span class="e">🧭</span><span>Set me up</span></button>' +
       '<button class="daily-btn" data-explore><span class="e">👀</span><span>Just let me look around</span></button></div>';
@@ -10311,12 +10311,12 @@ function openWizard() {
     if (picks.length) bits.push(picks.length + (picks.length === 1 ? " life area" : " life areas") + " picked");
     if (energyLogged) bits.push("energy day 1 logged");
     if (!window.__CACHE_WEB__) bits.push(door === "later" ? "money connection saved for later (⚡ in the menu)" : "opening the connection panel next");
-    b.innerHTML = '<div id="wizGoat" class="daily-goat">🐐</div><div class="daily-big">Your cache is ready</div>' +
+    b.innerHTML = '<div id="wizDone" class="daily-emoji">✨</div><div class="daily-big">Your cache is ready</div>' +
       '<div class="daily-exp">+10 EXP</div><div class="daily-funny">' + escapeHtml(bits.join(" · ")) + "</div>" +
       '<div class="daily-hint">One thing to remember: <b>🃏 the deck!</b> button at the bottom. When you open your cache, tap the deck — one minute keeps it fed.</div>' +
       '<button class="daily-cta" id="wizEnter">Enter your cache</button>';
     const r = stage.getBoundingClientRect(); dailyBurst(stage, r.width / 2, r.height * 0.36);
-    const goat = b.querySelector("#wizGoat"); if (!reduceMotion() && goat.animate) goat.animate([{ transform: "scale(.4) rotate(-12deg)" }, { transform: "scale(1.15) rotate(6deg)" }, { transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.2,1.3,.4,1)" });
+    const pop = b.querySelector("#wizDone"); if (!reduceMotion() && pop.animate) pop.animate([{ transform: "scale(.4) rotate(-12deg)" }, { transform: "scale(1.15) rotate(6deg)" }, { transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.2,1.3,.4,1)" });
     b.querySelector("#wizEnter").addEventListener("click", () => {
       close();
       if (!window.__CACHE_WEB__ && door !== "later") { try { openConnect(); } catch (e) {} }

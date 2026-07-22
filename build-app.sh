@@ -31,14 +31,12 @@ rm -rf "$DEST/skins"
 cp -R "$HERE/skins" "$DEST/skins"
 
 # referenced images / audio (same lean set as the demo)
-cp "$HERE/goat-head.png"   "$DEST/goat-head.png"
-cp "$HERE/goat-sprite.png" "$DEST/goat-sprite.png"
 cp "$HERE/av assets/THECACHE_LOGO_WHITE.png" "$DEST/av assets/THECACHE_LOGO_WHITE.png"
 cp "$HERE/av assets/THECACHE_LOGO_BLACK.png" "$DEST/av assets/THECACHE_LOGO_BLACK.png"
-cp "$HERE/av assets/goat-pixel.png" "$DEST/av assets/goat-pixel.png"
+cp "$HERE/av assets/THECACHE_ICON.png" "$DEST/av assets/THECACHE_ICON.png"
 cp "$HERE/av assets/shing.wav" "$DEST/av assets/shing.wav"
 cp "$HERE/av assets/warp.wav" "$DEST/av assets/warp.wav"
-find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECACHE_LOGO_BLACK.png" ! -name "goat-pixel.png" ! -name "shing.wav" ! -name "warp.wav" -delete
+find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECACHE_LOGO_BLACK.png" ! -name "THECACHE_ICON.png" ! -name "shing.wav" ! -name "warp.wav" -delete
 
 # index.html = the real shell, with webcache.js injected before app.js, and every LOCAL
 # asset stamped with a content-hash ?v= so a new deploy always busts the browser cache.

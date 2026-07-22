@@ -31,17 +31,15 @@ cp -R "$HERE/assets/vendor/." "$DEST/assets/vendor/"
 rm -rf "$DEST/skins"
 cp -R "$HERE/skins" "$DEST/skins"
 
-# referenced images only (logo mask + goat head/sprite masks)
-cp "$HERE/goat-head.png"   "$DEST/goat-head.png"
-cp "$HERE/goat-sprite.png" "$DEST/goat-sprite.png"
+# referenced images only (logo + app icon)
 cp "$HERE/av assets/THECACHE_LOGO_WHITE.png" "$DEST/av assets/THECACHE_LOGO_WHITE.png"
 cp "$HERE/av assets/THECACHE_LOGO_BLACK.png" "$DEST/av assets/THECACHE_LOGO_BLACK.png"
-cp "$HERE/av assets/goat-pixel.png" "$DEST/av assets/goat-pixel.png"
+cp "$HERE/av assets/THECACHE_ICON.png" "$DEST/av assets/THECACHE_ICON.png"
 cp "$HERE/av assets/shing.wav" "$DEST/av assets/shing.wav"
 cp "$HERE/av assets/warp.wav" "$DEST/av assets/warp.wav"
 
 # drop anything stale that isn't part of the lean set
-find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECACHE_LOGO_BLACK.png" ! -name "goat-pixel.png" ! -name "shing.wav" ! -name "warp.wav" -delete
+find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECACHE_LOGO_BLACK.png" ! -name "THECACHE_ICON.png" ! -name "shing.wav" ! -name "warp.wav" -delete
 
 # ── index.html: derive the demo shell from the REAL ./index.html ──────────────
 # The demo used to keep a hand-frozen copy of index.html, which silently rotted
