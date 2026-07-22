@@ -552,7 +552,7 @@
       '<h1 class="wc-h">' + (returning ? "Welcome back" : "Open your cache") + '</h1>' +
       '<div class="wc-sub">' + (returning
         ? ("Signed in as " + esc(s.email) + ".")
-        : "Encrypted in your browser before it ever leaves. Sign in and your cache follows you.") + '</div>' +
+        : "Your cache is encrypted on this device before it syncs, and follows you when you sign in. Set a passphrase for zero-knowledge mode, where only you can open it.") + '</div>' +
       '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Email</label><input id="wcEmail" type="email" autocomplete="username" value="' + esc(s.email || "") + '" placeholder="you@email.com"></div>' +
       '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Account password</label><input id="wcPass" type="password" autocomplete="current-password" placeholder="your account password"></div>' +
       '<div class="wc-field wc-phrase wc-hidden"><label>Passphrase (zero-knowledge mode only)</label><input id="wcPhrase" type="password" autocomplete="off" placeholder="only if you set one"></div>' +
