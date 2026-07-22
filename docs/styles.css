@@ -147,7 +147,6 @@ body {
 /* hold space to pan: native hand cursor (open → grabs closed), jelly cursor hidden */
 body.panning, body.panning * { cursor: grab !important; }
 body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
-body.panning .cursor-ball { display: none !important; }
 
 /* ── board ──────────────────────────────────────── */
 .board { position: fixed; inset: 0; overflow: auto; overscroll-behavior: contain; }
@@ -1830,10 +1829,6 @@ body.sidebar-open .sidebar { transform: none; }
   100% { transform: translate(var(--dx, 0), var(--dy, 0)) scale(0); opacity: 0; }
 }
 /* BLESSED — cache health maxed → the cursor upgrades (Mario-style) + clicks erupt gold */
-body.blessed .cursor-ball {
-  background: radial-gradient(circle at 35% 30%, #fff7cc, var(--accent) 58%, #b8930a) !important;
-  box-shadow: 0 0 8px var(--accent) !important;   /* single, smaller glow — keeps the layer light + snappy */
-}
 .exp-spark.blessed { width: 9px; height: 9px; background: radial-gradient(circle, #fff7cc, var(--accent) 70%); animation-duration: 0.8s; }
 /* trust badge — live ledger-integrity proof in the menu pane */
 .sidebar-trust { padding: 8px 16px 0; }
@@ -2945,32 +2940,16 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
   color: rgba(var(--ink-rgb), 0.3); pointer-events: none;
 }
 
-/* ── designed cursor: 3D jelly ball ─────────────── */
-.cursor-ball {
-  position: fixed; left: 0; top: 0; z-index: 2147483647; pointer-events: none;
-  width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
-  transform-origin: center;
-  /* mostly the ink color (flips with theme), a whisper of shading */
-  background: radial-gradient(circle at 40% 36%, color-mix(in srgb, var(--ink) 68%, #fff 32%), var(--ink) 60%);
-  /* imperfect, gestural blob — never a perfect circle */
-  border-radius: 47% 53% 51% 49% / 52% 48% 51% 49%;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
-  transition: border-radius 0.3s ease, box-shadow 0.2s ease;
-  will-change: transform;
-}
-/* pressed: morphs into a slightly different blob */
-.cursor-ball.press {
-  border-radius: 42% 58% 54% 46% / 56% 44% 53% 47%;
-  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.16);
-}
-
-/* jelly: buttons squish under the ball, then spring back */
+/* The custom "jelly ball" cursor was REMOVED 2026-07-17. It was drawn by JS at a position
+   that ignored the board's zoom/transform, so it drifted further from the real pointer the
+   further you moved from the origin — every aim was a lie — and it dented buttons inward on
+   press, shrinking already-small targets. The OS cursor is the only thing guaranteed to be
+   where clicks land, and it is what screen readers, switch access, magnifiers and pointer
+   utilities expect. Standard cursors only from here (pointer/grab/text). */
 .lib-item, .menu-item, .icon-cell, .widget-close, .widget-color,
 .sticker-close, .sidebar-toggle, .sidebar-close {
-  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.14s ease, color 0.14s ease;
+  transition: background 0.14s ease, color 0.14s ease;
 }
-.jelly-hover { transform: scale(0.97); }
-.jelly-down { transform: scale(0.9); }
 
 /* ════════════ Mobile: the freeform board becomes one scroll of full-width widgets ════════════ */
 @media (max-width: 640px) {

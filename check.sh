@@ -12,7 +12,6 @@ fail=0
 
 echo "— JS syntax —"
 node --check app.js    && echo "  app.js OK"    || fail=1
-node --check cursor.js && echo "  cursor.js OK" || fail=1
 
 echo "— Python syntax —"
 python3 -c "import ast; [ast.parse(open(f).read()) for f in ('store.py','server.py','sync.py','import_statements.py')]; print('  py OK')" || fail=1
@@ -44,7 +43,7 @@ if os.path.exists(store.BALANCES):
 
 echo "— Demo drift (docs/demo vs root) —"
 drift=0
-for f in app.js styles.css cursor.js; do
+for f in app.js styles.css; do
   if [ -f "docs/demo/$f" ]; then
     cmp -s "$f" "docs/demo/$f" || { echo "  STALE: $f (run ./build-demo.sh)"; drift=1; }
   else
