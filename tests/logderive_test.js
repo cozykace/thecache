@@ -96,4 +96,31 @@ let p=0,f=0; const ok=(n,c)=>{c?p++:f++;console.log((c?"  ok  ":"FAIL  ")+n)};
   ok("field values: a fielddel removes that day", vals.length === 1 && vals[0].ts === "2026-07-12");
 }
 
+// ── 7. HABITS v2: rating (scale) + a-few-words (note) derive exactly like amount ──
+{
+  // a rating habit's day value = the LATEST rating, never a sum; an undone clears the day
+  LOG = [];
+  THINGS = [{id:"hr",type:"habit",track:"scale"}];
+  logThingEvent("hr","habit",{value:{done:1,rating:3}});
+  logThingEvent("hr","habit",{value:{done:1,rating:5}});   // changed their mind
+  let v = thingAmountOn(LOG,"hr","2026-07-14");
+  ok("rating habit: latest rating wins (5, not 3 or a sum)", v && v.rating === 5);
+  ok("rating habit: a rated day derives as done", thingDoneOn(LOG,"hr","2026-07-14") === true);
+  logThingEvent("hr","undone");   // tapped today's rating again → cleared
+  ok("rating habit: undone clears the day (value gone)", thingAmountOn(LOG,"hr","2026-07-14") == null && !thingDoneOn(LOG,"hr","2026-07-14"));
+  ok("rating habit: every toggle survives in the log (audit)", LOG.filter(e=>e.itemId==="hr").length === 3);
+}
+{
+  // a text habit's day value = the LATEST words; edits replace, days are independent
+  LOG = [];
+  THINGS = [{id:"hn",type:"habit",track:"note"}];
+  logThingEvent("hn","habit",{value:{done:1,text:"rough start"},ts:"2026-07-13"});
+  logThingEvent("hn","habit",{value:{done:1,text:"good walk"}});
+  logThingEvent("hn","habit",{value:{done:1,text:"great walk"}});   // edited today's words
+  const t13 = thingAmountOn(LOG,"hn","2026-07-13"), t14 = thingAmountOn(LOG,"hn","2026-07-14");
+  ok("text habit: latest words win for the day", t14 && t14.text === "great walk");
+  ok("text habit: yesterday's words are untouched", t13 && t13.text === "rough start");
+  ok("text habit: a written day derives as done", thingDoneOn(LOG,"hn","2026-07-14") === true);
+}
+
 console.log(`\n${p} passed, ${f} failed`); process.exit(f?1:0);

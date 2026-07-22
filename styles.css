@@ -2280,6 +2280,8 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
   .is-tasks .tk-rprog { font-size: 13px; padding: 3px 9px; }
   .is-tasks .tk-addsub, .is-tasks .tk-menu, .is-tasks .tk-x { min-width: 46px; min-height: 46px; font-size: 20px; }
   .is-tasks .tk-amt { min-height: 44px; font-size: 15px; padding: 0 12px; }
+  .is-tasks .tk-scale-n { min-height: 44px; font-size: 16px; }
+  .is-tasks .tk-notein { min-height: 44px; font-size: 15px; }
   .is-tasks .tk-in { min-height: 48px; }
   .is-tasks .tk-go { width: 48px; min-height: 48px; font-size: 22px; }
   .is-tasks .tk-newroutine { min-height: 44px; font-size: 14px; }
@@ -2324,6 +2326,20 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
   color: var(--ink); font-family: inherit; font-size: 12.5px; cursor: pointer; transition: border-color .12s, transform .1s; }
 .tk-mbtn:hover { border-color: var(--accent); }
 .tk-mbtn:active { transform: scale(0.96); }
+.tk-mbtn.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--panel)); font-weight: 600; }   /* the ⋯ menu's "tracked as" picker marks the current mode */
+/* rating habits: the inline 1–5 row (thumb-friendly, each ≥40px; container query bumps to 44) */
+.tk-scale { padding-right: 2px; }
+.tk-scale-n { flex: 1 1 auto; min-width: 40px; min-height: 40px; border: 1.5px solid rgba(var(--ink-rgb), 0.25); border-radius: 10px;
+  background: none; color: rgba(var(--ink-rgb), 0.7); font-family: ui-monospace, Menlo, monospace; font-size: 14px; cursor: pointer; transition: border-color .12s, background .12s, transform .1s; }
+.tk-scale-n.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--ink); font-weight: 700; }
+.tk-scale-n:active { transform: scale(0.92); }
+/* text habits: the day's few words, editable in place (same accent frame as the subtask input) */
+.tk-notein { flex: 1; min-width: 0; min-height: 40px; padding: 0 10px; border: 1.5px solid var(--accent); border-radius: 10px;
+  background: var(--panel); color: var(--ink); font-family: inherit; font-size: 13px; }
+.tk-notein:focus { outline: none; }
+.tk-notechip { font-family: inherit; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a habit that isn't scheduled today — calm, dimmed, still tappable (bonus, never an error) */
+.tk-habit.tk-notdue { opacity: 0.55; }
 /* the tap-to-move routine picker — a readable column (each routine its own row), current one marked */
 .tk-moverow { flex-direction: column; align-items: stretch; max-height: 240px; overflow-y: auto; }
 .tk-moverow .tk-mbtn { justify-content: flex-start; text-align: left; }
@@ -2351,6 +2367,11 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .td-seg { display: inline-flex; border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; max-width: 100%; }
 .td-seg button { min-height: 44px; padding: 0 16px; border: none; background: none; color: rgba(var(--ink-rgb), 0.62); font-family: inherit; font-size: 13.5px; cursor: pointer; transition: background .12s, color .12s; }
 .td-seg button.on { background: var(--accent); color: var(--paper); font-weight: 600; }   /* text must CONTRAST the accent fill (var(--ink) went black-on-black on the mono theme) */
+/* a 4-way seg (the habit "how it's tracked" picker) can't fit one row on a phone — let it wrap
+   into rounded pills instead of clipping options off the edge (mobile SOP #3: never overflow) */
+.td-seg-wrap { flex-wrap: wrap; border: none; border-radius: 0; overflow: visible; gap: 6px; }
+.td-seg-wrap button { border: 1px solid var(--edge); border-radius: 11px; }
+.td-seg-wrap button.on { border-color: var(--accent); }
 .td-unit { display: block; margin-top: 8px; width: 100%; box-sizing: border-box; min-height: 44px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 11px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; }
 .td-unit:focus, .td-due:focus { outline: none; border-color: var(--accent); }
 .td-due-row { display: flex; gap: 8px; flex-wrap: wrap; }
