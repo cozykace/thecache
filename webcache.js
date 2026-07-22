@@ -581,6 +581,11 @@
     g.className = "wc-gate";
     var s = cloudState();
     var returning = !!(s.token && s.email);
+    // "Use a different account…" left a one-shot flag before its logout reload: show the
+    // sign-in with a BLANK email so it's obvious any account can enter (it normally
+    // prefills the previous account's address, which read as "only I can log in here")
+    var switching = false;
+    try { if (sessionStorage.getItem("cache.switchAcct") === "1") { switching = true; sessionStorage.removeItem("cache.switchAcct"); } } catch (e) {}
     // the real logo, picked to match the theme: light ink = dark background = white mark
     var ink = 20;
     try { ink = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--ink-rgb")) || 20; } catch (e) {}
@@ -592,7 +597,7 @@
       '<div class="wc-sub">' + (returning
         ? ("Signed in as " + esc(s.email) + ".")
         : "Your cache is encrypted on this device before it syncs, and follows you when you sign in. Set a passphrase for zero-knowledge mode, where only you can open it.") + '</div>' +
-      '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Email</label><input id="wcEmail" type="email" autocomplete="username" value="' + esc(s.email || "") + '" placeholder="you@email.com"></div>' +
+      '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Email</label><input id="wcEmail" type="email" autocomplete="username" value="' + (switching ? "" : esc(s.email || "")) + '" placeholder="you@email.com"></div>' +
       '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Account password</label><input id="wcPass" type="password" autocomplete="current-password" placeholder="your account password"></div>' +
       '<div class="wc-field wc-phrase wc-hidden"><label>Passphrase (zero-knowledge mode only)</label><input id="wcPhrase" type="password" autocomplete="off" placeholder="only if you set one"></div>' +
       '<div class="wc-row">' +

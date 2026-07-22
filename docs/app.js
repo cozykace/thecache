@@ -4371,7 +4371,66 @@ function cloudChip(state, msg) {
   if (s.keyboxMissing) { dot.style.background = "#d6920f"; txt.textContent = "cloud: setup note"; el.title = "one-time server setup: add a 'keybox' text field to the vaults collection so your other devices can unlock"; return; }
   dot.style.background = s.lastPush ? "#3f8f4e" : "#d6920f";
   txt.textContent = s.lastPush ? "cloud ✓" : "cloud: not synced";
-  el.title = s.lastPush ? ("last sync " + cloudAgo(s.lastPush) + " — tap for cloud settings") : "connected — first backup pending (Settings → Cache cloud)";
+  el.title = s.lastPush ? ("last sync " + cloudAgo(s.lastPush) + " — tap for your account & sync") : "connected — first backup pending (tap for your account & sync)";
+}
+// ── The account menu — tap the cloud chip while signed in and your account is right
+//    there: cloud settings, log out, or hand the machine to a different account. This is
+//    the two-tap answer to "how do I log out / switch?" (logout used to live only inside
+//    Settings → Cache cloud, and nothing anywhere said "switch"). One-account-at-a-time
+//    stays the rule: a "switch" is a real log-out (parking your cache) + a real log-in. ──
+const SWITCH_ACCT_FLAG = "cache.switchAcct";   // sessionStorage: survives the logout reload, dies with the tab
+// The one logout everything shares (Settings + Messages have their own message surfaces,
+// the menu uses this). switching=true also routes the reload straight to a blank sign-in.
+function accountLogout(switching) {
+  if (switching) try { sessionStorage.setItem(SWITCH_ACCT_FLAG, "1"); } catch (e) {}
+  const hadAcct = !!cloudState().userId;
+  const parked = cloudLogout();
+  try { cloudChip(); } catch (e) {}
+  try { socialUpdateBadge(); } catch (e) {}
+  if (parked) { flash(switching ? "Logged out — sign in as the other account." : "Logged out."); setTimeout(() => location.reload(), 500); return; }
+  // stash failed (storage full) → data stays live by design; no reload, so finish the
+  // switch intent right here instead of leaving the flag armed for some later reload
+  try { sessionStorage.removeItem(SWITCH_ACCT_FLAG); } catch (e) {}
+  if (hadAcct) flash("Logged out — but storage is full, so your data couldn't be cleared from this device.");
+  else flash("Logged out.");
+  if (switching) { openSettings(); prepSwitchSignin(); }
+}
+// blank the sign-in so it's obvious ANY account can enter (it prefills the previous email)
+function prepSwitchSignin() {
+  try {
+    const em = document.getElementById("setCloudEmail"), pw = document.getElementById("setCloudPass");
+    if (em) { em.value = ""; em.focus(); }
+    if (pw) pw.value = "";
+  } catch (e) {}
+}
+function closeAccountMenu() {
+  const m = document.getElementById("acctMenu"); if (m) m.remove();
+  document.removeEventListener("pointerdown", _acctMenuOutside);
+}
+function _acctMenuOutside(e) { const m = document.getElementById("acctMenu"); if (m && !m.contains(e.target)) closeAccountMenu(); }
+function openAccountMenu(anchor) {
+  if (document.getElementById("acctMenu")) { closeAccountMenu(); return; }   // second tap toggles it shut
+  const s = cloudState();
+  const menu = document.createElement("div");
+  menu.className = "acct-menu"; menu.id = "acctMenu";
+  menu.innerHTML =
+    '<div class="am-who">Signed in as <b>' + escapeHtml(s.email || "your account") + "</b></div>" +
+    '<button class="am-item" data-act="settings"><i data-lucide="settings-2"></i>Cloud settings</button>' +
+    '<button class="am-item" data-act="switch"><i data-lucide="users"></i>Use a different account…</button>' +
+    '<button class="am-item am-out" data-act="logout"><i data-lucide="log-out"></i>Log out</button>';
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.bottom = (window.innerHeight - r.top + 8) + "px";
+  drawIcons();
+  menu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const act = b.dataset.act; closeAccountMenu();
+    if (act === "settings") { autoPushNow(); openSettings(); }
+    else if (act === "logout") accountLogout(false);
+    else if (act === "switch") accountLogout(true);
+  });
+  setTimeout(() => document.addEventListener("pointerdown", _acctMenuOutside), 0);
 }
 // ── Click sparks: rapid clicking shoots theme-colored sparks from the cursor —
 //    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
@@ -10100,13 +10159,14 @@ function openMessages() {
         : "") + "</div>" +
     "</div>";
 
-  // the account strip — "signed in as X · Switch account · Log out" — shown on every
-  // logged-in Messages view so you can always leave or swap accounts from here.
+  // the account strip — "signed in as X · Use a different account · Log out" — shown on
+  // every logged-in Messages view so you can always leave or swap accounts from here.
   const acctFooter = () => {
     if (!socialLoggedIn()) return "";
     const em = cloudState().email || "your account";
     return '<div class="msg-account"><span class="msg-acct-who">signed in as <b>' + esc(em) + "</b></span>" +
       '<span class="msg-acct-acts">' +
+      '<button class="msg-acct-btn" id="msgSwitch">Use a different account</button>' +
       '<button class="msg-acct-btn msg-acct-out" id="msgLogout">Log out</button>' +
       "</span></div>";
   };
@@ -10208,6 +10268,9 @@ function openMessages() {
       else if (hadAcct) { render(); flash("Logged out — but storage is full, so your data couldn't be cleared from this device."); }
       else { render(); flash("Logged out."); }
     });
+    // "Use a different account" = the shared switch flow (park + reload into a blank sign-in)
+    const sw = root.querySelector("#msgSwitch");
+    if (sw) sw.addEventListener("click", () => accountLogout(true));
     const claimGo = root.querySelector("#msgClaimGo"), claimIn = root.querySelector("#msgClaimIn");
     if (claimGo && claimIn) {
       const go = async () => { claimErr = ""; try { await socialClaimUsername(claimIn.value); flash("You're on — @" + socialState().username); } catch (e) { claimErr = e.message || "couldn't claim that"; render(); } };
@@ -11314,7 +11377,27 @@ function openClockSettings(anchor) {
   const sync = document.getElementById("syncHealth");
   if (sync) bar.appendChild(sync);
   const cloud = document.getElementById("cloudHealth");
-  if (cloud) { bar.appendChild(cloud); cloud.addEventListener("click", () => { autoPushNow(); openSettings(); }); }
+  if (cloud) {
+    bar.appendChild(cloud);
+    cloud.addEventListener("click", () => {
+      // signed in → the account menu (cloud settings / log out / different account);
+      // signed out → straight to Settings, where the sign-in stepper lives
+      if (cloudState().token) { openAccountMenu(cloud); return; }
+      autoPushNow(); openSettings();
+    });
+  }
+  // finish an account switch: "Use a different account…" logs out (parking the cache),
+  // reloads to this clean slate, and left a one-shot flag — take them straight to a
+  // blank sign-in instead of making them re-find Settings. (The hosted web app reloads
+  // into webcache's login gate instead, which reads the same flag itself.)
+  if (!window.__CACHE_WEB__) {
+    try {
+      if (sessionStorage.getItem(SWITCH_ACCT_FLAG) === "1") {
+        sessionStorage.removeItem(SWITCH_ACCT_FLAG);
+        setTimeout(() => { openSettings(); prepSwitchSignin(); flash("Sign in as the other account."); }, 350);
+      }
+    } catch (e) {}
+  }
   const oldBar = document.querySelector(".status-bar");
   if (oldBar) oldBar.remove();
 
