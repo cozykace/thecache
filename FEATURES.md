@@ -64,6 +64,7 @@ _Last updated: 2026-07-16_
 - **Status & next actions** — one indicator surfaces the single most important thing to do next; click to see the full list.
 - **Your cache is a character** — it levels up as you do the real work: EXP, merit badges, and a journey earned by living, never bought.
 - **Roadmap in the app** — see what's shipped and what's next, right from the dock.
+- **What's new, quietly** — every update announces itself in one calm place: the 🔔 inside Messages. The messages button tells you at a glance who's waiting — top corner means a person, bottom corner means news — and neither ever flashes or interrupts. A note marks itself read after you've genuinely seen it for a few seconds (never while the tab is in the background), you can mark anything unread to come back later, and read state follows you across your devices. A fresh install starts clean — you only see news that lands after you arrive.
 - **Report a bug or request** — a built-in feedback button; your note goes straight to the maker and into the beta feedback inbox, no email app required.
 - **A public status page** — thecache.app/status checks the app, the cloud, and the demo live from your own browser, shows the honest history of incidents and fixes, and gives you a report box that works even signed-out (with an email fallback if the cloud itself is down).
 

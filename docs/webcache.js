@@ -116,6 +116,25 @@
     if (after !== JSON.stringify(loc)) { localStorage.setItem("money.customStats", after); return true; }
     return false;
   }
+  // notification read state — per-id newest-wins by `at`, exact tie → UNREAD wins
+  // (must match app.js mergeNotifsStr exactly, or phone/desktop settle on different
+  // read marks: a union of read ids could never express "mark unread again")
+  function wMergeNotifs(remStr) {
+    var rem; try { rem = JSON.parse(remStr || "null"); } catch (e) { return false; }
+    if (!rem || typeof rem !== "object" || Array.isArray(rem)) return false;
+    var loc; try { loc = JSON.parse(localStorage.getItem("money.notifs") || "null"); } catch (e) { loc = null; }
+    if (!loc || typeof loc !== "object" || Array.isArray(loc)) loc = {};
+    var changed = false;
+    Object.keys(rem).forEach(function (id) {
+      var r = rem[id]; if (!r || typeof r !== "object") return;
+      var ra = +r.at || 0, rr = r.read ? 1 : 0, l = loc[id];
+      var la = (l && typeof l === "object") ? (+l.at || 0) : -1;   // never seen here → adopt
+      var lr = (l && typeof l === "object") ? (l.read ? 1 : 0) : 1;
+      if (ra > la || (ra === la && rr < lr)) { loc[id] = { read: rr, at: ra }; changed = true; }
+    });
+    if (changed) { try { localStorage.setItem("money.notifs", JSON.stringify(loc)); } catch (e) {} }
+    return changed;
+  }
   function wMergeCharSince(remStr) {
     var rem = parseInt(remStr); if (!rem) return false;
     var loc = parseInt(localStorage.getItem("money.charSince") || "0");
@@ -130,7 +149,7 @@
   // cloud/identity internals + device-ergonomic geometry (never synced — keeps the
   // phone from snapping to desktop-pixel zoom / sidebar / modal layout on unlock)
   var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.deckRev"];   // deckDay (calendar) siloed per device; dms (messages cache) never rides the vault; deckRev RETIRED — must match app.js DEVICE_LOCAL_KEYS or it'd sync as a generic key and churn
-  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];   // + forms/formData (reuse wMergeThings) — MUST match app.js SPECIAL_MERGE_KEYS
+  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs"];   // + forms/formData (reuse wMergeThings) + notifs (per-id newest-wins read state) — MUST match app.js SPECIAL_MERGE_KEYS
   // ── deck per-item merge — MUST stay byte-identical to app.js mergeDecks/deckCanon/
   //    deckCap, or the phone and desktop settle on different decks. Same rules:
   //    newer `updated` wins · exact tie → tombstone wins · still tied → canonical
@@ -428,6 +447,7 @@
         try { if (lo["money.badges"] != null && wMergeBadges(lo["money.badges"])) changed++; } catch (e) {}
         try { if (lo["money.customStats"] != null && wMergeCustomStats(lo["money.customStats"])) changed++; } catch (e) {}
         try { if (lo["money.charSince"] != null && wMergeCharSince(lo["money.charSince"])) changed++; } catch (e) {}
+        try { if (lo["money.notifs"] != null && wMergeNotifs(lo["money.notifs"])) changed++; } catch (e) {}   // notification read state (per-id newest-wins)
         // everything else → per-key newest-wins (was: blind adopt on every unlock,
         // which reverted phone-local note / theme / layout / config edits every visit)
         try {

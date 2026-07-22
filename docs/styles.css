@@ -1198,6 +1198,16 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
   box-shadow: 0 0 0 2px var(--paper); box-sizing: border-box;
 }
+/* news badge — the OTHER corner (bottom-right): a quiet outlined square, deliberately a
+   different shape + tone from the people-bubble above so a glance tells "a person is
+   waiting" apart from "there's news". Ink on panel, never an alarm red. */
+.ledger-pill.msg-cta .msg-news {
+  position: absolute; bottom: -3px; right: -3px; min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: 5px; background: var(--panel); color: var(--ink);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.55);
+  font-size: 10px; font-weight: 700; line-height: 15px; text-align: center;
+  box-shadow: 0 0 0 2px var(--paper); box-sizing: border-box;
+}
 /* the one-time coaching card: anchored above the dock, plain words, one job */
 .deck-coach {
   position: fixed; left: 50%; transform: translateX(-50%);
@@ -3216,7 +3226,12 @@ textarea.ff-in { min-height: 88px; resize: vertical; line-height: 1.5; }
    Own a query container so a narrow surface (a phone) still reads well. All colours via vars. ── */
 .msg-space { container: msg / inline-size; }
 .msg-headright { display: flex; gap: 2px; align-items: center; flex: 0 0 auto; }
-.msg-hbtn { font-size: 17px; }
+.msg-hbtn { font-size: 17px; position: relative; }
+/* the bell's quiet news dot (mirrors the button badge — same square, tiny) */
+.msg-hbtn.has-news::after {
+  content: ""; position: absolute; top: 6px; right: 4px; width: 8px; height: 8px;
+  border-radius: 3px; background: var(--ink); box-shadow: 0 0 0 2px var(--paper);
+}
 .msg-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 560px; margin: 0 auto; box-sizing: border-box; padding: 4px 0 calc(16px + env(safe-area-inset-bottom)); }
 /* onboarding — connect cloud / claim a handle */
 .msg-onboard { max-width: 420px; margin: 0 auto; padding: 34px 22px; text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; }
@@ -3269,6 +3284,33 @@ textarea.ff-in { min-height: 88px; resize: vertical; line-height: 1.5; }
 .msg-ta:focus { outline: none; border-color: var(--accent); }
 .msg-send { flex: 0 0 auto; width: 44px; height: 44px; border: none; border-radius: 50%; background: var(--accent); color: var(--paper); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .msg-send:active { transform: scale(0.94); }
+/* ── What's new — the notification center: quiet news rows, never alarms ── */
+.msg-notif { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 14px 8px 14px 16px; border-bottom: 1px solid var(--edge-soft); }
+.msg-notif:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
+.msg-notif-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 3px; margin-top: 7px; background: var(--accent); opacity: 0; transition: opacity 0.4s ease; }
+.msg-notif.unread .msg-notif-dot { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .msg-notif-dot { transition: none; } }
+.msg-notif-mid { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.msg-notif-title { font-size: 14.5px; font-weight: 600; color: rgba(var(--ink-rgb), 0.72); }
+.msg-notif.unread .msg-notif-title { color: var(--ink); }
+.msg-notif-body { font-size: 13px; line-height: 1.5; color: rgba(var(--ink-rgb), 0.58); margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
+.msg-notif-date { font-size: 11px; color: rgba(var(--ink-rgb), 0.42); margin-top: 5px; }
+/* the visible per-row control (mobile SOP: 44px hit target, never gesture-only) */
+.msg-notif-more { flex: 0 0 auto; width: 44px; height: 44px; margin-top: -10px; border: none; border-radius: 12px; background: none; color: rgba(var(--ink-rgb), 0.45); font-size: 18px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.msg-notif-more:hover { background: rgba(var(--ink-rgb), 0.05); color: var(--ink); }
+.msg-notif-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* the row menu — anchored popover on a wide surface… */
+.msg-notif-menu { position: fixed; z-index: 40; min-width: 180px; background: var(--panel); border: 1px solid var(--edge-soft); border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); padding: 6px; }
+.msg-notif-menu button { display: block; width: 100%; min-height: 44px; padding: 0 14px; border: none; border-radius: 10px; background: none; color: var(--ink); font-family: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.msg-notif-menu button:hover { background: rgba(var(--ink-rgb), 0.05); }
+/* …and a full-width bottom sheet on a narrow one (mobile SOP #7) */
+@container msg (max-width: 480px) {
+  .msg-notif-menu {
+    left: 0 !important; right: 0 !important; top: auto !important; bottom: 0;
+    min-width: 0; border-radius: 16px 16px 0 0; border-bottom: none;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  }
+}
 /* find-friends results + friend requests */
 .msg-result, .msg-req { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--edge-soft); }
 .msg-add { flex: 0 0 auto; min-height: 40px; padding: 0 16px; border: none; border-radius: 20px; background: var(--accent); color: var(--paper); font-family: inherit; font-weight: 700; font-size: 13px; cursor: pointer; }
