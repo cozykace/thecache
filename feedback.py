@@ -71,18 +71,36 @@ def load_creds():
 
 
 def auth(c):
-    """PocketBase renamed the admin auth route: _superusers (v0.23+) vs admins (older)."""
+    """PocketBase renamed the admin auth route: _superusers (v0.23+) vs admins (older).
+    Also try the regular `users` collection — on some setups the inbox is readable by a
+    normal account rather than a superuser."""
     payload = {"identity": c["email"], "password": c["password"]}
-    for path in ("/api/collections/_superusers/auth-with-password", "/api/admins/auth-with-password"):
+    tried = []
+    for path in ("/api/collections/_superusers/auth-with-password",
+                 "/api/admins/auth-with-password",
+                 "/api/collections/users/auth-with-password"):
         try:
             d = _post(c["url"] + path, payload)
             if d.get("token"):
                 return d["token"]
+            tried.append(f"  {path} → 200 but no token")
         except urllib.error.HTTPError as e:
-            if e.code in (400, 404):
-                continue          # wrong route for this version, or bad credentials — try the other
-            raise
-    sys.exit("Couldn't sign in to PocketBase. Check the email/password in .pbadmin.")
+            body = ""
+            try:
+                body = e.read().decode("utf-8")[:300]
+            except Exception:
+                pass
+            tried.append(f"  {path} → HTTP {e.code} {body}")
+        except Exception as e:                       # DNS/TLS/connection
+            tried.append(f"  {path} → {type(e).__name__}: {e}")
+    sys.exit(
+        "Couldn't sign in to PocketBase. What each route said:\n" + "\n".join(tried) +
+        "\n\nCommon causes:\n"
+        "  · These must be the credentials for the INSTANCE admin — the ones that log you\n"
+        "    into https://thecache.pockethost.io/_/ — NOT your pockethost.io dashboard account.\n"
+        "  · If the superuser has MFA/OTP enabled, password-only sign-in is refused.\n"
+        "  · Check the email for a typo, and that the password is the one you reset it to most recently."
+    )
 
 
 def fetch(c, token, limit):
