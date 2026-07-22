@@ -5244,7 +5244,7 @@ function openSettings() {
 
   const fh = modal.querySelector("#setFonts");
   if (fh) {
-    const curFont = localStorage.getItem(FONT_KEY) || "mono";
+    const curFont = localStorage.getItem(FONT_KEY) || "system";
     fh.innerHTML = FONTS.map((f) => '<button class="font-chip' + (f.id === curFont ? " active" : "") +
       '" data-font="' + f.id + '" style="font-family:' + f.stack.replace(/"/g, "&quot;") + '">' + f.label + "</button>").join("");
     fh.querySelectorAll(".font-chip").forEach((b) => { loadFont(FONTS.find((f) => f.id === b.dataset.font)); b.addEventListener("click", () => applyFont(b.dataset.font)); });
@@ -6304,6 +6304,7 @@ applyTheme(localStorage.getItem(THEME_KEY) || "mono");
 // ── Font packs: swap the whole UI typeface (loads the Google font on demand) ──
 const FONT_KEY = "money.font";
 const FONTS = [
+  { id: "system", label: "Clean (default)", stack: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' },
   { id: "mono", label: "Terminal", stack: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace' },
   { id: "jet", label: "Hacker", stack: '"JetBrains Mono", ui-monospace, monospace', url: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" },
   { id: "grotesk", label: "Space Cadet", stack: '"Space Grotesk", system-ui, sans-serif', url: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" },
@@ -6324,7 +6325,7 @@ function applyFont(id) {
   localStorage.setItem(FONT_KEY, f.id);
   document.querySelectorAll(".font-chip").forEach((c) => c.classList.toggle("active", c.dataset.font === f.id));
 }
-applyFont(localStorage.getItem(FONT_KEY) || "mono");
+applyFont(localStorage.getItem(FONT_KEY) || "system");
 
 // ── Backgrounds (separate from theme; spins out, remembered) ──
 const BG_KEY = "money.bg";

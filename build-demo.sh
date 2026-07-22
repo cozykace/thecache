@@ -110,12 +110,9 @@ awk -v ver="$VER" -v stylef="$STYLE_FILE" -v badgef="$BADGE_FILE" '
   {
     # demo title
     gsub(/<title>THE CACHE<\/title>/, "<title>THE CACHE — Live demo</title>")
-    # default to the brand "cache" theme via an <html> attribute the external
-    # theme-preload.js reads (the old inline getItem() rewrite is gone — the script
-    # is external now so the page can keep a strict, inline-free CSP)
-    gsub(/<html lang="en">/, "<html lang=\"en\" data-default-theme=\"cache\">")
-    gsub(/name="theme-color" content="#ffffff"/, "name=\"theme-color\" content=\"#16140c\"")
-    gsub(/content="default"/, "content=\"black-translucent\"")
+    # The demo shows the SAME default as everyone else: Mono (auto light/dark).
+    # Source index.html already carries data-default-theme="mono", so there is no
+    # theme override here and the light theme-color is kept as-is.
     # cache-bust local assets (mirror build-app.sh)
     gsub(/href="styles\.css"/, "href=\"styles.css?v=" ver "\"")
     gsub(/src="theme-preload\.js"/, "src=\"theme-preload.js?v=" ver "\"")

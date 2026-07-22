@@ -4,6 +4,11 @@
    ─────────────────────────────────────────────── */
 
 :root {
+  /* Typography (2026-07-17): the DEFAULT is now an accessible system sans for readable
+     body text; --font-mono is the fixed monospace kept for the brand ACCENT labels (dock,
+     stats, section headers, numbers). System stacks = zero web-font, instant, no CDN. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
   --ink-rgb: 28, 26, 18;
   --paper: #ece6d6;
   --panel: #e4ddca;
@@ -108,8 +113,28 @@ body {
   background-image: radial-gradient(rgba(var(--ink-rgb), 0.06) 1px, transparent 1px);
   background-size: 14px 14px;
   color: var(--ink);
-  font-family: var(--font-ui, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+  font-family: var(--font-ui, var(--font-sans));
   overflow: hidden;
+}
+
+/* ── Accent labels stay MONO (the brand look Cozy wants kept) ─────────────────
+   The body defaults to the accessible sans above; these are the small uppercase
+   labels, section headers, and the numeric readouts (monospace keeps digits
+   tabular/aligned). If a new widget adds a label that should be mono, add its
+   class here. Purely presentational — nothing reads data. */
+.dock-label, .stat-label, .stat-tile-lbl, .widget-title, .section-title, .cp-title,
+.base-eyebrow, .lg-eyebrow, .bal-head, .bal-total-label, .bal-line-label, .avg-label,
+.bd-head, .bg-sec, .bs-head, .bs-sec, .bs-title, .cal-inf-sec, .cal-title, .cal-wday-head,
+.cat-head, .char-sec, .deck-ci-head, .deck-ci-label, .deck-ci-sec, .deck-sec, .deck-title,
+.fc-head, .fc-label, .fe-label, .ff-lbl, .ff-title, .health-lbl, .if-need-lbl, .if-now-lbl,
+.king-head, .lg-bub-lbl, .lg-rw-lbl, .lg-title, .lib-label, .lp-label, .mm-flag, .mm-sec,
+.mo-in-tag, .mo-label, .mo-out-tag, .mo-tag, .pg-head, .pl-pane-tag, .pl-subhead, .pm-label,
+.rv-label, .set-sec, .sidebar-head, .src-title, .tree-head, .tree-subhead, .upd-sec, .wiz-tag,
+.wk-projh, .wk-spot-lbl, .work-when-label, .tkt-when, .cov-note,
+/* numeric readouts — tabular alignment */
+.bal-total, .health-big, .pg-num, .pl-big, .wk-spot-num, .daily-big, .daily-num,
+.deck-day-num, .cal-wday-num, .cloud-num, .stat-value, .stat-tile-val {
+  font-family: var(--font-mono);
 }
 
 /* The native cursor is BACK (2026-07-17). The jelly ball used to be the ONLY cursor

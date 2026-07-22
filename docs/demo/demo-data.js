@@ -12,7 +12,7 @@
 
   // ── seed localStorage (only when unset, so a visitor's tweaks/toggles persist) ──
   function seed(k, v) { try { if (localStorage.getItem(k) == null) localStorage.setItem(k, v); } catch (e) {} }
-  seed("money.theme", "cache");
+  seed("money.theme", "mono");   // the single default theme we're developing (colors off)
   seed("money.rate", "24");
   seed("money.guaranteedIncome", "1800");
   seed("money.need", "2600");
