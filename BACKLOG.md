@@ -4,6 +4,9 @@ What's coming, what's in progress, and what's recently shipped in THE CACHE. New
 
 _Last updated: 2026-07-16_
 
+## 📅 Dates
+- [ ] **One date for everything — or each widget its own** (2026-07-17) — the dock's date selector gets a small checkbox: tick it and the range you pick **takes over every widget on the board** (one date to rule them all); untick it and each widget goes straight back to governing its own range, exactly as it did before. The choice is remembered, and switching back never loses a widget's own setting.
+
 ## 🎨 Brand
 - [x] **The goat is retired** (2026-07-17) — every goat image, icon, and mention is out of the app: the app/home-screen icon and favicon are now the Cache wordmark on a clean square, the backend status light is a simple dot (it was a spinning pixel-goat), the celebration screens use a sparkle, and the dead trotting-goat sprite plus a 7.9MB unused animation file are gone from the repo entirely. *(The square icon is an interim built from the existing wordmark — a proper icon mark is worth designing.)*
 - [ ] **A real app icon mark** — the current square icon is the wordmark on white, which is legible at large sizes but a smudge at favicon size. Worth a purpose-drawn square mark (Cozy Ace art), since it's the face of the app on every home screen and browser tab.
