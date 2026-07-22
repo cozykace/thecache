@@ -4,8 +4,12 @@ What's coming, what's in progress, and what's recently shipped in THE CACHE. New
 
 _Last updated: 2026-07-16_
 
+## 🔔 Notifications
+- [ ] **A notification center, in Messages** (2026-07-17) — one calm place for everything the Cache wants to tell you that isn't a person: **what changed in the latest update**, and anything else worth knowing. It lives as a second view inside the Messages window, so there's exactly one inbox to check. The Messages button badges in two corners: **top-right = unread messages from people**, **bottom-right = unread notifications** — so you can tell at a glance whether a human is waiting on you or it's just news.
+- [ ] **Notifications read themselves — and un-read on request** (2026-07-17) — a notification marks itself read once you've genuinely had ~5 seconds to see it (no clicking "dismiss" on everything). If you want to come back to one later, hold-tap it (or right-click on a desktop) for a small panel with a **mark unread** button. Every-update-gets-announced means the read state has to be effortless, never a chore.
+
 ## 📅 Dates
-- [ ] **One date for everything — or each widget its own** (2026-07-17) — the dock's date selector gets a small checkbox: tick it and the range you pick **takes over every widget on the board** (one date to rule them all); untick it and each widget goes straight back to governing its own range, exactly as it did before. The choice is remembered, and switching back never loses a widget's own setting.
+- [ ] **One date for everything — or each widget its own** (2026-07-17) — the dock's date selector gets a small checkbox: tick it and the range you pick **takes over every widget on the board** (one date to rule them all); untick it and each widget goes straight back to governing its own range, exactly as it did before. The choice is remembered, and switching back never loses a widget's own setting. **Default for new users: OFF** — each widget governs its own range until you deliberately choose to sync them, so nothing silently rewrites what your widgets are showing.
 
 ## 🎨 Brand
 - [x] **The goat is retired** (2026-07-17) — every goat image, icon, and mention is out of the app: the app/home-screen icon and favicon are now the Cache wordmark on a clean square, the backend status light is a simple dot (it was a spinning pixel-goat), the celebration screens use a sparkle, and the dead trotting-goat sprite plus a 7.9MB unused animation file are gone from the repo entirely. *(The square icon is an interim built from the existing wordmark — a proper icon mark is worth designing.)*
