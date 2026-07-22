@@ -29,8 +29,11 @@ const fmtUSD = (n) =>
 
 // soft, pleasing palette assigned per-account
 const ACCT_COLORS = ["#c9542e", "#2e7dc9", "#3f8f4e", "#6a4bc4", "#d6920f", "#1fa6a6", "#bf6ba5", "#8a8f2e"];
+// Escapes & < > " AND ' — the single quote matters because some attributes are single-quoted
+// (e.g. data-ids='…'); without it, a value containing ' could break out of the attribute
+// (security eval 2026-07-21, latent-XSS footgun). Keep in lockstep with webcache.js `esc`.
 const escapeHtml = (s) =>
-  String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // Spring entrance via Motion One — degrades to nothing if the lib isn't loaded.
 function springIn(node) {

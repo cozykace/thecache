@@ -652,7 +652,7 @@
       enter("").catch(function (e) { say(""); fail(e); });
     }
   }
-  function esc(s) { return (s + "").replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function esc(s) { return (s + "").replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }   // escapes ' too (single-quoted attrs) — lockstep with app.js escapeHtml
 
   if (document.body) buildGate();
   else document.addEventListener("DOMContentLoaded", buildGate);
