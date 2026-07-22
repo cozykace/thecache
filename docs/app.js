@@ -6570,7 +6570,22 @@ renderSources();
 // ── Soundtrack (YouTube audio toggle) ──────────────────────
 const SND_KEY = "money.soundtrack";
 const sndBtn = document.getElementById("soundtrack");
-let ytPlayer = null, ytReady = false;
+let ytPlayer = null, ytReady = false, ytRequested = false;
+
+// Load YouTube's iframe API ON DEMAND — only when a soundtrack is actually used, never
+// for everyone on every page load (security eval T4: fewer third-party scripts running
+// next to decrypted data). The CSP allows www.youtube.com; this injects it lazily.
+function ytEnsureApi(then) {
+  if (ytReady) { if (then) then(); return; }
+  if (then) ytPendingCbs.push(then);
+  if (ytRequested) return;
+  ytRequested = true;
+  const s = document.createElement("script");
+  s.src = "https://www.youtube.com/iframe_api";
+  s.async = true;
+  document.body.appendChild(s);
+}
+let ytPendingCbs = [];
 
 function parseYtId(u) {
   const m = String(u).match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/);
@@ -6595,24 +6610,29 @@ function buildPlayer(id, playNow) {
 }
 window.onYouTubeIframeAPIReady = function () {
   ytReady = true;
-  const id = localStorage.getItem(SND_KEY);
-  if (id) buildPlayer(id, false);
+  const cbs = ytPendingCbs; ytPendingCbs = [];
+  cbs.forEach((fn) => { try { fn(); } catch (e) {} });
 };
-sndBtn.addEventListener("click", () => {
-  let id = localStorage.getItem(SND_KEY);
-  if (!id) {
-    const u = prompt("Paste a YouTube link for your soundtrack:");
-    if (!u) return;
-    id = parseYtId(u);
-    if (!id) { alert("Couldn't find a YouTube video ID in that link."); return; }
-    localStorage.setItem(SND_KEY, id);
-    buildPlayer(id, true);
-    return;
-  }
-  if (!ytPlayer || !ytPlayer.getPlayerState) { buildPlayer(id, true); return; }
-  if (ytPlayer.getPlayerState() === 1) { ytPlayer.pauseVideo(); sndBtn.classList.remove("playing"); }
-  else { ytPlayer.playVideo(); sndBtn.classList.add("playing"); }
-});
+// A saved soundtrack means the user opted into YouTube already — restore it (this triggers
+// the lazy API load). Someone who never set a soundtrack never loads YouTube at all.
+if (sndBtn) {
+  if (localStorage.getItem(SND_KEY)) ytEnsureApi(() => { const id = localStorage.getItem(SND_KEY); if (id) buildPlayer(id, false); });
+  sndBtn.addEventListener("click", () => {
+    let id = localStorage.getItem(SND_KEY);
+    if (!id) {
+      const u = prompt("Paste a YouTube link for your soundtrack:");
+      if (!u) return;
+      id = parseYtId(u);
+      if (!id) { alert("Couldn't find a YouTube video ID in that link."); return; }
+      localStorage.setItem(SND_KEY, id);
+      ytEnsureApi(() => buildPlayer(id, true));
+      return;
+    }
+    if (!ytPlayer || !ytPlayer.getPlayerState) { ytEnsureApi(() => buildPlayer(id, true)); return; }
+    if (ytPlayer.getPlayerState() === 1) { ytPlayer.pauseVideo(); sndBtn.classList.remove("playing"); }
+    else { ytPlayer.playVideo(); sndBtn.classList.add("playing"); }
+  });
+}
 
 // ── Menu: reset ────────────────────────────────────────────
 document.getElementById("resetLayout").addEventListener("click", () => {

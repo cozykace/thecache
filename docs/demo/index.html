@@ -1,8 +1,17 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-default-theme="cache">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Content-Security-Policy (security eval 2026-07-21, T4). The real root of trust is
+         whatever JS runs next to the decrypted vault, so: scripts only from our own origin
+         (libs are vendored, not @latest CDNs) + YouTube (opt-in soundtrack) + PostHog assets
+         (opt-in analytics); and — the anti-exfiltration lock — connect-src is an allowlist, so
+         even injected code can't POST your keys to an attacker's server. No inline scripts, no
+         eval (verified). style-src keeps 'unsafe-inline' because the UI sets style attributes;
+         that can't read localStorage, so the key stays safe. Custom self-hosted cloud URLs need
+         their host added here (rare; default is thecache.pockethost.io). -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.ytimg.com; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' https://thecache.pockethost.io https://us.i.posthog.com https://us-assets.i.posthog.com https://api.github.com https://api.web3forms.com https://raw.githubusercontent.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self' https://api.web3forms.com" />
     <title>THE CACHE — Live demo</title>
     <link rel="icon" type="image/png" href="av assets/goat-pixel.png" />
     <!-- Installable web app: "Add to Home Screen" on iPhone → fullscreen app w/ icon (needs a hosted HTTPS URL) -->
@@ -16,16 +25,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=ee2649a92b" />
-    <!-- apply saved theme before paint to avoid a flash -->
-    <script>
-      try {
-        var t = localStorage.getItem("money.theme") || "cache";
-        if (t) document.documentElement.setAttribute("data-theme", t);
-        var bg = localStorage.getItem("money.bg");
-        if (bg) document.documentElement.setAttribute("data-bg", bg);
-      } catch (e) {}
-    </script>
+    <link rel="stylesheet" href="styles.css?v=7b70a13ce7" />
+    <!-- apply saved theme before paint to avoid a flash (external so the CSP stays inline-free) -->
+    <script src="theme-preload.js?v=7b70a13ce7"></script>
     <style>
       /* demo-only chrome */
       #demoBadge {
@@ -181,18 +183,13 @@
     <!-- hidden YouTube audio player for the soundtrack -->
     <div id="ytAudio" class="yt-hidden"></div>
 
-    <!-- free icon library (Lucide) + our engine, both deferred so the page paints first -->
-    <script src="https://www.youtube.com/iframe_api"></script>
-    <script type="module">
-      // Motion One (tiny animation engine) → expose as window.Motion for app.js
-      try {
-        const m = await import("https://cdn.jsdelivr.net/npm/motion@latest/+esm");
-        window.Motion = m;
-      } catch (e) { /* app works fine without it */ }
-    </script>
-    <script defer src="https://unpkg.com/lucide@latest"></script>
-    <script defer src="demo-data.js?v=ee2649a92b"></script>
-    <script defer src="app.js?v=ee2649a92b"></script>
-    <script defer src="cursor.js?v=ee2649a92b"></script>
+    <!-- Icons + animation: VENDORED locally (pinned in assets/vendor), not @latest CDNs —
+         a hijacked CDN release could otherwise ship code that reads the vault key. YouTube
+         is no longer loaded here; app.js pulls it in on demand only when a soundtrack is used. -->
+    <script defer src="assets/vendor/lucide.min.js"></script>
+    <script type="module" src="assets/vendor/motion-init.js"></script>
+    <script defer src="demo-data.js?v=7b70a13ce7"></script>
+    <script defer src="app.js?v=7b70a13ce7"></script>
+    <script defer src="cursor.js?v=7b70a13ce7"></script>
   </body>
 </html>

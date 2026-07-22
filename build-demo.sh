@@ -21,6 +21,12 @@ mkdir -p "$DEST/av assets"
 cp "$HERE/app.js"     "$DEST/app.js"
 cp "$HERE/styles.css" "$DEST/styles.css"
 cp "$HERE/cursor.js"  "$DEST/cursor.js"
+cp "$HERE/theme-preload.js" "$DEST/theme-preload.js"
+
+# vendored libraries (pinned locally, not @latest CDNs — security eval T4)
+rm -rf "$DEST/assets/vendor"
+mkdir -p "$DEST/assets/vendor"
+cp -R "$HERE/assets/vendor/." "$DEST/assets/vendor/"
 
 # skins (art/sound pipeline) — copy the default skin so the Base can load real art
 rm -rf "$DEST/skins"
@@ -53,7 +59,7 @@ find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECAC
 # Every LOCAL asset is stamped with a content-hash ?v= so a new deploy busts the
 # browser cache (mirrors build-app.sh) — otherwise a plain refresh keeps serving
 # the OLD cached app.js/styles.css.
-VER="$(cat "$HERE/app.js" "$HERE/styles.css" "$HERE/cursor.js" "$DEST/demo-data.js" | shasum | cut -c1-10)"
+VER="$(cat "$HERE/app.js" "$HERE/styles.css" "$HERE/cursor.js" "$HERE/theme-preload.js" "$DEST/demo-data.js" | shasum | cut -c1-10)"
 
 # The demo-only chunks live in temp files so awk can splice them in verbatim
 # (heredocs keep the CSS readable; quoted <<'EOF' means no shell expansion, and
@@ -104,12 +110,15 @@ awk -v ver="$VER" -v stylef="$STYLE_FILE" -v badgef="$BADGE_FILE" '
   {
     # demo title
     gsub(/<title>THE CACHE<\/title>/, "<title>THE CACHE — Live demo</title>")
-    # default to the brand "cache" theme (the demo commits to the dark brand look)
-    gsub(/getItem\("money.theme"\)/, "getItem(\"money.theme\") || \"cache\"")
+    # default to the brand "cache" theme via an <html> attribute the external
+    # theme-preload.js reads (the old inline getItem() rewrite is gone — the script
+    # is external now so the page can keep a strict, inline-free CSP)
+    gsub(/<html lang="en">/, "<html lang=\"en\" data-default-theme=\"cache\">")
     gsub(/name="theme-color" content="#ffffff"/, "name=\"theme-color\" content=\"#16140c\"")
     gsub(/content="default"/, "content=\"black-translucent\"")
     # cache-bust local assets (mirror build-app.sh)
     gsub(/href="styles\.css"/, "href=\"styles.css?v=" ver "\"")
+    gsub(/src="theme-preload\.js"/, "src=\"theme-preload.js?v=" ver "\"")
     gsub(/src="cursor\.js"/,   "src=\"cursor.js?v=" ver "\"")
     # load the fake-data layer right before app.js, both cache-busted
     gsub(/<script defer src="app\.js"><\/script>/, "<script defer src=\"demo-data.js?v=" ver "\"></script>\n    <script defer src=\"app.js?v=" ver "\"></script>")

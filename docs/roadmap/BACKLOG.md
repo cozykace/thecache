@@ -6,6 +6,7 @@ _Last updated: 2026-07-16_
 
 ## 🔒 Security hardening (ongoing)
 - [x] **Tightened the local server's trust boundary** (2026-07-17) — the local companion app now verifies that requests genuinely come from your own machine and refuses ones that don't, so another program on your computer can't quietly reach in. ⚠️ Restart `python3 server.py` (or relaunch `start.command`) to load it. *(Part of an ongoing hardening pass; specifics tracked privately so they can't double as a how-to.)*
+- [x] **Locked down what's allowed to run on the web app** (2026-07-17) — the app's own code now loads only from the Cache's own address (the icon + animation libraries are bundled in, not fetched fresh from other companies' servers each visit), YouTube loads only if you turn on a soundtrack, and a strict content policy means even something malicious that slipped in couldn't send your data out to a stranger's server. Verified end-to-end on the built app: full render, icons + animations working, soundtrack loading on demand, policy enforced, zero violations. *(Ongoing hardening pass.)*
 
 ## The accuracy engine (fix-in-UI, no AI; all ripples via the Store)
 - [x] **Category Manager** (Menu → Manage categories) — lists every category + # of transactions; rename (server-stored label, ripples to every widget); delete → fold/merge into another category (batch); click a category → recategorize its merchants one-by-one; + new category. Backend: catmeta.json registry (labels+remap), categorize() applies remap (2026-06-22)

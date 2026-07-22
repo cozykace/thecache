@@ -18,6 +18,14 @@ cp "$HERE/app.js"      "$DEST/app.js"
 cp "$HERE/styles.css"  "$DEST/styles.css"
 cp "$HERE/cursor.js"   "$DEST/cursor.js"
 cp "$HERE/webcache.js" "$DEST/webcache.js"
+cp "$HERE/theme-preload.js" "$DEST/theme-preload.js"
+
+# vendored libraries (pinned locally instead of @latest CDNs — security eval T4).
+# The URL change from unpkg/jsdelivr to assets/vendor/ busts old caches on its own;
+# on a future version bump, rename or cache-bust these.
+rm -rf "$DEST/assets/vendor"
+mkdir -p "$DEST/assets/vendor"
+cp -R "$HERE/assets/vendor/." "$DEST/assets/vendor/"
 
 # skins (art/sound pipeline) — copy the whole default skin so the Base can load real art
 rm -rf "$DEST/skins"
@@ -38,9 +46,10 @@ find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECAC
 # Without this, styles.css/app.js are cached by their (unchanging) URL, so a plain refresh
 # keeps serving the OLD build — the "I pulled to refresh AND hit update, still nothing"
 # trap. The hash only changes when the code changes, so unchanged assets stay cached.
-VER="$(cat "$HERE/app.js" "$HERE/styles.css" "$HERE/cursor.js" "$HERE/webcache.js" | shasum | cut -c1-10)"
+VER="$(cat "$HERE/app.js" "$HERE/styles.css" "$HERE/cursor.js" "$HERE/webcache.js" "$HERE/theme-preload.js" | shasum | cut -c1-10)"
 sed \
   -e 's#href="styles\.css"#href="styles.css?v='"$VER"'"#' \
+  -e 's#src="theme-preload\.js"#src="theme-preload.js?v='"$VER"'"#' \
   -e 's#src="cursor\.js"#src="cursor.js?v='"$VER"'"#' \
   -e 's#<script defer src="app\.js"></script>#<script defer src="webcache.js?v='"$VER"'"></script>\n    <script defer src="app.js?v='"$VER"'"></script>#' \
   "$HERE/index.html" > "$DEST/index.html"
