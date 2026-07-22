@@ -84,4 +84,21 @@ const e4 = [{ id: "e4", type: "event", title: "Standup", sched: { freq: "weekly"
 ok("join: recurring event honors Until (on the last day)", calThingsOnDay(e4, "2026-07-20").events.some((e) => e.id === "e4"));
 ok("join: recurring event honors Until (gone after)", !calThingsOnDay(e4, "2026-07-27").events.some((e) => e.id === "e4"));
 
+// ── HABITS v2: a habit with an EXPLICIT sched spreads via the same engine; a plain daily
+//    habit stays OFF the calendar (it lives in the deck — else every habit paints every day);
+//    a routine-member habit is carried by its routine, never doubled. ──
+const HAB = [
+  { id: "h1", type: "habit", title: "Gym", track: "check", sched: { freq: "weekly", days: [1, 3] } },   // Mon + Wed
+  { id: "h2", type: "habit", title: "Journal", track: "note" },                                         // no sched → deck-only
+  { id: "h3", type: "habit", title: "Stretch", track: "check", sched: { freq: "daily" }, routine: "r1" }, // member → routine carries it
+  { id: "r1", type: "routine", name: "Morning", sched: { freq: "daily" } },
+];
+ok("join: scheduled habit lands on its weekday (Wed)", calThingsOnDay(HAB, "2026-07-15").habits.some((h) => h.id === "h1"));
+ok("join: scheduled habit absent off its weekday (Sun)", !calThingsOnDay(HAB, "2026-07-19").habits.some((h) => h.id === "h1"));
+ok("join: an UNscheduled (daily) habit stays off the calendar", !calThingsOnDay(HAB, "2026-07-15").habits.some((h) => h.id === "h2"));
+ok("join: a routine-member habit is never doubled", !calThingsOnDay(HAB, "2026-07-15").habits.some((h) => h.id === "h3"));
+ok("join: a paused habit sched is silent", !calThingsOnDay([{ id: "h4", type: "habit", title: "X", sched: { freq: "daily", paused: 1 } }], "2026-07-15").habits.length);
+ok("join: a tombstoned habit is excluded", !calThingsOnDay([{ id: "h5", type: "habit", title: "X", sched: { freq: "daily" }, deleted: 1 }], "2026-07-15").habits.length);
+ok("join: habits bucket always present (renderers iterate it)", Array.isArray(calThingsOnDay([], "2026-07-15").habits));
+
 console.log(`\n${p} passed, ${f} failed`); process.exit(f ? 1 : 0);

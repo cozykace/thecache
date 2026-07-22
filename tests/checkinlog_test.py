@@ -52,4 +52,26 @@ ok("restore merge: `root` survives", h and h.get("root") == "h1")
 ok("restore merge: `field` survives", h and h.get("field") == "fld")
 ok("restore merge: rich `value` survives", h and h.get("value") == {"done": 1, "qty": 45})
 
+# ── 4. HABITS v2 value shapes: a 1–5 rating and a few words are rich `value` payloads —
+#       they must survive BOTH a live write and the merged-restore path un-slimmed, or the
+#       new track modes pass single-device and silently lose their readings cross-device. ──
+store.checkin_append([
+    {"ts": "2026-07-15", "at": 3000, "itemId": "hr1", "root": "hr1",
+     "kind": "habit", "value": {"done": 1, "rating": 4}},
+    {"ts": "2026-07-15", "at": 3001, "itemId": "hn1", "root": "hn1",
+     "kind": "habit", "value": {"done": 1, "text": "good walk — placeholder"}},
+])
+log = store.checkin_log()
+hr = next((x for x in log if x.get("itemId") == "hr1"), None)
+hn = next((x for x in log if x.get("itemId") == "hn1"), None)
+ok("live write: a rating value survives intact", hr and hr.get("value") == {"done": 1, "rating": 4})
+ok("live write: a text value survives intact", hn and hn.get("value") == {"done": 1, "text": "good walk — placeholder"})
+restored, total = store._checkin_union([
+    {"ts": "2026-07-16", "at": 4000, "itemId": "hr1", "root": "hr1",
+     "kind": "habit", "value": {"done": 1, "rating": 2}},
+])
+log = store.checkin_log()
+hr2 = next((x for x in log if x.get("itemId") == "hr1" and x.get("at") == 4000), None)
+ok("restore merge: a rating value survives the union", restored == 1 and hr2 and hr2.get("value") == {"done": 1, "rating": 2})
+
 print(f"\n{p} passed, {f} failed"); raise SystemExit(1 if f else 0)

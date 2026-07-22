@@ -195,4 +195,29 @@ const visIds = (arr) => thingsVisible(arr).map(x=>x.id).sort().join(",");
   ok("event: multi-day span survives the merge intact", r.start==="2026-07-24" && r.end==="2026-07-26" && r.allDay===1);
 }
 
+// ── 14. HABITS v2: the 4 track modes + a habit's OWN sched ride the same per-item merge ──
+{
+  // a habit's sched (nested object) round-trips the merge byte-intact — deep fields included
+  const h = {id:"h9",type:"habit",title:"Stretch",track:"scale",sched:{freq:"weekly",days:[1,3,5],every:2,start:"2026-07-01",paused:0},done:0,updated:100,ord:0,ordAt:0,deleted:0};
+  const rt = mergeThings([h],[]).find(x=>x.id==="h9");
+  ok("habit: sched round-trips the merge deep-intact", JSON.stringify(rt.sched) === JSON.stringify(h.sched) && rt.track === "scale");
+  // a NEWER sched edit beats a stale copy (an edit, never delete+create)
+  const resched = Object.assign({}, h, {sched:{freq:"monthly",monthly:[1,15]}, updated:200});
+  const m = mergeThings([h],[resched]);
+  ok("habit: newer sched edit wins, one item", m.filter(x=>x.id==="h9").length === 1 && m.find(x=>x.id==="h9").sched.freq === "monthly");
+  // sched-edit vs DELETE race: the newer stamp wins each way (tombstone on exact tie is §6)
+  const dead = Object.assign({}, h, {deleted:1, updated:300});
+  ok("habit: newer delete beats an older sched edit", !!mergeThings([resched],[dead]).find(x=>x.id==="h9").deleted);
+  const revived = Object.assign({}, h, {sched:{freq:"daily",every:1}, deleted:0, updated:400});
+  ok("habit: a NEWER edit outranks an older tombstone (explicit un-delete)", !mergeThings([dead],[revived]).find(x=>x.id==="h9").deleted);
+  // the new track values are plain content — canon is deterministic on them (order-insensitive)
+  const n1 = {id:"h10",type:"habit",title:"Mood",track:"note",updated:50,ord:1,ordAt:0,deleted:0};
+  ok("habit: canon equal regardless of key insertion order",
+     thingCanon({track:"note",id:"h10",title:"Mood",type:"habit"}) === thingCanon({id:"h10",type:"habit",title:"Mood",track:"note"}));
+  // webcache parity on the NEW fields — both runtimes must pick byte-identical winners
+  const jsWin = JSON.stringify(mergeThings([h,n1],[resched,dead]));
+  const wWin  = JSON.stringify(wMergeThings([h,n1],[resched,dead]));
+  ok("habit: app.js ↔ webcache.js pick byte-identical winners on track+sched", jsWin === wWin);
+}
+
 console.log(`\n${p} passed, ${f} failed`); process.exit(f?1:0);
