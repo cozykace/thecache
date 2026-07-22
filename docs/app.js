@@ -8736,7 +8736,7 @@ function openDeck() {
   function onKey(e) { if (e.key === "Escape" && !document.getElementById("dailySpace")) close(); }   // if the check-in is open on top, its own Escape handles it first
   document.addEventListener("keydown", onKey);
   let deckLastDay = null;   // remembers the prior viewed day so the header can slide in the right direction
-  function onDeckDay() { root.classList.toggle("deck-not-today", deckViewDay() !== todayKey()); renderDeckDate(); }   // grey the deck + refresh the header date when browsing a non-today day
+  function onDeckDay() { try { toggleBubbles(false); } catch (e) {} root.classList.toggle("deck-not-today", deckViewDay() !== todayKey()); renderDeckDate(); }   // grey the deck + refresh the header date when browsing a non-today day; scrolling to another day closes the ＋ flyout so it never covers what you're looking at
   function renderDeckDate() {   // the viewed day + a relative cue ("Today" blue, else "in N days" / "N days ago"), sliding in tandem with the wheel
     const hdr = root.querySelector("#deckDateHdr"); if (!hdr) return;
     const ymd = (typeof deckViewDay === "function") ? deckViewDay() : todayKey(), today = todayKey();
@@ -8855,6 +8855,9 @@ function openDeck() {
     else if (add === "event") { try { if (typeof calAddEvent === "function") calAddEvent(deckViewDay()); else flash("Events arrive with the calendar"); } catch (e) {} }   // create an event on the day you're viewing + open its editor
   });
   root.addEventListener("click", (e) => { if (bubblesOpen && !e.target.closest("#deckBubbles") && !e.target.closest("#deckFab")) toggleBubbles(false); });
+  // Scrolling the deck closes the ＋ flyout — on a phone an open flyout covers the list, and
+  // the user's intent when they start scrolling is to SEE the list, not keep the menu up.
+  (function () { const sc = root.querySelector(".deck-sp-scroll"); if (sc) sc.addEventListener("scroll", () => { if (bubblesOpen) toggleBubbles(false); }, { passive: true }); })();
   document.addEventListener("cache:things", onDeckThings);
   renderNotes();
   root.classList.toggle("deck-not-today", deckViewDay() !== todayKey());   // date-nav: obvious at a glance when you're not on today
