@@ -18,6 +18,8 @@ cp "$HERE/app.js"      "$DEST/app.js"
 cp "$HERE/styles.css"  "$DEST/styles.css"
 cp "$HERE/webcache.js" "$DEST/webcache.js"
 cp "$HERE/theme-preload.js" "$DEST/theme-preload.js"
+# the notification center's news feed — deploys in LOCKSTEP with the code it describes
+cp "$HERE/release-notes.json" "$DEST/release-notes.json"
 
 # vendored libraries (pinned locally instead of @latest CDNs — security eval T4).
 # The URL change from unpkg/jsdelivr to assets/vendor/ busts old caches on its own;

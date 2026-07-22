@@ -3525,7 +3525,7 @@ async function cloudFindVaultId(s) {
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
 const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms"];   // + deckDay (calendar) + dms (the messages cache — a mirror of server data + per-thread read marks; per-device, never rides the vault)
-const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince"];   // + forms/formData (reuse the things per-item merge)
+const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state)
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
 // bundle is engine-computed and travels whole-file. catmeta.json (your category
@@ -3679,6 +3679,16 @@ function _authoredProject(k, str) {
     // _canonVal this still includes `ord`, so a real reorder registers.
     if (k === "money.forms" && Array.isArray(v)) return _sortBy(v.filter((q) => q && q.id), (q) => q.id).map(_canonVal);
     if (k === "money.formData" && Array.isArray(v)) return _sortBy(v.filter((q) => q && q.id), (q) => q.id).map(_canonVal);
+    // money.notifs — per-id read state {id:{read,at}}: project each entry to normalized
+    // {at, read} NUMBERS with sorted ids, so two converged devices hash identically even
+    // if one writer stored read:true, a different key order, or a stray extra field.
+    // Without this a SPECIAL key that converges by value could still differ by bytes →
+    // the corrective-push livelock this codebase keeps rediscovering.
+    if (k === "money.notifs" && v && typeof v === "object" && !Array.isArray(v)) {
+      const o = {};
+      Object.keys(v).sort().forEach((id) => { const e = v[id]; if (e && typeof e === "object") o[id] = { at: +e.at || 0, read: e.read ? 1 : 0 }; });
+      return o;
+    }
   } catch (e) {}
   return _canonStr(str);
 }
@@ -4055,6 +4065,30 @@ function mergeCustomStatsStr(remStr) {
   if (after !== JSON.stringify(loc)) { localStorage.setItem("money.customStats", after); return true; }
   return false;
 }
+// Notification read state: per-id NEWEST-WINS by `at` — NOT a union of read ids, because
+// a union can't express "mark unread again" (un-reading would silently revert on the next
+// merge). Stamps are deterministic (see the notifs block near openMessages): seed/detect
+// stamp the entry's RELEASE DATE, a real user action stamps Date.now(). On an EXACT `at`
+// tie with differing flags, UNREAD wins — that's the seed-vs-detect race (a fresh device
+// seeding history as read while an older device already holds the same note unread), and
+// losing an unread is invisible while re-showing a read one is calm. Mirrored byte-for-byte
+// in webcache.js wMergeNotifs.
+function mergeNotifsStr(remStr) {
+  let rem; try { rem = JSON.parse(remStr || "null"); } catch (e) { return false; }
+  if (!rem || typeof rem !== "object" || Array.isArray(rem)) return false;
+  let loc; try { loc = JSON.parse(localStorage.getItem("money.notifs") || "null"); } catch (e) { loc = null; }
+  if (!loc || typeof loc !== "object" || Array.isArray(loc)) loc = {};
+  let changed = false;
+  Object.keys(rem).forEach((id) => {
+    const r = rem[id]; if (!r || typeof r !== "object") return;
+    const ra = +r.at || 0, rr = r.read ? 1 : 0, l = loc[id];
+    const la = (l && typeof l === "object") ? (+l.at || 0) : -1;   // never seen here → adopt
+    const lr = (l && typeof l === "object") ? (l.read ? 1 : 0) : 1;
+    if (ra > la || (ra === la && rr < lr)) { loc[id] = { read: rr, at: ra }; changed = true; }
+  });
+  if (changed) { try { localStorage.setItem("money.notifs", JSON.stringify(loc)); } catch (e) {} }
+  return changed;
+}
 // The founding date is the EARLIEST either device has seen — so a fresh install that
 // mints charSince=now can never push the journey start (or the Devoted badge) forward.
 function mergeCharSinceStr(remStr) {
@@ -4152,6 +4186,8 @@ function mergeRemoteLocal(lo, meta) {
   try { if (lo["money.badges"] != null && mergeBadgesStr(lo["money.badges"])) changed = true; } catch (e) {}
   try { if (lo["money.customStats"] != null && mergeCustomStatsStr(lo["money.customStats"])) changed = true; } catch (e) {}
   try { if (lo["money.charSince"] != null && mergeCharSinceStr(lo["money.charSince"])) changed = true; } catch (e) {}
+  // notification read state — per-id newest-wins by `at`, exact tie → unread wins
+  try { if (lo["money.notifs"] != null && mergeNotifsStr(lo["money.notifs"])) { changed = true; try { if (typeof socialUpdateBadge === "function") socialUpdateBadge(); document.dispatchEvent(new CustomEvent("cache:notifs")); } catch (e) {} } } catch (e) {}
   // everything else → per-key newest-wins. Stamp our own generic keys first (a real
   // local edit claims Date.now(); an un-edited key stays at m:0) so a fresher local
   // value is never overwritten, then adopt the vault's copy only where it is newer.
@@ -9869,10 +9905,20 @@ function socialUnreadCount() {
 }
 function socialUpdateBadge() {
   const b = document.getElementById("msgBtn"); if (!b) return;
-  const dot = b.querySelector(".msg-unread"); if (!dot) return;
-  const c = socialReady() ? socialUnreadCount() : 0;
-  if (c > 0) { dot.textContent = c > 99 ? "99+" : String(c); dot.hidden = false; }
-  else { dot.hidden = true; dot.textContent = ""; }
+  const dot = b.querySelector(".msg-unread");
+  if (dot) {
+    const c = socialReady() ? socialUnreadCount() : 0;
+    if (c > 0) { dot.textContent = c > 99 ? "99+" : String(c); dot.hidden = false; }
+    else { dot.hidden = true; dot.textContent = ""; }
+  }
+  // the OTHER corner: unread Cache news (bottom-right, a different shape/tone so a
+  // glance tells "a person is waiting" apart from "there's news"). Works logged-out too.
+  const news = b.querySelector(".msg-news");
+  if (news) {
+    const n = typeof notifsUnread === "function" ? notifsUnread() : 0;
+    if (n > 0) { news.textContent = n > 99 ? "99+" : String(n); news.hidden = false; }
+    else { news.hidden = true; news.textContent = ""; }
+  }
 }
 function dmsMarkRead(uid) {
   const o = dmsGet(), th = o.threads[uid]; if (!th) return;
@@ -9989,6 +10035,72 @@ async function socialPoll() {
   } finally { _socialPolling = false; }
 }
 
+// ── The notification center — the Cache's OWN news, the second half of Messages. ──
+//    Notifications come from release-notes.json: a static array [{id, date, title, body}],
+//    newest first, shipped by build-app.sh/build-demo.sh in LOCKSTEP with the code it
+//    describes (works on web + desktop, zero backend; served by server.py from the repo
+//    root, same-origin so the CSP already allows it). Read state lives in money.notifs
+//    {id: {read:0|1, at:ms}} — SPECIAL merge, per-id newest-wins by `at` (mergeNotifsStr)
+//    so reading on the phone un-bolds the desktop. Stamps are DETERMINISTIC:
+//      seed (first-ever run)  → {read:1, at:<release date>} — a brand-new install never
+//                               opens to a backlog of "unread" history, and two fresh
+//                               devices of one account mint byte-identical maps.
+//      detect (a new entry)   → {read:0, at:<release date>} — every device mints the SAME
+//                               unread stamp, so no clock ever outranks another device.
+//      user read / unread     → {read, at:Date.now()} — always newer than a release date,
+//                               so a real action wins everywhere.
+//    On an exact-`at` tie the merge lets UNREAD win: that's the only race (a fresh device
+//    seeding history as read vs. an older device holding the same note unread), and a
+//    swallowed unread is invisible while a re-shown read note is calm.
+const NOTIFS_KEY = "money.notifs";
+let _relNotes = null;   // in-memory cache of the fetched release-notes list (null = not loaded yet)
+function notifsGet() { try { const o = JSON.parse(localStorage.getItem(NOTIFS_KEY) || "null"); return (o && typeof o === "object" && !Array.isArray(o)) ? o : null; } catch (e) { return null; } }
+function notifsSet(o) { try { localStorage.setItem(NOTIFS_KEY, JSON.stringify(o)); } catch (e) {} }
+function notifDateMs(e) { const t = Date.parse(String((e && e.date) || "") + "T00:00:00Z"); return isFinite(t) ? t : 0; }
+// Seed-or-detect. First-ever run (no money.notifs at all) marks the WHOLE file read at its
+// release dates — ZERO fabricated notifications for a new install; after that, an entry
+// we've never seen becomes unread, stamped at its release date (deterministic — see above).
+function notifsSeed(list) {
+  if (!Array.isArray(list) || !list.length) return false;
+  const cur = notifsGet(), map = cur || {}, first = !cur;
+  let changed = false;
+  list.forEach((e) => {
+    if (!e || !e.id || map[e.id]) return;
+    map[e.id] = { read: first ? 1 : 0, at: notifDateMs(e) };
+    changed = true;
+  });
+  if (changed) notifsSet(map);
+  return changed && !first;   // "anything newly unread?" — first-run seeding is silent
+}
+function notifsUnread() {
+  const m = notifsGet() || {}; let n = 0;
+  Object.keys(m).forEach((id) => { const e = m[id]; if (e && typeof e === "object" && !e.read) n++; });
+  return n;
+}
+function notifsMark(id, read) {
+  if (!id) return;
+  const m = notifsGet() || {};
+  m[id] = { read: read ? 1 : 0, at: Date.now() };
+  notifsSet(m);
+  socialUpdateBadge();
+  try { document.dispatchEvent(new CustomEvent("cache:notifs")); } catch (e) {}
+}
+// One fetch per session (plus a refresh when the What's-new view opens). Never throws;
+// a missing file (demo without the copy, offline) just leaves the calm empty state.
+async function notifsFetch(force) {
+  if (_relNotes && !force) return _relNotes;
+  try {
+    const r = await fetch("release-notes.json", { cache: "no-cache" });
+    if (!r.ok) throw new Error("no notes");
+    const d = await r.json();
+    _relNotes = (Array.isArray(d) ? d : []).filter((e) => e && e.id);
+    notifsSeed(_relNotes);
+    socialUpdateBadge();
+    try { document.dispatchEvent(new CustomEvent("cache:notifs")); } catch (e) {}
+  } catch (e) {}
+  return _relNotes || [];
+}
+
 // ── The Messages surface — a full-screen lens, cloned from openCalendar (daily-space shell).
 //    One surface, several views: onboarding (connect / claim handle) · list · thread · find · requests.
 function openMessages() {
@@ -9996,27 +10108,40 @@ function openMessages() {
   const root = document.createElement("div"); root.id = "msgSpace"; root.className = "daily-space msg-space";
   document.body.appendChild(root);
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
-  let view = "list", activeUid = null, results = null, findErr = "", claimErr = "";
+  let view = "list", activeUid = null, results = null, findErr = "", claimErr = "", notifsTried = false;
   const draft = {};
   const timeOf = (ts) => { try { return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } };
-  const onKey = (e) => { if (e.key !== "Escape") return; if (view === "list") close(); else { view = "list"; activeUid = null; render(); } };
-  const onCache = () => { if (!root.isConnected) { cleanup(); return; } if (view === "thread") { paintThreadMsgs(); } else render(); socialUpdateBadge(); };
+  const onKey = (e) => { if (e.key !== "Escape") return; if (root.querySelector(".msg-notif-menu")) { closeNotifMenu(); return; } if (view === "list") close(); else { view = "list"; activeUid = null; render(); } };
+  const onCache = () => { if (!root.isConnected) { cleanup(); return; } if (view === "thread") { paintThreadMsgs(); } else if (view !== "notifs") render(); socialUpdateBadge(); };
+  // read-state changed (auto-read, a manual mark, a vault merge, a fetch that found news):
+  // paint in place on the notifs view (a full re-render would reset scroll + observers);
+  // refresh the list view so the bell's news dot stays honest; never touch a view with a
+  // live input (thread composer, find box).
+  const onNotifs = () => { if (!root.isConnected) { cleanup(); return; } socialUpdateBadge(); if (view === "notifs") paintNotifRows(); else if (view === "list") render(); };
   const pollTimer = setInterval(() => { if (!document.hidden && socialReady()) socialPoll().catch(() => {}); }, 15000);   // near-live while open
-  const cleanup = () => { clearInterval(pollTimer); document.removeEventListener("keydown", onKey); document.removeEventListener("cache:messages", onCache); document.removeEventListener("cache:social", onCache); };
+  const cleanup = () => { clearInterval(pollTimer); notifsUnwire(); closeNotifMenu(); document.removeEventListener("keydown", onKey); document.removeEventListener("cache:messages", onCache); document.removeEventListener("cache:social", onCache); document.removeEventListener("cache:notifs", onNotifs); };
   const close = () => { root.remove(); cleanup(); };
   document.addEventListener("keydown", onKey);
   document.addEventListener("cache:messages", onCache);
   document.addEventListener("cache:social", onCache);
+  document.addEventListener("cache:notifs", onNotifs);
   socialPoll().catch(() => {});   // fresh pull the moment it opens
 
-  const header = (title, back) =>
-    '<div class="daily-top">' +
+  // The bell lives on BOTH home renders (the conversations list and the logged-out
+  // onboard — both keep view === "list"): the Cache's own news never needs an account.
+  const header = (title, back) => {
+    const onHome = view === "list";
+    const nn = onHome ? notifsUnread() : 0;
+    return '<div class="daily-top">' +
       (back ? '<button class="daily-icn" id="msgBack" aria-label="back">‹</button>' : '<button class="daily-icn" id="msgClose" aria-label="close">✕</button>') +
       '<div class="cal-title">' + esc(title) + "</div>" +
-      '<div class="msg-headright">' + (view === "list" && socialReady()
+      '<div class="msg-headright">' + (onHome && socialReady()
         ? '<button class="daily-icn msg-hbtn" id="msgReq" aria-label="friend requests" title="friend requests">👋</button><button class="daily-icn msg-hbtn" id="msgFind" aria-label="find friends" title="find friends">🔍</button>'
-        : "") + "</div>" +
+        : "") +
+        (onHome ? '<button class="daily-icn msg-hbtn' + (nn ? " has-news" : "") + '" id="msgNotifs" aria-label="' + (nn ? "what's new — " + nn + " unread" : "what's new") + '" title="what&#39;s new">🔔</button>' : "") +
+      "</div>" +
     "</div>";
+  };
 
   // the account strip — "signed in as X · Switch account · Log out" — shown on every
   // logged-in Messages view so you can always leave or swap accounts from here.
@@ -10098,13 +10223,124 @@ function openMessages() {
       : '<div class="msg-empty2">No friend requests right now.</div>';
     return header("Friend requests", true) + '<div class="msg-body"><div class="msg-list">' + rows + "</div></div>";
   }
+  // ── What's new — the notification center view. Every field is authored by us but
+  //    still runs through esc() (no raw interpolation, ever). Absent-from-map reads as
+  //    READ: a failed first-run seed must never fabricate a backlog of unread news.
+  function renderNotifs() {
+    const map = notifsGet() || {};
+    const niceDate = (d) => { const t = Date.parse(String(d || "") + "T00:00:00"); return isFinite(t) ? new Date(t).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : ""; };
+    let bodyHtml;
+    if (_relNotes === null) bodyHtml = '<div class="msg-empty2">' + (notifsTried ? "Couldn't check for news right now — it'll be here next time." : "Checking for news…") + "</div>";
+    else if (!_relNotes.length) bodyHtml = '<div class="msg-empty2">No news yet. Updates to your Cache will land here.</div>';
+    else bodyHtml = '<div class="msg-list" id="msgNotifList" role="list" aria-label="what\'s new">' + _relNotes.slice(0, 30).map((e) => {
+      const st = map[e.id], unread = !!(st && typeof st === "object" && !st.read);
+      return '<div class="msg-notif' + (unread ? " unread" : "") + '" role="listitem" tabindex="0" data-nid="' + esc(e.id) + '">' +
+        '<span class="msg-notif-dot"' + (unread ? ' role="img" aria-label="unread"' : ' aria-hidden="true"') + "></span>" +
+        '<span class="msg-notif-mid">' +
+          '<span class="msg-notif-title">' + esc(e.title) + "</span>" +
+          (e.body ? '<span class="msg-notif-body">' + esc(e.body) + "</span>" : "") +
+          '<span class="msg-notif-date">' + esc(niceDate(e.date)) + "</span>" +
+        "</span>" +
+        '<button class="msg-notif-more" data-more="' + esc(e.id) + '" aria-haspopup="menu" aria-label="options for ' + esc(e.title) + '">⋯</button>' +
+      "</div>";
+    }).join("") + "</div>";
+    return header("What's new", true) + '<div class="msg-body">' + bodyHtml + "</div>";
+  }
+  function paintNotifRows() {
+    const map = notifsGet() || {};
+    root.querySelectorAll(".msg-notif").forEach((row) => {
+      const st = map[row.dataset.nid], unread = !!(st && typeof st === "object" && !st.read);
+      row.classList.toggle("unread", unread);
+      const dot = row.querySelector(".msg-notif-dot");
+      if (!dot) return;
+      if (unread) { dot.setAttribute("role", "img"); dot.setAttribute("aria-label", "unread"); dot.removeAttribute("aria-hidden"); }
+      else { dot.removeAttribute("role"); dot.removeAttribute("aria-label"); dot.setAttribute("aria-hidden", "true"); }
+    });
+  }
+  // ── auto-read: a notification marks itself read after ~5s of GENUINE visibility —
+  //    on screen (IntersectionObserver) AND in a visible tab. A backgrounded tab must
+  //    never quietly mark everything read (that would silently defeat the feature), so
+  //    hiding the tab pauses every clock; time on screen accumulates across peeks.
+  const NOTIF_READ_MS = 5000;
+  let _nW = null;
+  function notifsWire() {
+    notifsUnwire();
+    const listEl = root.querySelector("#msgNotifList"); if (!listEl) return;
+    const rows = new Map();   // rowEl → {id, acc, since, timer, inView, done}
+    const start = (row) => {
+      const s = rows.get(row);
+      if (!s || s.done || s.timer || !s.inView || document.visibilityState !== "visible") return;
+      s.since = Date.now();
+      s.timer = setTimeout(() => { s.timer = 0; s.done = true; notifsMark(s.id, 1); }, Math.max(0, NOTIF_READ_MS - s.acc));
+    };
+    const stop = (row) => {
+      const s = rows.get(row); if (!s) return;
+      if (s.timer) { clearTimeout(s.timer); s.timer = 0; }
+      if (s.since) { s.acc += Date.now() - s.since; s.since = 0; }
+    };
+    const io = ("IntersectionObserver" in window) ? new IntersectionObserver((ents) => {
+      ents.forEach((en) => { const s = rows.get(en.target); if (!s) return; s.inView = en.isIntersecting; if (en.isIntersecting) start(en.target); else stop(en.target); });
+    }, { threshold: 0.55 }) : null;
+    const onVis = () => { rows.forEach((s, row) => { if (document.visibilityState === "visible") start(row); else stop(row); }); };
+    document.addEventListener("visibilitychange", onVis);
+    root.querySelectorAll(".msg-notif.unread").forEach((row) => {
+      rows.set(row, { id: row.dataset.nid, acc: 0, since: 0, timer: 0, inView: false, done: false });
+      if (io) io.observe(row);
+      else { rows.get(row).inView = true; start(row); }   // no IO at all → visible-tab timer only
+    });
+    _nW = { io, rows, onVis };
+  }
+  function notifsUnwire() {
+    if (!_nW) return;
+    try { document.removeEventListener("visibilitychange", _nW.onVis); } catch (e) {}
+    try { if (_nW.io) _nW.io.disconnect(); } catch (e) {}
+    _nW.rows.forEach((s) => { if (s.timer) clearTimeout(s.timer); });
+    _nW = null;
+  }
+  function notifsHold(id) {   // a manual "mark unread" means "I'll come back" — park this visit's auto-read for that row
+    if (!_nW) return;
+    _nW.rows.forEach((s) => { if (s.id === id) { if (s.timer) clearTimeout(s.timer); s.timer = 0; s.done = true; } });
+  }
+  // the row menu — mark unread / mark read. Reached three ways, never gesture-only:
+  // the visible ⋯ button (keyboard + screen-reader reachable), right-click / the
+  // context-menu key on a focused row, and long-press on touch.
+  function closeNotifMenu() {
+    const m = root.querySelector(".msg-notif-menu"); if (!m) return;
+    try { if (m._cleanup) m._cleanup(); } catch (e) {}
+    const back = m._anchor; m.remove();
+    try { if (back && back.isConnected) back.focus(); } catch (e) {}
+  }
+  function openNotifMenu(id, anchor) {
+    closeNotifMenu();
+    const st = (notifsGet() || {})[id];
+    const isRead = !(st && typeof st === "object" && !st.read);
+    const m = document.createElement("div"); m.className = "msg-notif-menu"; m.setAttribute("role", "menu");
+    m.innerHTML = '<button role="menuitem" data-toggle>' + (isRead ? "Mark unread" : "Mark read") + "</button>";
+    m._anchor = anchor;
+    root.appendChild(m);
+    try {   // anchored by the row control on a wide surface; CSS makes it a bottom sheet under 480px
+      const r = anchor.getBoundingClientRect();
+      m.style.top = Math.max(8, Math.min(window.innerHeight - m.offsetHeight - 8, r.bottom + 4)) + "px";
+      m.style.left = Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, r.right - m.offsetWidth)) + "px";
+    } catch (e) {}
+    const onDown = (e) => { if (!m.contains(e.target)) closeNotifMenu(); };
+    setTimeout(() => document.addEventListener("pointerdown", onDown), 0);
+    m._cleanup = () => document.removeEventListener("pointerdown", onDown);
+    const b = m.querySelector("[data-toggle]");
+    b.addEventListener("click", () => { if (isRead) { notifsMark(id, 0); notifsHold(id); } else notifsMark(id, 1); closeNotifMenu(); });
+    b.focus();
+  }
   function render() {
-    if (!socialReady()) root.innerHTML = renderOnboard();
+    notifsUnwire();
+    closeNotifMenu();
+    if (view === "notifs") root.innerHTML = renderNotifs();   // the Cache's own news — no account needed
+    else if (!socialReady()) root.innerHTML = renderOnboard();
     else if (view === "thread") root.innerHTML = renderThread();
     else if (view === "find") root.innerHTML = renderFind();
     else if (view === "requests") root.innerHTML = renderRequests();
     else root.innerHTML = header("Messages", false) + '<div class="msg-body">' + convRows() + acctFooter() + "</div>";
     wire();
+    if (view === "notifs") notifsWire();
     if (view === "thread") { const box = root.querySelector("#msgThreadMsgs"); if (box) box.scrollTop = box.scrollHeight; dmsMarkRead(activeUid); }
   }
   function wire() {
@@ -10122,6 +10358,29 @@ function openMessages() {
       claimIn.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
     }
     root.querySelectorAll(".msg-conv").forEach((r) => r.addEventListener("click", () => { activeUid = r.dataset.uid; view = "thread"; render(); }));
+    // the bell → What's new. Render immediately from the session cache, then refresh the
+    // file (same-origin, tiny) so a long-lived tab still sees news from a newer deploy.
+    const nb = root.querySelector("#msgNotifs");
+    if (nb) nb.addEventListener("click", () => {
+      view = "notifs"; render();
+      notifsFetch(true).then(() => { notifsTried = true; if (view === "notifs" && root.isConnected) render(); });
+    });
+    root.querySelectorAll(".msg-notif-more").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); openNotifMenu(b.dataset.more, b); }));
+    root.querySelectorAll(".msg-notif").forEach((row) => {
+      const anchor = () => row.querySelector(".msg-notif-more") || row;
+      row.addEventListener("contextmenu", (e) => { e.preventDefault(); openNotifMenu(row.dataset.nid, anchor()); });   // right-click + the keyboard context-menu key
+      let lp = 0, lx = 0, ly = 0;   // long-press (touch) — a bonus path, never the only one
+      const cancelLp = () => { if (lp) { clearTimeout(lp); lp = 0; } };
+      row.addEventListener("pointerdown", (e) => {
+        if (e.pointerType !== "touch") return;
+        lx = e.clientX; ly = e.clientY;
+        cancelLp();
+        lp = setTimeout(() => { lp = 0; openNotifMenu(row.dataset.nid, anchor()); }, 500);
+      });
+      row.addEventListener("pointermove", (e) => { if (lp && (Math.abs(e.clientX - lx) > 8 || Math.abs(e.clientY - ly) > 8)) cancelLp(); });   // a scroll is not a hold
+      row.addEventListener("pointerup", cancelLp);
+      row.addEventListener("pointercancel", cancelLp);
+    });
     const req = root.querySelector("#msgReq"); if (req) req.addEventListener("click", () => { view = "requests"; render(); });
     const find = root.querySelector("#msgFind"); if (find) find.addEventListener("click", () => { view = "find"; results = null; findErr = ""; render(); });
     const findEmpty = root.querySelector("#msgFindEmpty"); if (findEmpty) findEmpty.addEventListener("click", () => { view = "find"; results = null; findErr = ""; render(); });
@@ -11503,6 +11762,7 @@ cloudAutoPull();           // adopt whatever another device left in the cloud
 setInterval(() => { if (!document.hidden) cloudAutoPull(); }, 75000);   // near-live: a tiny two-field check while you're looking
 document.addEventListener("cache:logged", autoPushSoon);   // a finished check-in is worth syncing
 socialUpdateBadge();       // show any unread count from the last session's cache immediately
+notifsFetch();             // the Cache's own news — seeds first-run read state, arms the news corner (never throws)
 if (socialReady()) socialPoll().catch(() => {});   // pull new messages + friend requests on load
 setInterval(() => { if (!document.hidden && socialReady()) socialPoll().catch(() => {}); }, 75000);   // near-live message check (the open surface polls faster)
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint
