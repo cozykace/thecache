@@ -65,6 +65,7 @@ _Last updated: 2026-07-16_
 - **Your cache is a character** — it levels up as you do the real work: EXP, merit badges, and a journey earned by living, never bought.
 - **Roadmap in the app** — see what's shipped and what's next, right from the dock.
 - **Report a bug or request** — a built-in feedback button; your note goes straight to the maker and into the beta feedback inbox, no email app required.
+- **Your reports come back to you** — tick "Credit this to my cache" when you send a report (optional — anonymous is always welcome) and the loop actually closes: when your report gets fixed, a calm card tells you — your own words back to you, plus what changed — you earn EXP for it, and a **Cache builder** stat starts counting the reports of yours that made the app better for everyone. It appears with your first one; there's never an empty version shaming you.
 - **A public status page** — thecache.app/status checks the app, the cloud, and the demo live from your own browser, shows the honest history of incidents and fixes, and gives you a report box that works even signed-out (with an email fallback if the cloud itself is down).
 
 ## Your data, owned
