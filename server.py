@@ -23,6 +23,31 @@ PORT = int(os.environ.get("GOAT_PORT", "5173"))  # override if 5173 is taken: GO
 # never serve these over HTTP, even on localhost
 BLOCKED = (".simplefin", ".py", ".pyc")
 
+# ── request gate (security eval 2026-07-21, T1 CRITICAL + T2) ────────────────
+# The localhost API is a trust boundary (security-principles §6). Without a Host check, a
+# malicious website can use DNS REBINDING to read the whole plaintext data/ tree while the
+# server runs; without an Origin check, any web page can fire cross-origin "simple" POSTs
+# (forced restart, ledger pollution, bank-credential overwrite). Browsers always send Origin
+# on cross-origin POSTs and it cannot be spoofed by a page — so Host+Origin allowlists close
+# both holes with zero client changes. Power users (tailscale serve, LAN testing) extend via
+#   GOAT_ALLOWED_HOSTS=myname.ts.net,192.168.1.20 python3 server.py
+_EXTRA_HOSTS = [h.strip().lower() for h in os.environ.get("GOAT_ALLOWED_HOSTS", "").split(",") if h.strip()]
+ALLOWED_HOSTS = set(["127.0.0.1", "localhost", "::1", "[::1]"] + _EXTRA_HOSTS)
+
+# /api/connect claims must go to a real SimpleFIN bridge over https — never to an arbitrary
+# URL a hostile page smuggled in (SSRF + credential overwrite). Self-hosted bridge users:
+#   GOAT_SIMPLEFIN_HOSTS=bridge.my-simplefin.example python3 server.py
+_EXTRA_BRIDGES = [h.strip().lower() for h in os.environ.get("GOAT_SIMPLEFIN_HOSTS", "").split(",") if h.strip()]
+ALLOWED_BRIDGE_HOSTS = set(["bridge.simplefin.org", "beta-bridge.simplefin.org"] + _EXTRA_BRIDGES)
+
+
+def _hostname_only(value):
+    # "localhost:5173" → "localhost" · "[::1]:5173" → "::1" — lowercase, no port, no brackets
+    v = (value or "").strip().lower()
+    if v.startswith("["):
+        return v.split("]")[0].lstrip("[")
+    return v.rsplit(":", 1)[0] if ":" in v else v
+
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -39,11 +64,47 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _gate(self, is_post):
+        # returns True if the request was rejected (response already sent)
+        host = _hostname_only(self.headers.get("Host"))
+        if host not in ALLOWED_HOSTS:
+            self._json(403, {"error": "forbidden host"})
+            return True
+        if is_post:
+            origin = self.headers.get("Origin")
+            if origin:
+                try:
+                    from urllib.parse import urlsplit
+                    ohost = (urlsplit(origin).hostname or "").lower()
+                except Exception:
+                    ohost = ""
+                if ohost not in ALLOWED_HOSTS:
+                    self._json(403, {"error": "forbidden origin"})
+                    return True
+        return False
+
     def _blocked(self):
-        name = os.path.basename(self.path.split("?")[0])
-        return name.startswith(".") or self.path.split("?")[0].endswith(BLOCKED)
+        # dotfiles anywhere in the path, blocked extensions, and backups/ never serve.
+        # data/*.json stays servable ON PURPOSE — the widgets' whole data flow reads it
+        # same-origin; the Host gate is what stops rebinding reads, and the browser's
+        # same-origin policy stops cross-origin ones. backups/ has no in-app reader.
+        path = self.path.split("?")[0]
+        if any(seg.startswith(".") for seg in path.split("/") if seg):
+            return True
+        if path.endswith(BLOCKED):
+            return True
+        if path == "/backups" or path.startswith("/backups/"):
+            return True
+        return False
+
+    def list_directory(self, path):
+        # directory listings are a map of the user's data — never serve one
+        self.send_error(403, "Forbidden")
+        return None
 
     def do_GET(self):
+        if self._gate(is_post=False):
+            return
         path = self.path.split("?")[0]
         if path == "/api/ping":
             # founder lock: only the machine holding the local .founder secret is King.
@@ -180,6 +241,8 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
+        if self._gate(is_post=True):
+            return
         if self.path == "/api/restart":
             # respond, then replace this process with a fresh one (loads new code).
             # the listening socket is close-on-exec, so the port frees up for the new server.
@@ -245,6 +308,13 @@ class Handler(SimpleHTTPRequestHandler):
                     return self._json(200, {"ok": False, "error": "That doesn't look like a setup token — copy the whole thing from SimpleFIN."})
                 if not claim_url.startswith("http"):
                     return self._json(200, {"ok": False, "error": "That token didn't decode to a valid link — recopy the full token."})
+            # SSRF guard (security eval T2): the claim URL must be a real SimpleFIN bridge over
+            # https — never loopback/LAN/an attacker's collector. Self-hosters: GOAT_SIMPLEFIN_HOSTS.
+            from urllib.parse import urlsplit as _us
+            _claim = _us(claim_url)
+            _chost = (_claim.hostname or "").lower()
+            if _claim.scheme != "https" or _chost not in ALLOWED_BRIDGE_HOSTS:
+                return self._json(200, {"ok": False, "error": "That token points somewhere other than a known SimpleFIN bridge — recopy it from SimpleFIN. (Self-hosted bridge? Set GOAT_SIMPLEFIN_HOSTS.)"})
             try:
                 req = urllib.request.Request(claim_url, data=b"", method="POST",
                                              headers={"User-Agent": "thecache/1.0"})
