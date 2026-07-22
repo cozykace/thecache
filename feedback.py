@@ -58,22 +58,28 @@ def load_creds():
     if not os.path.exists(CRED):
         sys.exit(
             "No .pbadmin file.\n\n"
-            "Create one next to this script (it's gitignored):\n"
+            "Create one next to this script (it's gitignored). Either form works:\n"
+            '  {"url": "https://thecache.pockethost.io", "token": "<from your logged-in admin tab>"}\n'
             '  {"url": "https://thecache.pockethost.io", "email": "…", "password": "…"}\n'
             "then:  chmod 600 .pbadmin"
         )
     with open(CRED) as f:
         c = json.load(f)
-    if not c.get("url") or not c.get("email") or not c.get("password"):
-        sys.exit(".pbadmin needs url, email and password.")
+    if not c.get("url"):
+        sys.exit(".pbadmin needs a url.")
+    if not c.get("token") and not (c.get("email") and c.get("password")):
+        sys.exit(".pbadmin needs either a token, or an email + password.")
     c["url"] = c["url"].rstrip("/")
     return c
 
 
 def auth(c):
-    """PocketBase renamed the admin auth route: _superusers (v0.23+) vs admins (older).
+    """A pasted token (from an already-signed-in admin tab) wins — no password stored.
+    Otherwise sign in. PocketBase renamed the admin auth route: _superusers (v0.23+) vs admins (older).
     Also try the regular `users` collection — on some setups the inbox is readable by a
     normal account rather than a superuser."""
+    if c.get("token"):
+        return c["token"]
     payload = {"identity": c["email"], "password": c["password"]}
     tried = []
     for path in ("/api/collections/_superusers/auth-with-password",
@@ -112,6 +118,9 @@ def fetch(c, token, limit):
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 sys.exit("No `feedback` collection on this instance yet — nothing to triage.")
+            if e.code in (401, 403):
+                sys.exit("The saved token was refused (they expire) — paste a fresh one into .pbadmin,\n"
+                         "or switch that file to email + password.")
             raise
         items = d.get("items") or []
         out.extend(items)
