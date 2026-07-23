@@ -619,7 +619,7 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .back-soon { font-size: 12.5px; line-height: 1.55; color: rgba(var(--ink-rgb), 0.55); padding: 6px 4px; }
 .back-fine { font-size: 11.5px; color: rgba(var(--ink-rgb), 0.45); }
 @media (max-width: 480px) {   /* modals → bottom sheets on a phone (mobile SOP #7) */
-  .back-modal { inset: auto 0 0 0; margin: 0; width: 100%; max-height: 86vh; border-radius: 18px 18px 0 0; border-left: none; border-right: none; border-bottom: none; }
+  .back-modal, .bugfix-modal { inset: auto 0 0 0; margin: 0; width: 100%; max-height: 86vh; border-radius: 18px 18px 0 0; border-left: none; border-right: none; border-bottom: none; padding-bottom: env(safe-area-inset-bottom); }
 }
 
 /* import: toast + drag-drop overlay */
@@ -2885,6 +2885,21 @@ a.src-link:hover .src-bankname { color: var(--accent); }
 .bug-del:hover { color: #c9542e; }
 .bug-row.solved .bug-text { text-decoration: line-through; color: rgba(var(--ink-rgb), 0.4); }
 .bug-row.solved .bug-check { color: #3f8f4e; }
+/* per-report "credit this to my cache" opt-in — whole row is the tap target (≥44px) */
+.bug-credit {
+  display: flex; align-items: flex-start; gap: 9px; cursor: pointer;
+  font-size: 11.5px; line-height: 1.5; color: rgba(var(--ink-rgb), 0.65);
+  padding: 6px 2px; min-height: 44px; box-sizing: border-box;
+}
+.bug-credit b { color: var(--ink); font-weight: 600; }
+.bug-credit input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
+/* "fixed — thanks to you" celebration card (calm, never a red alert) */
+.bugfix-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.bugfix-lead { font-size: 13.5px; color: var(--ink); line-height: 1.5; }
+.bugfix-row { border: 1px solid var(--edge-soft); border-radius: 10px; padding: 10px 12px; background: rgba(var(--ink-rgb), 0.03); }
+.bugfix-what { font-size: 12.5px; color: var(--ink); line-height: 1.5; word-break: break-word; }
+.bugfix-note { font-size: 12px; color: rgba(var(--ink-rgb), 0.6); line-height: 1.5; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--edge-soft); word-break: break-word; }
+.bugfix-exp { font-size: 12px; color: var(--accent); font-weight: 600; line-height: 1.5; }
 
 /* subscription name as a clickable button */
 button.cf-cat { font-family: inherit; border: none; background: none; cursor: pointer; padding: 0; text-align: left; }

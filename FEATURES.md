@@ -67,6 +67,7 @@ _Last updated: 2026-07-16_
 - **Roadmap in the app** — see what's shipped and what's next, right from the dock.
 - **What's new, quietly** — every update announces itself in one calm place: the 🔔 inside Messages. The messages button tells you at a glance who's waiting — top corner means a person, bottom corner means news — and neither ever flashes or interrupts. A note marks itself read after you've genuinely seen it for a few seconds (never while the tab is in the background), you can mark anything unread to come back later, and read state follows you across your devices. A fresh install starts clean — you only see news that lands after you arrive.
 - **Report a bug or request** — a built-in feedback button; your note goes straight to the maker and into the beta feedback inbox, no email app required.
+- **Your reports come back to you** — tick "Credit this to my cache" when you send a report (optional — anonymous is always welcome) and the loop actually closes: when your report gets fixed, a calm card tells you — your own words back to you, plus what changed — you earn EXP for it, and a **Cache builder** stat starts counting the reports of yours that made the app better for everyone. It appears with your first one; there's never an empty version shaming you.
 - **A public status page** — thecache.app/status checks the app, the cloud, and the demo live from your own browser, shows the honest history of incidents and fixes, and gives you a report box that works even signed-out (with an email fallback if the cloud itself is down).
 
 ## Your data, owned

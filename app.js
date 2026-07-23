@@ -3037,9 +3037,12 @@ function charSince() {
   if (!s) { s = String(Date.now()); localStorage.setItem(CHARSINCE_KEY, s); }
   return +s;
 }
-function logChar(kind, detail) {
+function logChar(kind, detail, t) {
+  // `t` optional: a DETERMINISTIC timestamp (e.g. the server's fixed-at time) makes the
+  // entry's union key (t|k|d) identical on every device, so charLog dedupes it instead
+  // of journaling the same feat once per device.
   const log = charLog();
-  log.push({ k: kind, d: detail, t: Date.now() });
+  log.push({ k: kind, d: detail, t: t || Date.now() });
   try { localStorage.setItem(CHARLOG_KEY, JSON.stringify(log.slice(-800))); } catch (e) {}
 }
 function agoStr(ts) {
@@ -3051,7 +3054,7 @@ function agoStr(ts) {
   if (s < 604800) return Math.floor(s / 86400) + "d ago";
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
-const CHAR_ICON = { level: "🎉", widget: "➕", sync: "🔌", feat: "⭐", note: "📌" };
+const CHAR_ICON = { level: "🎉", widget: "➕", sync: "🔌", feat: "⭐", note: "📌", bugfix: "🛠️" };
 const JOURNEY = [
   { arc: "Awakening", lvls: "1–2", feats: ["Connect a bank", "Name your cache", "Tag your income"] },
   { arc: "Foundation", lvls: "3–4", feats: ["Mark must-pays", "Build a budget", "Categorize a month"] },
@@ -3243,6 +3246,46 @@ function addExp(n) {
   updateXp();
   clearTimeout(_statsTimer);
   _statsTimer = setTimeout(saveStats, 700);
+}
+// ── Bug credits: closing the loop with the person who reported a bug ─────────
+// When a report you chose to credit to your cache gets marked fixed, you hear about
+// it, earn EXP for it, and it counts toward a stat you can be proud of.
+// money.bugCredits is the idempotency SET: [{id, at, exp}] per credited report, one
+// entry per feedback-record id. Its merge class is SPECIAL — a union by report id
+// (exactly like money.badges unions earned ids) — so two devices that both see the
+// same fixed report converge on ONE entry.
+// The EXP grant is made exactly-once the same way: it banks into a DETERMINISTIC
+// EXP-ledger slot named after the report (expBy["bug:<id>"] = BUG_FIX_EXP), never the
+// device slot. The profile merge is slot-wise MAX, so two devices independently
+// granting the same report collapse to one grant; different reports use different
+// slots and both count. (No health bonus here — the slot value must be byte-identical
+// on every device or the ledger would double-count.)
+const BUG_CREDITS_KEY = "money.bugCredits";
+const BUG_FIX_EXP = 25;
+function bugCredits() { try { const a = JSON.parse(localStorage.getItem(BUG_CREDITS_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+// The stat is DERIVED from the credits set (count + EXP sum) — a derived stat can't
+// drift from its source the way a second mutable counter could.
+function bugCreditStat() {
+  const a = bugCredits().filter((c) => c && c.id);
+  return { count: a.length, exp: a.reduce((t, c) => t + (+c.exp || 0), 0) };
+}
+// Claim a fixed report EXACTLY once. Returns true only if the id was genuinely new
+// to the union (that's the only path that grants EXP / celebrates / journals).
+function bugCreditClaim(id, at) {
+  if (!id) return false;
+  const a = bugCredits();
+  if (a.some((c) => c && c.id === id)) return false;
+  a.push({ id: id, at: at || "", exp: BUG_FIX_EXP });
+  try { localStorage.setItem(BUG_CREDITS_KEY, JSON.stringify(a)); } catch (e) {}
+  PROFILE_STATS.exp += BUG_FIX_EXP;
+  if (!PROFILE_STATS.expBy || typeof PROFILE_STATS.expBy !== "object") PROFILE_STATS.expBy = {};
+  PROFILE_STATS.expBy["bug:" + id] = BUG_FIX_EXP;   // deterministic slot — slot-wise max ⇒ one grant across devices
+  try { updateXp(); } catch (e) {}
+  clearTimeout(_statsTimer);
+  _statsTimer = setTimeout(saveStats, 700);
+  // deterministic t (the server's fixed-at time) → the journey entry dedupes across devices
+  try { logChar("bugfix", "Something you reported got fixed — you made the Cache better", Date.parse(at) || Date.now()); } catch (e) {}
+  return true;
 }
 // ── Trust badge: a live, non-destructive proof the ledger is solid (/api/integrity) ──
 function renderTrust() {
@@ -3578,7 +3621,7 @@ async function cloudFindVaultId(s) {
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
 const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms"];   // + deckDay (calendar) + dms (the messages cache — a mirror of server data + per-thread read marks; per-device, never rides the vault)
-const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state)
+const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs", "money.bugCredits"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state) + bugCredits (union by report id, like badges)
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
 // bundle is engine-computed and travels whole-file. catmeta.json (your category
@@ -3708,6 +3751,11 @@ function _authoredProject(k, str) {
     if (k === "money.charLog" && Array.isArray(v)) return _sortBy(v, _ckChar).map(_canonVal);
     if (k === "money.badges" && Array.isArray(v)) return v.slice().map(String).sort();
     if (k === "money.customStats" && Array.isArray(v)) return _sortBy(v.filter((s) => s && s.id), (s) => s.id).map((s) => ({ id: s.id, marks: (s.marks || []).slice().sort() }));
+    // bugCredits unions by report id but each device APPENDS in its own claim order, and
+    // on an id both hold the union keeps the LOCAL entry (an `at` can differ by clock) —
+    // so project to the converged parts only (id + exp), sorted by id. Hashing the raw
+    // array would read two converged devices as forever "ahead" (the livelock class).
+    if (k === "money.bugCredits" && Array.isArray(v)) return _sortBy(v.filter((c) => c && c.id), (c) => c.id).map((c) => ({ id: c.id, exp: +c.exp || 0 }));
     // money.profile converges ONLY on its EXP-ledger core (expBy slot-max, exp=sum,
     // clicks=max). stats.dev is a per-device id the merge never reconciles, and
     // name/role/note are richer-wins (device-local at equal exp) — hashing them raw
@@ -4142,6 +4190,22 @@ function mergeNotifsStr(remStr) {
   if (changed) { try { localStorage.setItem("money.notifs", JSON.stringify(loc)); } catch (e) {} }
   return changed;
 }
+// Bug credits: union by report id — a credit earned on one device shows on every
+// device and can never un-earn (or re-grant) through a merge. On an id both sides
+// hold, the LOCAL entry is kept (same rule as customStats keeping local metadata);
+// the authored-hash witness projects to id+exp so a differing `at` can't livelock.
+function mergeBugCreditsStr(remStr) {
+  try {
+    const rem = JSON.parse(remStr || "[]"); if (!Array.isArray(rem)) return false;
+    const loc = JSON.parse(localStorage.getItem("money.bugCredits") || "[]");
+    const arr = Array.isArray(loc) ? loc.slice() : [];
+    const seen = new Set(arr.filter((c) => c && c.id).map((c) => c.id));
+    let add = false;
+    rem.forEach((c) => { if (c && c.id && !seen.has(c.id)) { seen.add(c.id); arr.push({ id: c.id, at: c.at || "", exp: +c.exp || 0 }); add = true; } });
+    if (add) localStorage.setItem("money.bugCredits", JSON.stringify(arr));
+    return add;
+  } catch (e) { return false; }
+}
 // The founding date is the EARLIEST either device has seen — so a fresh install that
 // mints charSince=now can never push the journey start (or the Devoted badge) forward.
 function mergeCharSinceStr(remStr) {
@@ -4238,6 +4302,7 @@ function mergeRemoteLocal(lo, meta) {
   // accumulators — union badges, union custom-stat marks, earliest founding date
   try { if (lo["money.badges"] != null && mergeBadgesStr(lo["money.badges"])) changed = true; } catch (e) {}
   try { if (lo["money.customStats"] != null && mergeCustomStatsStr(lo["money.customStats"])) changed = true; } catch (e) {}
+  try { if (lo["money.bugCredits"] != null && mergeBugCreditsStr(lo["money.bugCredits"])) changed = true; } catch (e) {}
   try { if (lo["money.charSince"] != null && mergeCharSinceStr(lo["money.charSince"])) changed = true; } catch (e) {}
   // notification read state — per-id newest-wins by `at`, exact tie → unread wins
   try { if (lo["money.notifs"] != null && mergeNotifsStr(lo["money.notifs"])) { changed = true; try { if (typeof socialUpdateBadge === "function") socialUpdateBadge(); document.dispatchEvent(new CustomEvent("cache:notifs")); } catch (e) {} } } catch (e) {}
@@ -6949,20 +7014,30 @@ function feedbackContext() {
 // founder (and the future roadmap wizard) can read, instead of dying in an email inbox.
 // Fire-and-forget: if the collection doesn't exist yet or the network is down, the email
 // path above still carries the report — this never blocks or breaks the button.
-function sendFeedbackToInbox(kind, text, email) {
+// `credit` is the reporter's PER-REPORT opt-in ("credit this to my cache"): only then —
+// and only while actually signed in — does the record carry `owner` (their account id),
+// which is what lets the fixed-it news + EXP find their way back. Without it the report
+// is exactly as anonymous as it always was: no owner, no auth header, equally welcome.
+function sendFeedbackToInbox(kind, text, email, credit) {
   try {
     let from = "";
     try { from = (JSON.parse(localStorage.getItem("money.profile") || "{}").name || ""); } catch (e) {}
+    const s = cloudState();
+    const withOwner = !!(credit && s.token && s.userId);
+    const body = { kind: kind || "note", message: (text || "").slice(0, 4000), reply_to: email || "", from_name: from.slice(0, 80), context: feedbackContext().slice(0, 300) };
+    if (withOwner) body.owner = s.userId;
+    const hdr = { "Content-Type": "application/json" };
+    if (withOwner) hdr.Authorization = s.token;   // the create rule only lets you attach YOURSELF
     fetch(cloudUrl() + "/api/collections/feedback/records", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: kind || "note", message: (text || "").slice(0, 4000), reply_to: email || "", from_name: from.slice(0, 80), context: feedbackContext().slice(0, 300) }),
+      headers: hdr,
+      body: JSON.stringify(body),
     }).catch(() => {});
   } catch (e) {}
 }
 // Returns a promise<boolean> — true if it was sent (or the mail app was opened).
-function sendFeedback(kind, text, email) {
-  sendFeedbackToInbox(kind, text, email);
+function sendFeedback(kind, text, email, credit) {
+  sendFeedbackToInbox(kind, text, email, credit);
   const subject = "THE CACHE — " + kind + (email ? " — " + email : "");
   if (!FEEDBACK_KEY) {
     const body = text + "\n\n— kind: " + kind +
@@ -6988,6 +7063,53 @@ function sendFeedback(kind, text, email) {
     .then((r) => r.json())
     .then((d) => !!d.success)
     .catch(() => false);
+}
+// ── Closing the loop: "the thing you reported is fixed" ─────────────────────
+// On the 75s cloud loop (gently — a real check only every ~4 min; fixes are rare
+// events), fetch this account's OWN credited feedback rows that are marked fixed.
+// Any id not yet in the money.bugCredits union is genuinely new: claim it (EXP,
+// journey entry) and show one calm, celebratory card. Never a red alert, never
+// nagging — a claimed id never resurfaces, on any device.
+let _bugPolling = false, _bugPollAt = 0;
+async function bugPoll() {
+  const s = cloudState();
+  if (_bugPolling || !s.token || !s.userId) return;
+  if (Date.now() - _bugPollAt < 240000) return;
+  _bugPolling = true; _bugPollAt = Date.now();
+  try {
+    const d = await socialApi("/api/collections/feedback/records?perPage=100&filter=" + encodeURIComponent('owner="' + s.userId + '" && status="fixed"'));
+    const fresh = (d.items || []).filter((it) => it && it.id && bugCreditClaim(it.id, it.updated || it.created || ""));
+    if (fresh.length) {
+      try { renderStatsBar(); } catch (e) {}   // the contributor stat may have just appeared
+      openBugFixedCard(fresh);
+    }
+  } catch (e) {} finally { _bugPolling = false; }   // collection not created yet / offline → quietly try again later
+}
+// The card. Warm and specific — their own words back to them, plus Cozy's fix note
+// if there is one. Both strings go through escapeHtml before the DOM.
+function openBugFixedCard(items) {
+  const back = document.createElement("div"); back.className = "cat-backdrop";
+  const modal = document.createElement("div"); modal.className = "cat-modal bugfix-modal";
+  const close = () => { back.remove(); modal.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  const st = bugCreditStat();
+  const rows = items.map((it) => {
+    const what = String(it.message || "").slice(0, 140);
+    const note = String(it.fix_note || "");
+    return '<div class="bugfix-row">' +
+      '<div class="bugfix-what">“' + escapeHtml(what) + '”</div>' +
+      (note ? '<div class="bugfix-note">' + escapeHtml(note) + "</div>" : "") +
+      "</div>";
+  }).join("");
+  modal.innerHTML =
+    '<div class="cat-head"><span>🛠️ Fixed — thanks to you</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="bugfix-body">' +
+      '<div class="bugfix-lead">Remember ' + (items.length > 1 ? "these? You reported them, and now they’re" : "this? You reported it, and now it’s") + " fixed.</div>" +
+      rows +
+      '<div class="bugfix-exp">+' + (items.length * BUG_FIX_EXP) + " EXP · " + st.count + (st.count === 1 ? " report" : " reports") + " of yours " + (st.count === 1 ? "has" : "have") + " made the Cache better 💛</div>" +
+    "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", close);
 }
 function closeBugReport() {
   const m = document.querySelector(".bug-modal");
@@ -7038,6 +7160,12 @@ function openBugReport() {
       "</div>" +
       '<textarea class="bug-input" placeholder="What’s broken, or what would you love to see?"></textarea>' +
       '<input class="bug-email" type="email" placeholder="your email (optional — so cozy can reply)" />' +
+      // per-report opt-in — only offered when a cloud account is actually signed in.
+      // Plain about what gets attached; unchecked = exactly as anonymous as before.
+      (cloudState().token && cloudState().userId
+        ? '<label class="bug-credit"><input class="bug-credit-cb" type="checkbox" />' +
+          '<span><b>Credit this to my cache</b> — attaches your account so you hear back when it’s fixed (and earn EXP). Leave it off to send anonymously.</span></label>'
+        : "") +
       '<button class="bug-submit" type="button">Send to cozy</button>' +
       '<div class="bug-msg" aria-live="polite"></div>' +
     "</div>" +
@@ -7067,10 +7195,12 @@ function openBugReport() {
     const text = input.value.trim();
     if (!text) { input.focus(); return; }
     const email = emailEl.value.trim();
+    const creditCb = modal.querySelector(".bug-credit-cb");
+    const credit = !!(creditCb && creditCb.checked);
     submit.disabled = true;
     msgEl.className = "bug-msg";
     msgEl.textContent = "sending…";
-    sendFeedback(kind, text, email).then((ok) => {
+    sendFeedback(kind, text, email, credit).then((ok) => {
       submit.disabled = false;
       if (ok) {
         input.value = "";
@@ -11681,7 +11811,18 @@ function customStatEntry(cs) {
     return { val: "—" };
   } };
 }
-function allStats() { return STAT_DEFS.concat(ensureCustomStats().map(customStatEntry)); }
+// ── The contributor stat: how many reports of yours have been fixed ──
+// DERIVED from money.bugCredits (count + EXP sum) — never a second mutable counter.
+// Hidden entirely until the first one lands (no sad zero-state, per 1_PRINCIPLES:
+// someone who reports nothing must never see a gap where a stat "should" be), then
+// it appears in the strip as a small standing honor. Respects statsOrder/statsHidden
+// like every other chip once it exists.
+function bugStatEntry() {
+  const st = bugCreditStat();
+  if (!st.count) return [];
+  return [{ id: "bugfixes", label: "Cache builder", fn: () => ({ val: "🛠️ " + st.count, tone: "ok" }) }];
+}
+function allStats() { return STAT_DEFS.concat(bugStatEntry(), ensureCustomStats().map(customStatEntry)); }
 function statsList(key) { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch (e) { return []; } }
 function statsDefOrder() {
   const defs = allStats();
@@ -11860,4 +12001,6 @@ socialUpdateBadge();       // show any unread count from the last session's cach
 notifsFetch();             // the Cache's own news — seeds first-run read state, arms the news corner (never throws)
 if (socialReady()) socialPoll().catch(() => {});   // pull new messages + friend requests on load
 setInterval(() => { if (!document.hidden && socialReady()) socialPoll().catch(() => {}); }, 75000);   // near-live message check (the open surface polls faster)
+bugPoll().catch(() => {});   // did something you reported get fixed while you were away?
+setInterval(() => { if (!document.hidden) bugPoll().catch(() => {}); }, 75000);   // rides the same cadence; bugPoll self-throttles to ~4 min
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint
