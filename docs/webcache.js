@@ -116,7 +116,6 @@
     if (after !== JSON.stringify(loc)) { localStorage.setItem("money.customStats", after); return true; }
     return false;
   }
-<<<<<<< HEAD
   // notification read state — per-id newest-wins by `at`, exact tie → UNREAD wins
   // (must match app.js mergeNotifsStr exactly, or phone/desktop settle on different
   // read marks: a union of read ids could never express "mark unread again")
@@ -135,7 +134,7 @@
     });
     if (changed) { try { localStorage.setItem("money.notifs", JSON.stringify(loc)); } catch (e) {} }
     return changed;
-=======
+  }
   // bug credits: union by report id, keep-local on an id both hold — MUST match
   // app.js mergeBugCreditsStr or the two runtimes fork on what's been claimed
   function wMergeBugCredits(remStr) {
@@ -149,7 +148,6 @@
       if (add) localStorage.setItem("money.bugCredits", JSON.stringify(arr));
       return add;
     } catch (e) { return false; }
->>>>>>> cozycode/bug-report-feedback-loop-8f41e7
   }
   function wMergeCharSince(remStr) {
     var rem = parseInt(remStr); if (!rem) return false;
@@ -165,11 +163,7 @@
   // cloud/identity internals + device-ergonomic geometry (never synced — keeps the
   // phone from snapping to desktop-pixel zoom / sidebar / modal layout on unlock)
   var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.deckRev"];   // deckDay (calendar) siloed per device; dms (messages cache) never rides the vault; deckRev RETIRED — must match app.js DEVICE_LOCAL_KEYS or it'd sync as a generic key and churn
-<<<<<<< HEAD
-  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs"];   // + forms/formData (reuse wMergeThings) + notifs (per-id newest-wins read state) — MUST match app.js SPECIAL_MERGE_KEYS
-=======
-  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.bugCredits"];   // + forms/formData (reuse wMergeThings) + bugCredits (union by report id) — MUST match app.js SPECIAL_MERGE_KEYS
->>>>>>> cozycode/bug-report-feedback-loop-8f41e7
+  var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs", "money.bugCredits"];   // + forms/formData (reuse wMergeThings) + notifs (per-id newest-wins) + bugCredits (union by report id) — MUST match app.js SPECIAL_MERGE_KEYS
   // ── deck per-item merge — MUST stay byte-identical to app.js mergeDecks/deckCanon/
   //    deckCap, or the phone and desktop settle on different decks. Same rules:
   //    newer `updated` wins · exact tie → tombstone wins · still tied → canonical

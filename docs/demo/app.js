@@ -3621,11 +3621,7 @@ async function cloudFindVaultId(s) {
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
 const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms"];   // + deckDay (calendar) + dms (the messages cache — a mirror of server data + per-thread read marks; per-device, never rides the vault)
-<<<<<<< HEAD
-const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state)
-=======
-const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.bugCredits"];   // + forms/formData (reuse the things per-item merge) + bugCredits (union by report id, like badges)
->>>>>>> cozycode/bug-report-feedback-loop-8f41e7
+const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs", "money.bugCredits"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state) + bugCredits (union by report id, like badges)
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
 // bundle is engine-computed and travels whole-file. catmeta.json (your category
@@ -4170,7 +4166,6 @@ function mergeCustomStatsStr(remStr) {
   if (after !== JSON.stringify(loc)) { localStorage.setItem("money.customStats", after); return true; }
   return false;
 }
-<<<<<<< HEAD
 // Notification read state: per-id NEWEST-WINS by `at` — NOT a union of read ids, because
 // a union can't express "mark unread again" (un-reading would silently revert on the next
 // merge). Stamps are deterministic (see the notifs block near openMessages): seed/detect
@@ -4194,7 +4189,7 @@ function mergeNotifsStr(remStr) {
   });
   if (changed) { try { localStorage.setItem("money.notifs", JSON.stringify(loc)); } catch (e) {} }
   return changed;
-=======
+}
 // Bug credits: union by report id — a credit earned on one device shows on every
 // device and can never un-earn (or re-grant) through a merge. On an id both sides
 // hold, the LOCAL entry is kept (same rule as customStats keeping local metadata);
@@ -4210,7 +4205,6 @@ function mergeBugCreditsStr(remStr) {
     if (add) localStorage.setItem("money.bugCredits", JSON.stringify(arr));
     return add;
   } catch (e) { return false; }
->>>>>>> cozycode/bug-report-feedback-loop-8f41e7
 }
 // The founding date is the EARLIEST either device has seen — so a fresh install that
 // mints charSince=now can never push the journey start (or the Devoted badge) forward.
