@@ -11493,7 +11493,13 @@ function syncNow() {
   fetch("/api/sync", { method: "POST" })
     .then((r) => r.json())
     .then((res) => {
-      if (res && res.ok) { flash("Synced — reloading…"); autoPushNow().then(() => setTimeout(() => location.reload(), 1200)); }
+      if (res && res.ok) {
+        // A pull can succeed with good data yet still carry per-account warnings the
+        // bank returned (e.g. one login expired) — show them instead of a plain "Synced".
+        const warn = (res.errors && res.errors.length) ? res.errors.join("; ") : "";
+        flash(warn ? ("Synced, but your bank flagged: " + warn) : "Synced — reloading…");
+        autoPushNow().then(() => setTimeout(() => location.reload(), warn ? 3200 : 1200));
+      }
       else flash((res && res.error) || "sync failed");
     })
     .catch(() => flash("backend not running — start python3 server.py"));

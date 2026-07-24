@@ -11,9 +11,11 @@ EVERY TIME:   python3 sync.py
 import sys
 import os
 import time
+import json
 import base64
 import urllib.request
 import urllib.parse
+import urllib.error
 
 import store
 
@@ -50,28 +52,53 @@ def claim_setup_token(setup_token):
 
 
 def fetch_accounts(access_url, start_date=None):
+    # Access URL form: https://<user>:<password>@<host>/<path> — pull the Basic-auth
+    # credentials out of the userinfo and send them as an Authorization header (never
+    # in the URL, so they can't land in a log). Keep a self-hosted server's port.
     p = urllib.parse.urlparse(access_url)
     auth = base64.b64encode(f"{p.username}:{p.password}".encode()).decode()
-    base = f"{p.scheme}://{p.hostname}{p.path}"
-    url = base + "/accounts"
+    host = p.hostname + (f":{p.port}" if p.port else "")
+    url = f"{p.scheme}://{host}{p.path}/accounts"
     if start_date:
         url += "?start-date=" + str(int(start_date))
     req = urllib.request.Request(url, headers={"Authorization": "Basic " + auth, "User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        import json
-        return json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        # Spec: handle a 403 (access revoked / bad credentials) and a 402 from
+        # /accounts, and show the user a clear message — never a raw traceback.
+        if e.code == 403:
+            raise RuntimeError("Your bank connection was declined (403) — access may have been "
+                               "revoked, or the saved credential is no longer valid. Reconnect to fix it.")
+        if e.code == 402:
+            raise RuntimeError("Your SimpleFIN bridge says payment is required (402) before it will "
+                               "share data. Check your SimpleFIN account, then sync again.")
+        raise RuntimeError(f"Bank sync failed (HTTP {e.code}).")
 
 
 def run_sync(access_url=None):
-    """Pull from the bank and write the local data files. Returns the snapshot.
-    Callable from server.py so the dashboard can trigger a live sync."""
+    """Pull from the bank and write the local data files. Callable from server.py so
+    the dashboard can trigger a live sync. Returns (snapshot, n_txns, ledger_total,
+    errors) — `errors` is the sanitized list of any per-account/connection issues the
+    bank reported alongside good data (empty on a clean pull); a pull that returned
+    ONLY errors raises instead, so we never overwrite good local data with zeros."""
     if access_url is None:
         if not os.path.exists(SECRET):
             raise RuntimeError("not connected — run: python3 sync.py setup")
         access_url = open(SECRET).read().strip()
     now = int(time.time())
     data = fetch_accounts(access_url, now - (FETCH_DAYS + 2) * 86400)
-    snapshot, txns = store.build_snapshot(data.get("accounts", []), WINDOW_DAYS, now, FETCH_DAYS)
+    accounts = data.get("accounts") or []
+    errors = store.extract_errors(data)   # v2 errlist + deprecated v1 errors, sanitized
+    # A response can be HTTP 200 yet carry connection/account errors (e.g. a bank login
+    # expired) with NO accounts. Writing that would zero out balances.json and blank the
+    # transaction window behind a silent "0 transactions" — so refuse to overwrite good
+    # local data, and surface the bank's message (spec: display /accounts errors).
+    if errors and not accounts:
+        raise RuntimeError("Bank sync couldn't get your data: " + "; ".join(errors))
+    snapshot, txns = store.build_snapshot(accounts, WINDOW_DAYS, now, FETCH_DAYS,
+                                          connections=data.get("connections"))
     store.save_balances(snapshot)
     # transactions.json = recent working window; ledger = everything, forever
     window_cutoff = now - WINDOW_DAYS * 86400
@@ -85,7 +112,7 @@ def run_sync(access_url=None):
         store.backup()  # local daily restore point
     except Exception:
         pass
-    return snapshot, len(txns), total_ledger
+    return snapshot, len(txns), total_ledger, errors
 
 
 def main():
@@ -98,9 +125,11 @@ def main():
     elif not os.path.exists(SECRET):
         print("No connection yet. First run:  python3 sync.py setup")
         sys.exit(1)
-    snapshot, n, ledger = run_sync(access_url)
+    snapshot, n, ledger, errors = run_sync(access_url)
     # note: we don't print balances/totals to the terminal
     print(f"✓ Synced {len(snapshot['accounts'])} account(s), {n} transactions ({ledger} kept in ledger).")
+    for e in errors:   # partial pull — bank reported an issue on some accounts
+        print("  ⚠ " + e)
     print("  Reload the dashboard to see it.")
 
 

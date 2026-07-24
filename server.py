@@ -295,6 +295,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(400, {"error": "bad request"})
             import base64
             import urllib.request
+            import urllib.error
             if data.get("demo"):
                 claim_url = "https://beta-bridge.simplefin.org/simplefin/claim/demo"
             else:
@@ -328,8 +329,17 @@ class Handler(SimpleHTTPRequestHandler):
                 except OSError:
                     pass
                 import sync
-                snap, ntx, _ledger = sync.run_sync()
-                return self._json(200, {"ok": True, "accounts": len(snap.get("accounts", [])), "transactions": ntx})
+                snap, ntx, _ledger, errs = sync.run_sync()
+                return self._json(200, {"ok": True, "accounts": len(snap.get("accounts", [])),
+                                        "transactions": ntx, "errors": errs})
+            except urllib.error.HTTPError as e:
+                # Spec: handle a 403 when claiming, and tell the user the token may be
+                # compromised so they can disable it. A setup token is one-time-use.
+                if e.code == 403:
+                    return self._json(200, {"ok": False, "error": "SimpleFIN rejected that token (403). "
+                        "A setup token can only be claimed once — if you didn't just reuse it, treat it as "
+                        "compromised: delete it in SimpleFIN and create a new connection."})
+                return self._json(200, {"ok": False, "error": f"Couldn't connect (HTTP {e.code})."})
             except Exception as e:
                 return self._json(500, {"ok": False, "error": "Couldn't connect: " + str(e)})
         if self.path == "/api/import-data":
@@ -496,8 +506,9 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/sync":
             try:
                 import sync
-                snap, n, ledger = sync.run_sync()
-                return self._json(200, {"ok": True, "updated": snap["updated"], "transactions": n, "ledger": ledger})
+                snap, n, ledger, errs = sync.run_sync()
+                return self._json(200, {"ok": True, "updated": snap["updated"], "transactions": n,
+                                        "ledger": ledger, "errors": errs})
             except Exception as e:
                 return self._json(500, {"ok": False, "error": str(e)})
         return self._json(404, {"error": "not found"})

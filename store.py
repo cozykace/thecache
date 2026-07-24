@@ -1023,9 +1023,63 @@ def subscription_items(txns, overrides=None):
     return rows
 
 
-def build_snapshot(accounts, window_days=30, now=None, fetch_days=None):
+# ── SimpleFIN response helpers (protocol conformance) ──────────────────
+# The bank pull (sync.py) hands us the parsed /accounts JSON. Two shapes exist:
+#   v1 — each account carried a nested `org` object; top-level `errors` was a list
+#        of plain strings.
+#   v2 (2026-03-19) — org moved to a flatter Connection (matched by the account's
+#        `conn_id`), and errors moved to a structured `errlist` of {code,msg,…}.
+# We read BOTH so a v1- or v2-default server both work, and we surface errors
+# instead of silently treating a failed/partial pull as "no data".
+def _sanitize_msg(s):
+    """Third-party error text → one safe display line (control chars out, capped)."""
+    s = re.sub(r"[\x00-\x1f\x7f]+", " ", str(s))
+    return re.sub(r"\s+", " ", s).strip()[:200]
+
+
+def extract_errors(data):
+    """Human-readable, sanitized errors from a /accounts response — v2 `errlist`
+    (structured) and the deprecated v1 `errors` (strings), de-duped in order.
+    The spec REQUIRES these be displayed to the user (sanitized first), so a
+    partial or failed pull is never silently swallowed."""
+    out = []
+    if isinstance(data, dict):
+        for e in (data.get("errlist") or []):
+            if isinstance(e, dict):
+                m = _sanitize_msg(e.get("msg") or e.get("code") or "")
+            else:
+                m = _sanitize_msg(e)
+            if m:
+                out.append(m)
+        for e in (data.get("errors") or []):   # v1 (DEPRECATED) — array of strings
+            m = _sanitize_msg(e)
+            if m:
+                out.append(m)
+    seen, uniq = set(), []
+    for m in out:
+        if m not in seen:
+            seen.add(m)
+            uniq.append(m)
+    return uniq
+
+
+def _account_org_name(a, conn_by_id):
+    """Institution name to show for an account, across protocol versions:
+    v1 nested `org.name` → v2 Connection (`org_name`/`name`, matched by `conn_id`)
+    → the account's own `conn_name` label, else ''."""
+    org = a.get("org")
+    if isinstance(org, dict) and org.get("name"):
+        return org["name"]
+    c = conn_by_id.get(a.get("conn_id"))
+    if isinstance(c, dict) and (c.get("org_name") or c.get("name")):
+        return c.get("org_name") or c.get("name")
+    return a.get("conn_name") or ""
+
+
+def build_snapshot(accounts, window_days=30, now=None, fetch_days=None, connections=None):
     now = now or int(time.time())
     fetch_days = fetch_days or window_days
+    conn_by_id = {c.get("conn_id"): c for c in (connections or []) if isinstance(c, dict)}
     overrides = load_overrides()
     income_overrides = load_income_overrides()
     fetch_cutoff = now - fetch_days * 86400      # keep txns this far back
@@ -1075,7 +1129,7 @@ def build_snapshot(accounts, window_days=30, now=None, fetch_days=None):
                     inc[ikey] = inc.get(ikey, 0.0) + amt
         out_accounts.append({
             "id": a.get("id"), "name": a.get("name", "Account"),
-            "org": (a.get("org") or {}).get("name", ""),
+            "org": _account_org_name(a, conn_by_id),
             "balance": round(bal, 2), "currency": a.get("currency", "USD"),
         })
 
