@@ -1249,10 +1249,13 @@ const RENDERERS = {
     // and remember, with INFINITE SUBTASKS (uniform recursion — each its own id-keyed item
     // linked by `parent`, merging independently across devices). UPGRADE a task to a HABIT
     // (⋯ → Make a habit) and it becomes something you track: because habits RECUR, "done today"
-    // is LOG-DERIVED per day (never a flag that would have to reset), and an "amount" habit logs
-    // a number (minutes, reps…). Add subtasks, check things off, delete a whole subtree with one
-    // undo, tap a title for the activity trail. Pure client-side through the per-item merge engine.
-    // Routines (scheduling) and your own data fields are the next bricks.
+    // is LOG-DERIVED per day (never a flag that would have to reset). Tracked four ways
+    // (HABIT_TRACKS): yes/no · a number (minutes, reps…) · a 1–5 rating · a few words — all
+    // day-keyed log entries, latest-per-day wins. A habit can also carry its OWN optional
+    // `sched` (the routine engine, routineDueOn): absent = daily; a not-due day shows a calm
+    // "not today" and stays tappable (a bonus, never an error). Tasks NEVER recur — due date
+    // only. Add subtasks, check things off, delete a whole subtree with one undo, tap a title
+    // for the activity trail. Pure client-side through the per-item merge engine.
     el.classList.add("is-tasks");
     // date-nav CONTRACT (coordinate with the deck session): mounted INSIDE the deck (.deck-space)
     // this renders for the deck's SELECTED day; on the board it's always today. Completion reads
@@ -1271,7 +1274,6 @@ const RENDERERS = {
     const esc = (s) => escapeHtml(s || "");
     const sortSibs = (a) => a.sort((x, y) => (!!x.done - !!y.done) || (+x.ord || 0) - (+y.ord || 0) || (x.id < y.id ? -1 : 1));   // one-off done sinks; habits keep their spot (their object `done` stays 0)
     const isHabit = (t) => t.type === "habit";
-    const isAmount = (t) => isHabit(t) && t.track === "amount";
     const doneState = (t, log, today) => ((isHabit(t) || t.routine) ? thingDoneOn(log, t.id, today) : !!t.done);   // habits AND routine members recur → DERIVED from the log per day; plain tasks use the object flag
     const togglePanel = (id, kind) => { panel = (panel && panel.id === id && panel.kind === kind) ? null : { id: id, kind: kind }; };
     function model() {
@@ -1303,7 +1305,10 @@ const RENDERERS = {
       };
       roots.filter((t) => t.type === "routine").forEach((r) => walk(r, 0));   // routines pinned to the top as accordions
       roots.filter((t) => t.type !== "routine").forEach((r) => walk(r, 0));   // then loose tasks + habits
-      const flat = roots.filter((t) => t.type !== "routine");
+      // the count only breathes down your neck about things actually DUE today — a habit
+      // scheduled for other days is neither "to do" nor "done", it's just resting (non-punitive)
+      const flat = roots.filter((t) => t.type !== "routine")
+        .filter((t) => !isHabit(t) || t.routine || routineDueOn(t.sched || null, today));
       const open = flat.filter((t) => !doneState(t, log, today)).length, doneN = flat.length - open;
       el.innerHTML =
         '<div class="tk-add"><input class="tk-in" placeholder="add a task…" maxlength="200" aria-label="add a task">' +
@@ -1315,18 +1320,25 @@ const RENDERERS = {
       wire();
     }
     function rowHtml(t, depth, nKids, log, today) {
-      const habit = isHabit(t), amount = isAmount(t), done = doneState(t, log, today), col = !isOpen(t);
+      const habit = isHabit(t), track = habit ? (t.track || "check") : null, done = doneState(t, log, today), col = !isOpen(t);
       const unit = t.unit ? " " + esc(t.unit) : "";
-      const dayVal = amount ? thingAmountOn(log, t.id, today) : null;
-      const control = amount   // amount habits show a tappable value chip instead of a checkbox
-        ? '<button class="tk-amt' + (done ? " on" : "") + '" data-act="amount" data-id="' + esc(t.id) + '" aria-label="log an amount">' + (dayVal && dayVal.qty != null ? esc(String(dayVal.qty)) + unit : "log") + "</button>"
-        : '<button class="tk-check' + (done ? " on" : "") + '" data-act="toggle" data-id="' + esc(t.id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>';
-      return '<div class="tk-item' + (done ? " done" : "") + (habit ? " tk-habit" : "") + '" style="margin-left:' + (depth * 15) + 'px">' +
+      // a habit's own optional sched decides "due today" (absent sched = daily, the old behavior);
+      // NOT due is calm and non-punitive — dimmed + "not today", but still tappable (doing a
+      // habit on an off day is a bonus, never an error). Routine members follow their routine.
+      const due = (!habit || t.routine) ? true : routineDueOn(t.sched || null, today);
+      const dayVal = (habit && track !== "check") ? thingAmountOn(log, t.id, today) : null;   // the day's latest logged value (qty / rating / text)
+      let control;   // how it's tracked → what the row's control is (all four log-derived per day)
+      if (track === "amount") control = '<button class="tk-amt' + (done ? " on" : "") + '" data-act="amount" data-id="' + esc(t.id) + '" aria-label="log an amount">' + (dayVal && dayVal.qty != null ? esc(String(dayVal.qty)) + unit : "log") + "</button>";
+      else if (track === "scale") control = '<button class="tk-amt' + (done ? " on" : "") + '" data-act="scale" data-id="' + esc(t.id) + '" aria-label="rate 1 to 5">' + (dayVal && dayVal.rating != null ? esc(String(dayVal.rating)) + "/5" : "rate") + "</button>";
+      else if (track === "note") control = '<button class="tk-amt tk-notechip' + (done ? " on" : "") + '" data-act="note" data-id="' + esc(t.id) + '" aria-label="log a few words">' + (dayVal && dayVal.text ? esc(clip(dayVal.text, 10)) : "write") + "</button>";
+      else control = '<button class="tk-check' + (done ? " on" : "") + '" data-act="toggle" data-id="' + esc(t.id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>';
+      return '<div class="tk-item' + (done ? " done" : "") + (habit ? " tk-habit" : "") + (due ? "" : " tk-notdue") + '" style="margin-left:' + (depth * 15) + 'px">' +
         (nKids
           ? '<button class="tk-caret' + (col ? " col" : "") + '" data-act="caret" data-id="' + esc(t.id) + '" aria-label="' + (col ? "expand" : "collapse") + '">▾</button>'
           : '<span class="tk-caret-sp"></span>') +
         control +
-        '<span class="tk-title" data-act="detail" data-id="' + esc(t.id) + '" role="button" tabindex="0" title="open — edit, due date, area…">' + (habit ? '<span class="tk-hbadge" aria-hidden="true" title="a habit — recurs daily">↻</span>' : "") + esc(t.title) + "</span>" +
+        '<span class="tk-title" data-act="detail" data-id="' + esc(t.id) + '" role="button" tabindex="0" title="open — edit, due date, area…">' + (habit ? '<span class="tk-hbadge" aria-hidden="true" title="a habit — it recurs">↻</span>' : "") + esc(t.title) + "</span>" +
+        (due ? "" : '<span class="tk-rprog">not today</span>') +
         '<button class="tk-addsub" data-act="addsub" data-id="' + esc(t.id) + '" aria-label="add a subtask" title="add a subtask">＋</button>' +
         '<button class="tk-menu" data-act="menu" data-id="' + esc(t.id) + '" aria-label="options" title="habit &amp; options">⋯</button>' +
         '<button class="tk-x" data-act="del" data-id="' + esc(t.id) + '" aria-label="delete">✕</button>' +
@@ -1348,6 +1360,15 @@ const RENDERERS = {
       if (panel.kind === "addsub") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a subtask…" maxlength="200" aria-label="add a subtask"><button class="tk-subgo" aria-label="add subtask">＋</button></div>';
       if (panel.kind === "addmember") return '<div class="tk-subadd"' + ml + '><input class="tk-subin" placeholder="add a step to this routine…" maxlength="200" aria-label="add a step"><button class="tk-subgo" aria-label="add step">＋</button></div>';
       if (panel.kind === "amount") { const u = t.unit ? " " + esc(t.unit) : ""; return '<div class="tk-subadd"' + ml + '><input class="tk-amtin" type="number" inputmode="decimal" placeholder="how many' + u + '…" aria-label="log amount"><button class="tk-subgo tk-amtgo" aria-label="log">✓</button></div>'; }
+      if (panel.kind === "scale") {   // 1–5 rating — tap to log; tap today's rating again to clear it
+        const cur = thingAmountOn(loadLog(), t.id, viewDay()), curN = cur && cur.rating != null ? +cur.rating : null;
+        return '<div class="tk-subadd tk-scale"' + ml + ">" + [1, 2, 3, 4, 5].map((n) =>
+          '<button class="tk-scale-n' + (curN === n ? " on" : "") + '" data-scale="' + n + '" data-id="' + esc(t.id) + '" aria-label="rate ' + n + ' of 5"' + (curN === n ? ' title="tap again to clear"' : "") + ">" + n + "</button>").join("") + "</div>";
+      }
+      if (panel.kind === "note") {   // a few words — the day's text, editable in place (latest entry wins)
+        const cur = thingAmountOn(loadLog(), t.id, viewDay());
+        return '<div class="tk-subadd"' + ml + '><input class="tk-notein" maxlength="200" placeholder="a few words…" value="' + esc((cur && cur.text) || "") + '" aria-label="log a few words"><button class="tk-subgo tk-notego" aria-label="log">✓</button></div>';
+      }
       if (panel.kind === "move") {   // TAP-TO-MOVE: pick a routine (or make it loose) — reliable on touch, no drag fighting scroll
         const routines = thingsVisible(loadThings()).filter((x) => x.type === "routine");
         const cur = t.routine || null;
@@ -1355,11 +1376,14 @@ const RENDERERS = {
         btns.push('<button class="tk-mbtn tk-movebtn' + (!cur ? " on" : "") + '" data-act="moveto" data-id="' + esc(t.id) + '" data-rid="">↩ Loose (no routine)' + (!cur ? " ✓" : "") + "</button>");
         return '<div class="tk-menu-row tk-moverow"' + ml + ">" + (routines.length ? "" : '<span class="sub tk-movehint">No routines yet — use “🔁 New routine” below first.</span>') + btns.join("") + "</div>";
       }
-      // the ⋯ menu — the habit upgrade/downgrade + tracking-mode + move-to-routine actions
-      const habit = isHabit(t), amount = isAmount(t), btns = [];
+      // the ⋯ menu — the habit upgrade/downgrade + a small "how it's tracked" picker (the full
+      // set: yes/no · number · rating · text) + move-to-routine. All routed through the ONE
+      // thingSetType/thingSetTrack code path the detail sheet uses, so the two can't drift.
+      const habit = isHabit(t), btns = [];
       if (!habit) btns.push('<button class="tk-mbtn" data-act="tohabit" data-id="' + esc(t.id) + '">↻ Make a habit</button>');
       else {
-        btns.push('<button class="tk-mbtn" data-act="track" data-id="' + esc(t.id) + '" data-mode="' + (amount ? "check" : "amount") + '">' + (amount ? "✓ Just yes / no" : "🔢 Track a number") + "</button>");
+        const cur = t.track || "check";
+        HABIT_TRACKS.forEach((tr) => btns.push('<button class="tk-mbtn' + (tr[0] === cur ? " on" : "") + '" data-act="track" data-id="' + esc(t.id) + '" data-mode="' + tr[0] + '">' + tr[1] + (tr[0] === cur ? " ✓" : "") + "</button>"));
         btns.push('<button class="tk-mbtn" data-act="totask" data-id="' + esc(t.id) + '">↩ Back to a task</button>');
       }
       if (t.routine || thingsVisible(loadThings()).some((x) => x.type === "routine")) btns.push('<button class="tk-mbtn" data-act="movemenu" data-id="' + esc(t.id) + '">🔁 Move to routine…</button>');
@@ -1422,6 +1446,8 @@ const RENDERERS = {
         else if (act === "movemenu") { togglePanel(id, "move"); render(); }
         else if (act === "moveto") { moveToRoutine(id, b.dataset.rid || ""); }
         else if (act === "amount") { togglePanel(id, "amount"); render(); const ai = el.querySelector(".tk-amtin"); if (ai) ai.focus(); }
+        else if (act === "scale") { togglePanel(id, "scale"); render(); }
+        else if (act === "note") { togglePanel(id, "note"); render(); const ni = el.querySelector(".tk-notein"); if (ni) ni.focus(); }
         else if (act === "tohabit") { panel = null; thingSetType(id, "habit"); }   // re-renders via the cache:things listener
         else if (act === "totask") { panel = null; thingSetType(id, "task"); }
         else if (act === "track") { panel = null; thingSetTrack(id, b.dataset.mode); }
@@ -1444,6 +1470,13 @@ const RENDERERS = {
         const commitAmt = () => { const v = (amtin.value || "").trim(), pid = panel && panel.id; if (v !== "" && pid) logAmount(pid, parseFloat(v)); else { panel = null; render(); } };
         amtin.addEventListener("keydown", (e) => { if (e.key === "Enter") commitAmt(); else if (e.key === "Escape") { panel = null; render(); } });
         const ag = el.querySelector(".tk-amtgo"); if (ag) ag.addEventListener("click", commitAmt);
+      }
+      el.querySelectorAll(".tk-scale-n").forEach((b) => b.addEventListener("click", () => logScale(b.dataset.id, +b.dataset.scale)));
+      const notein = el.querySelector(".tk-notein");
+      if (notein) {
+        const commitNote = () => { const pid = panel && panel.id; if (pid) logNote(pid, notein.value); else { panel = null; render(); } };
+        notein.addEventListener("keydown", (e) => { if (e.key === "Enter") commitNote(); else if (e.key === "Escape") { panel = null; render(); } });
+        const ng = el.querySelector(".tk-notego"); if (ng) ng.addEventListener("click", commitNote);
       }
       const u = el.querySelector(".tk-undo-go"); if (u) u.addEventListener("click", doUndo);
     }
@@ -1468,6 +1501,26 @@ const RENDERERS = {
     function logAmount(id, qty) {   // an amount habit's day value = the LATEST entry for the VIEWED day (never summed, §4)
       if (!(qty >= 0)) { panel = null; render(); return; }
       try { logThingEvent(id, "habit", { items: loadThings(), value: { done: 1, qty: qty }, ts: viewDay() }); } catch (e) {}
+      try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit logged · +2 EXP"); } catch (e) {}
+      panel = null; render();
+    }
+    function logScale(id, n) {   // a rating habit: 1–5, latest per day wins; tapping today's rating again clears it
+      if (!(n >= 1 && n <= 5)) { panel = null; render(); return; }
+      const cur = thingAmountOn(loadLog(), id, viewDay());
+      if (cur && +cur.rating === n) { try { logThingEvent(id, "undone", { items: loadThings(), ts: viewDay() }); } catch (e) {} }
+      else {
+        try { logThingEvent(id, "habit", { items: loadThings(), value: { done: 1, rating: n }, ts: viewDay() }); } catch (e) {}
+        try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit logged · +2 EXP"); } catch (e) {}
+      }
+      panel = null; render();
+    }
+    function logNote(id, text) {   // a text habit: a few words for the day (latest wins); clearing the text un-logs the day
+      const v = (text || "").trim().slice(0, 200);
+      if (!v) {
+        if (thingDoneOn(loadLog(), id, viewDay())) { try { logThingEvent(id, "undone", { items: loadThings(), ts: viewDay() }); } catch (e) {} }
+        panel = null; render(); return;
+      }
+      try { logThingEvent(id, "habit", { items: loadThings(), value: { done: 1, text: v }, ts: viewDay() }); } catch (e) {}
       try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit logged · +2 EXP"); } catch (e) {}
       panel = null; render();
     }
@@ -1503,7 +1556,7 @@ const RENDERERS = {
         const it = byId[e.itemId], name = it ? "“" + esc(it.title) + "”" : "an item", self = e.itemId === rootId;
         if (e.kind === "done") return "<b>✓</b> completed " + (self ? "this task" : name);
         if (e.kind === "undone") return "<b>↩</b> un-checked " + (self ? "this task" : name);
-        if (e.kind === "habit") return "<b>◆</b> logged " + name + (e.value && e.value.qty != null ? " · " + esc(String(e.value.qty)) : "");
+        if (e.kind === "habit") { const v = e.value || {}; return "<b>◆</b> logged " + name + (v.qty != null ? " · " + esc(String(v.qty)) : v.rating != null ? " · " + esc(String(v.rating)) + "/5" : v.text ? " · “" + esc(String(v.text).slice(0, 24)) + "”" : ""); }
         return esc(e.kind) + " " + name;
       };
       const body = trail.length
@@ -1523,7 +1576,7 @@ const RENDERERS = {
       if (!el.isConnected) { document.removeEventListener("cache:things", onThings); return; }
       if (selfSaving) return;   // our own save already re-rendered
       const a = document.activeElement;
-      if (a && (a.classList.contains("tk-in") || a.classList.contains("tk-subin") || a.classList.contains("tk-amtin"))) return;   // a peer's sync landed — repaint, but never clobber mid-type
+      if (a && (a.classList.contains("tk-in") || a.classList.contains("tk-subin") || a.classList.contains("tk-amtin") || a.classList.contains("tk-notein"))) return;   // a peer's sync landed — repaint, but never clobber mid-type
       render();
     }
     document.addEventListener("cache:things", onThings);
@@ -2935,6 +2988,13 @@ let PROFILE_STATS = (function () {
 })();
 let _statsTimer = null;
 function saveStats() {
+  // Storage-swap latch: once the live slot was swapped or cleared under this page (logout
+  // park, account switch, parked restore, a vault-merge reload), the in-memory stats belong
+  // to the PREVIOUS storage world — and this function is wired to pagehide/beforeunload, so
+  // without the latch it would stomp the swap on the very reload those flows schedule
+  // (writing the parked account's EXP back into the cleared slot, or a near-zero ledger over
+  // a just-restored one). The latch dies with the page; the reload starts fresh.
+  if (window.__cacheStorageSwapped) return;
   const p = getProfile();
   p.stats = PROFILE_STATS;
   try { localStorage.setItem("money.profile", JSON.stringify(p)); } catch (e) {}
@@ -2987,9 +3047,12 @@ function charSince() {
   if (!s) { s = String(Date.now()); localStorage.setItem(CHARSINCE_KEY, s); }
   return +s;
 }
-function logChar(kind, detail) {
+function logChar(kind, detail, t) {
+  // `t` optional: a DETERMINISTIC timestamp (e.g. the server's fixed-at time) makes the
+  // entry's union key (t|k|d) identical on every device, so charLog dedupes it instead
+  // of journaling the same feat once per device.
   const log = charLog();
-  log.push({ k: kind, d: detail, t: Date.now() });
+  log.push({ k: kind, d: detail, t: t || Date.now() });
   try { localStorage.setItem(CHARLOG_KEY, JSON.stringify(log.slice(-800))); } catch (e) {}
 }
 function agoStr(ts) {
@@ -3001,7 +3064,7 @@ function agoStr(ts) {
   if (s < 604800) return Math.floor(s / 86400) + "d ago";
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
-const CHAR_ICON = { level: "🎉", widget: "➕", sync: "🔌", feat: "⭐", note: "📌" };
+const CHAR_ICON = { level: "🎉", widget: "➕", sync: "🔌", feat: "⭐", note: "📌", bugfix: "🛠️" };
 const JOURNEY = [
   { arc: "Awakening", lvls: "1–2", feats: ["Connect a bank", "Name your cache", "Tag your income"] },
   { arc: "Foundation", lvls: "3–4", feats: ["Mark must-pays", "Build a budget", "Categorize a month"] },
@@ -3481,6 +3544,46 @@ function addExp(n) {
   clearTimeout(_statsTimer);
   _statsTimer = setTimeout(saveStats, 700);
 }
+// ── Bug credits: closing the loop with the person who reported a bug ─────────
+// When a report you chose to credit to your cache gets marked fixed, you hear about
+// it, earn EXP for it, and it counts toward a stat you can be proud of.
+// money.bugCredits is the idempotency SET: [{id, at, exp}] per credited report, one
+// entry per feedback-record id. Its merge class is SPECIAL — a union by report id
+// (exactly like money.badges unions earned ids) — so two devices that both see the
+// same fixed report converge on ONE entry.
+// The EXP grant is made exactly-once the same way: it banks into a DETERMINISTIC
+// EXP-ledger slot named after the report (expBy["bug:<id>"] = BUG_FIX_EXP), never the
+// device slot. The profile merge is slot-wise MAX, so two devices independently
+// granting the same report collapse to one grant; different reports use different
+// slots and both count. (No health bonus here — the slot value must be byte-identical
+// on every device or the ledger would double-count.)
+const BUG_CREDITS_KEY = "money.bugCredits";
+const BUG_FIX_EXP = 25;
+function bugCredits() { try { const a = JSON.parse(localStorage.getItem(BUG_CREDITS_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+// The stat is DERIVED from the credits set (count + EXP sum) — a derived stat can't
+// drift from its source the way a second mutable counter could.
+function bugCreditStat() {
+  const a = bugCredits().filter((c) => c && c.id);
+  return { count: a.length, exp: a.reduce((t, c) => t + (+c.exp || 0), 0) };
+}
+// Claim a fixed report EXACTLY once. Returns true only if the id was genuinely new
+// to the union (that's the only path that grants EXP / celebrates / journals).
+function bugCreditClaim(id, at) {
+  if (!id) return false;
+  const a = bugCredits();
+  if (a.some((c) => c && c.id === id)) return false;
+  a.push({ id: id, at: at || "", exp: BUG_FIX_EXP });
+  try { localStorage.setItem(BUG_CREDITS_KEY, JSON.stringify(a)); } catch (e) {}
+  PROFILE_STATS.exp += BUG_FIX_EXP;
+  if (!PROFILE_STATS.expBy || typeof PROFILE_STATS.expBy !== "object") PROFILE_STATS.expBy = {};
+  PROFILE_STATS.expBy["bug:" + id] = BUG_FIX_EXP;   // deterministic slot — slot-wise max ⇒ one grant across devices
+  try { updateXp(); } catch (e) {}
+  clearTimeout(_statsTimer);
+  _statsTimer = setTimeout(saveStats, 700);
+  // deterministic t (the server's fixed-at time) → the journey entry dedupes across devices
+  try { logChar("bugfix", "Something you reported got fixed — you made the Cache better", Date.parse(at) || Date.now()); } catch (e) {}
+  return true;
+}
 // ── Trust badge: a live, non-destructive proof the ledger is solid (/api/integrity) ──
 function renderTrust() {
   const el = document.getElementById("trustBadge");
@@ -3714,9 +3817,29 @@ async function cloudLogin(url, email, password) {
   const d = await r.json();
   if (!r.ok || !d.token) throw new Error(cloudErr(d) || "login failed");
   const prev = cloudState();
-  // a DIFFERENT account is signing in on this browser → drop the old account's
-  // device key, seal-mode memory, and record pointer, or the vaults would entangle
-  if (prev.userId && d.record && d.record.id !== prev.userId) {
+  const newUid = d.record && d.record.id;
+  if (prev.parked && newUid) {
+    // The previous session was PARKED by logout: its silo already holds its data and the live
+    // slot was cleared. RESTORE the incoming account's silo (a clean slate if it's new here) —
+    // and never stash first: the live slot is empty, so stashing it would overwrite the parked
+    // account's good silo with nothing. Clear the live slot before loading so anything a
+    // logged-out visitor scribbled into the empty cache can't blend into the restored account.
+    clearAccountData();
+    try { window.__cacheStorageSwapped = true; } catch (e) {}   // mute unload-time savers — the page's in-memory state predates this swap
+    if (!loadAccountData(newUid)) {
+      // the restore itself ran out of storage midway — wipe the partial copy and ABORT.
+      // Nothing is lost: the state is still parked and the silo untouched, so the next
+      // login retries a clean restore once space is freed.
+      clearAccountData();
+      throw new Error("Not enough storage to restore this account safely — free up space and try again. Your data is safe.");
+    }
+    _cloudLoginRestored = true;   // the board booted from the empty slot — the caller must reload
+    if (newUid !== prev.userId) {
+      // a DIFFERENT account than the parked one → it must not inherit the parked account's
+      // vault key, seal-mode memory, record pointer, or sync marks
+      cloudKeySet(""); prev.recordId = null; prev.lastPush = null; prev.lastHash = null; prev.lastSeenVault = null; prev.mode = null;
+    }
+  } else if (prev.userId && newUid && newUid !== prev.userId) {
     // FULL per-account isolation: silo the outgoing account's ENTIRE local cache (deck, tasks,
     // journal, layout, forms, character — AND its @handle, private key, message cache) under its
     // userId, then load the incoming account's silo (a clean slate if it's new here), so this
@@ -3725,15 +3848,30 @@ async function cloudLogin(url, email, password) {
     // relabeling the session — never leave the session pointing at the new account while the old
     // account's data (incl. its private key) is still live, or a later backup would seal one
     // account's data into another's vault. Data stays untouched on abort.
-    if (!switchAccountData(prev.userId, d.record.id)) throw new Error("Not enough storage to switch accounts safely — free up space (or back up and remove an account's cloud copy) and try again. Your data is untouched.");
+    if (!stashAccountData(prev.userId)) throw new Error("Not enough storage to switch accounts safely — free up space (or back up and remove an account's cloud copy) and try again. Your data is untouched.");
+    // The outgoing account is now safely parked in its silo. Record that BEFORE restoring the
+    // incoming one: if the restore below fails (storage), the login aborts into a clean PARKED
+    // state — both silos intact, live slot clear — and the next attempt heals itself through
+    // the parked path instead of leaving a half-restored hybrid labeled as the old session.
+    // VERIFY the write landed: a swallowed failure here would leave the state saying "live
+    // session" over a cleared slot, and the next logout would stash that emptiness over the
+    // good silo. If it didn't land, un-stash (put the live copy back) and abort unchanged.
+    try { cloudSaveState(Object.assign({}, prev, { token: "", parked: true })); } catch (e) {}
+    if (cloudState().parked !== true) { loadAccountData(prev.userId); throw new Error("Not enough storage to switch accounts safely — free up space and try again. Your data is untouched."); }
+    try { window.__cacheStorageSwapped = true; } catch (e) {}   // mute unload-time savers — they hold the outgoing account's world
+    if (!loadAccountData(newUid)) { clearAccountData(); throw new Error("Not enough storage to restore this account safely — free up space and try again. Your data is safe."); }
     cloudKeySet(""); prev.recordId = null; prev.lastPush = null; prev.lastHash = null; prev.lastSeenVault = null; prev.mode = null;
   }
   // same account → mode RIDES ALONG: the zero-knowledge downgrade guard reads it,
   // and losing it on a routine re-login would disarm the guard exactly when a
-  // tampering server would love that
-  cloudSaveState({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: prev.recordId, lastPush: prev.lastPush, lastHash: prev.lastHash, lastSeenVault: prev.lastSeenVault, mode: prev.mode || null, verified: !!(d.record && d.record.verified) });
+  // tampering server would love that. `parked` is deliberately NOT carried — a
+  // successful login always un-parks (the account's data is live again).
+  cloudSaveState({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: newUid, recordId: prev.recordId, lastPush: prev.lastPush, lastHash: prev.lastHash, lastSeenVault: prev.lastSeenVault, mode: prev.mode || null, verified: !!(d.record && d.record.verified) });
   return d;
 }
+// Set when cloudLogin restored a parked silo — the board/theme/character booted from the empty
+// live slot, so the login UI must reload to render the restored account (see reloadIfSwitched).
+let _cloudLoginRestored = false;
 async function cloudSignup(url, email, password) {
   const base = (url || "").replace(/\/+$/, "");
   const r = await fetch(base + "/api/collections/users/records", {
@@ -3749,12 +3887,24 @@ async function cloudSignup(url, email, password) {
 function cloudLogout() {
   const s = cloudState();
   cloudKeySet("");   // drop this device's vault data key (explicit logout is stricter than an expiry)
+  // PARK the account: silo its entire decrypted world (deck, tasks, journal, notes, @handle,
+  // ECDH private key, message cache, __lmeta) under cacheprof.<userId> and CLEAR the live slot,
+  // so the next person at a shared computer meets an empty cache — not this account's life.
+  // `parked` tells the next login "the silo already holds this account's data — RESTORE it,
+  // don't stash the (now empty) live slot over it". Two guarded edges:
+  //   · silo write failed (quota) → keep the data LIVE and don't park; losing data is worse
+  //     than leaving it visible on this one device (stashAccountData never deletes on failure).
+  //   · already parked (double logout) → skip the stash entirely; re-stashing the empty live
+  //     slot would overwrite the good silo with nothing.
+  const parked = s.parked ? true : stashAccountData(s.userId);
+  if (parked) try { window.__cacheStorageSwapped = true; } catch (e) {}   // mute unload-time savers (saveStats) — they'd write the parked data back into the cleared slot
   // Same shape as an expired session (see cloudAuthCheck): drop only the TOKEN, KEEP the
   // account pointer (userId/email/mode + sync marks). Wiping userId would blind cloudLogin's
   // different-account guard, so the NEXT account to log in on this browser would inherit the
   // previous one's messaging identity — its @handle AND private key. Keeping userId means a
   // switch to a different account correctly clears money.social/msgKey/dms.
-  cloudSaveState({ url: s.url || CLOUD_DEFAULT_URL, email: s.email, userId: s.userId, recordId: s.recordId, mode: s.mode || null, lastPush: s.lastPush, lastHash: s.lastHash, lastSeenVault: s.lastSeenVault });
+  cloudSaveState({ url: s.url || CLOUD_DEFAULT_URL, email: s.email, userId: s.userId, recordId: s.recordId, mode: s.mode || null, lastPush: s.lastPush, lastHash: s.lastHash, lastSeenVault: s.lastSeenVault, parked: !!parked });
+  return !!parked;   // callers reload on true (board renders from memory); warn on false with a live account
 }
 // PocketBase auth tokens expire (~14 days). Refresh on every real cloud touch so
 // regular use never logs you out — and when a session is truly dead, log out
@@ -3767,8 +3917,10 @@ async function cloudAuthCheck() {
     const r = await fetch(cloudUrl() + "/api/collections/users/auth-refresh", { method: "POST", headers: { Authorization: s.token } });
     if (r.status === 401 || r.status === 403) {
       // keep email/userId/mode — re-login is one password away, the same-account
-      // check needs userId, and the zk guard must survive an expiry round-trip
-      cloudSaveState({ url: s.url, email: s.email, userId: s.userId, recordId: s.recordId, mode: s.mode || null, lastPush: s.lastPush, lastHash: s.lastHash, lastSeenVault: s.lastSeenVault });
+      // check needs userId, and the zk guard must survive an expiry round-trip.
+      // `parked` rides along too: dropping it would make the next login stash the
+      // empty live slot over a parked account's good silo (undefined just falls out)
+      cloudSaveState({ url: s.url, email: s.email, userId: s.userId, recordId: s.recordId, mode: s.mode || null, lastPush: s.lastPush, lastHash: s.lastHash, lastSeenVault: s.lastSeenVault, parked: s.parked });
       return false;
     }
     if (r.ok) {
@@ -3815,7 +3967,7 @@ async function cloudFindVaultId(s) {
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
 const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms"];   // + deckDay (calendar) + dms (the messages cache — a mirror of server data + per-thread read marks; per-device, never rides the vault)
-const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state)
+const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs", "money.bugCredits"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state) + bugCredits (union by report id, like badges)
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
 // bundle is engine-computed and travels whole-file. catmeta.json (your category
@@ -3856,22 +4008,31 @@ function stashAccountData(uid) {
   try { localStorage.removeItem(LMETA_KEY); } catch (e) {}   // its own __lmeta went into the silo; the incoming account's is loaded next (or absent = fresh)
   return true;
 }
-function loadAccountData(uid) {   // restore this account's siloed cache + its __lmeta (clean slate + fresh bookkeeping if it's new here)
-  if (!uid) return;
+// Restore this account's siloed cache + its __lmeta (clean slate + fresh bookkeeping if it's new
+// here). Returns false if any key FAILED to restore (quota — possible when other accounts' silos
+// grew since this one was stashed): a silent partial restore would look like a working login with
+// missing data, and the NEXT logout would stash that partial copy over the good silo, making the
+// loss permanent. Callers abort into a clean parked state instead (the silo keeps everything).
+function loadAccountData(uid) {
+  if (!uid) return true;
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(PROFILE_PREFIX + uid) || "null"); } catch (e) {}
-  if (saved && typeof saved === "object") Object.keys(saved).forEach((k) => { if (isAccountDataKey(k) || k === LMETA_KEY) { try { localStorage.setItem(k, saved[k]); } catch (e) {} } });
+  if (!saved || typeof saved !== "object") return true;   // new on this device → clean slate
+  let ok = true;
+  Object.keys(saved).forEach((k) => { if (isAccountDataKey(k) || k === LMETA_KEY) { try { localStorage.setItem(k, saved[k]); } catch (e) { ok = false; } } });
+  return ok;
 }
-// The whole account swap. Stash the outgoing account BEFORE loading the incoming one so B never
-// inherits A's keys; ABORT (leaving the outgoing account active) if the stash couldn't be saved,
-// so nothing is ever lost. A brand-new incoming account loads no silo → clean slate + no __lmeta
-// (fresh bookkeeping). Returns whether the swap actually happened.
-function switchAccountData(oldUid, newUid) {
-  if (!newUid || oldUid === newUid) return false;
-  if (!stashAccountData(oldUid)) return false;
-  loadAccountData(newUid);
-  return true;
+// Wipe the live account-data slot (incl. __lmeta), leaving device keys + silos untouched. Used
+// by the parked-restore login path: the desktop app is usable while logged out, so a logged-out
+// visitor may have scribbled into the empty slot — restore must be CLEAN, never a blend of a
+// stranger's scratch data and the account's real life. (In the switch path the stash already
+// performed this clear, so only parked logins need it explicitly.)
+function clearAccountData() {
+  accountDataKeys().forEach((k) => { try { localStorage.removeItem(k); } catch (e) {} });
+  try { localStorage.removeItem(LMETA_KEY); } catch (e) {}
 }
+// (switchAccountData is RETIRED: cloudLogin composes stash → interim parked-save → guarded load
+//  directly, so a restore failure aborts into a clean parked state instead of a silent partial.)
 // djb2 — a cheap content fingerprint so we can tell a real local edit apart from a
 // key we merely re-read (must match webcache.js's wLhash exactly).
 function lhash(s) { let h = 5381; s = s || ""; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h; }
@@ -3945,6 +4106,11 @@ function _authoredProject(k, str) {
     if (k === "money.charLog" && Array.isArray(v)) return _sortBy(v, _ckChar).map(_canonVal);
     if (k === "money.badges" && Array.isArray(v)) return v.slice().map(String).sort();
     if (k === "money.customStats" && Array.isArray(v)) return _sortBy(v.filter((s) => s && s.id), (s) => s.id).map((s) => ({ id: s.id, marks: (s.marks || []).slice().sort() }));
+    // bugCredits unions by report id but each device APPENDS in its own claim order, and
+    // on an id both hold the union keeps the LOCAL entry (an `at` can differ by clock) —
+    // so project to the converged parts only (id + exp), sorted by id. Hashing the raw
+    // array would read two converged devices as forever "ahead" (the livelock class).
+    if (k === "money.bugCredits" && Array.isArray(v)) return _sortBy(v.filter((c) => c && c.id), (c) => c.id).map((c) => ({ id: c.id, exp: +c.exp || 0 }));
     // money.profile converges ONLY on its EXP-ledger core (expBy slot-max, exp=sum,
     // clicks=max). stats.dev is a per-device id the merge never reconciles, and
     // name/role/note are richer-wins (device-local at equal exp) — hashing them raw
@@ -4379,6 +4545,22 @@ function mergeNotifsStr(remStr) {
   if (changed) { try { localStorage.setItem("money.notifs", JSON.stringify(loc)); } catch (e) {} }
   return changed;
 }
+// Bug credits: union by report id — a credit earned on one device shows on every
+// device and can never un-earn (or re-grant) through a merge. On an id both sides
+// hold, the LOCAL entry is kept (same rule as customStats keeping local metadata);
+// the authored-hash witness projects to id+exp so a differing `at` can't livelock.
+function mergeBugCreditsStr(remStr) {
+  try {
+    const rem = JSON.parse(remStr || "[]"); if (!Array.isArray(rem)) return false;
+    const loc = JSON.parse(localStorage.getItem("money.bugCredits") || "[]");
+    const arr = Array.isArray(loc) ? loc.slice() : [];
+    const seen = new Set(arr.filter((c) => c && c.id).map((c) => c.id));
+    let add = false;
+    rem.forEach((c) => { if (c && c.id && !seen.has(c.id)) { seen.add(c.id); arr.push({ id: c.id, at: c.at || "", exp: +c.exp || 0 }); add = true; } });
+    if (add) localStorage.setItem("money.bugCredits", JSON.stringify(arr));
+    return add;
+  } catch (e) { return false; }
+}
 // The founding date is the EARLIEST either device has seen — so a fresh install that
 // mints charSince=now can never push the journey start (or the Devoted badge) forward.
 function mergeCharSinceStr(remStr) {
@@ -4475,6 +4657,7 @@ function mergeRemoteLocal(lo, meta) {
   // accumulators — union badges, union custom-stat marks, earliest founding date
   try { if (lo["money.badges"] != null && mergeBadgesStr(lo["money.badges"])) changed = true; } catch (e) {}
   try { if (lo["money.customStats"] != null && mergeCustomStatsStr(lo["money.customStats"])) changed = true; } catch (e) {}
+  try { if (lo["money.bugCredits"] != null && mergeBugCreditsStr(lo["money.bugCredits"])) changed = true; } catch (e) {}
   try { if (lo["money.charSince"] != null && mergeCharSinceStr(lo["money.charSince"])) changed = true; } catch (e) {}
   // notification read state — per-id newest-wins by `at`, exact tie → unread wins
   try { if (lo["money.notifs"] != null && mergeNotifsStr(lo["money.notifs"])) { changed = true; try { if (typeof socialUpdateBadge === "function") socialUpdateBadge(); document.dispatchEvent(new CustomEvent("cache:notifs")); } catch (e) {} } } catch (e) {}
@@ -4632,7 +4815,66 @@ function cloudChip(state, msg) {
   if (s.keyboxMissing) { dot.style.background = "#d6920f"; txt.textContent = "cloud: setup note"; el.title = "one-time server setup: add a 'keybox' text field to the vaults collection so your other devices can unlock"; return; }
   dot.style.background = s.lastPush ? "#3f8f4e" : "#d6920f";
   txt.textContent = s.lastPush ? "cloud ✓" : "cloud: not synced";
-  el.title = s.lastPush ? ("last sync " + cloudAgo(s.lastPush) + " — tap for cloud settings") : "connected — first backup pending (Settings → Cache cloud)";
+  el.title = s.lastPush ? ("last sync " + cloudAgo(s.lastPush) + " — tap for your account & sync") : "connected — first backup pending (tap for your account & sync)";
+}
+// ── The account menu — tap the cloud chip while signed in and your account is right
+//    there: cloud settings, log out, or hand the machine to a different account. This is
+//    the two-tap answer to "how do I log out / switch?" (logout used to live only inside
+//    Settings → Cache cloud, and nothing anywhere said "switch"). One-account-at-a-time
+//    stays the rule: a "switch" is a real log-out (parking your cache) + a real log-in. ──
+const SWITCH_ACCT_FLAG = "cache.switchAcct";   // sessionStorage: survives the logout reload, dies with the tab
+// The one logout everything shares (Settings + Messages have their own message surfaces,
+// the menu uses this). switching=true also routes the reload straight to a blank sign-in.
+function accountLogout(switching) {
+  if (switching) try { sessionStorage.setItem(SWITCH_ACCT_FLAG, "1"); } catch (e) {}
+  const hadAcct = !!cloudState().userId;
+  const parked = cloudLogout();
+  try { cloudChip(); } catch (e) {}
+  try { socialUpdateBadge(); } catch (e) {}
+  if (parked) { flash(switching ? "Logged out — sign in as the other account." : "Logged out."); setTimeout(() => location.reload(), 500); return; }
+  // stash failed (storage full) → data stays live by design; no reload, so finish the
+  // switch intent right here instead of leaving the flag armed for some later reload
+  try { sessionStorage.removeItem(SWITCH_ACCT_FLAG); } catch (e) {}
+  if (hadAcct) flash("Logged out — but storage is full, so your data couldn't be cleared from this device.");
+  else flash("Logged out.");
+  if (switching) { openSettings(); prepSwitchSignin(); }
+}
+// blank the sign-in so it's obvious ANY account can enter (it prefills the previous email)
+function prepSwitchSignin() {
+  try {
+    const em = document.getElementById("setCloudEmail"), pw = document.getElementById("setCloudPass");
+    if (em) { em.value = ""; em.focus(); }
+    if (pw) pw.value = "";
+  } catch (e) {}
+}
+function closeAccountMenu() {
+  const m = document.getElementById("acctMenu"); if (m) m.remove();
+  document.removeEventListener("pointerdown", _acctMenuOutside);
+}
+function _acctMenuOutside(e) { const m = document.getElementById("acctMenu"); if (m && !m.contains(e.target)) closeAccountMenu(); }
+function openAccountMenu(anchor) {
+  if (document.getElementById("acctMenu")) { closeAccountMenu(); return; }   // second tap toggles it shut
+  const s = cloudState();
+  const menu = document.createElement("div");
+  menu.className = "acct-menu"; menu.id = "acctMenu";
+  menu.innerHTML =
+    '<div class="am-who">Signed in as <b>' + escapeHtml(s.email || "your account") + "</b></div>" +
+    '<button class="am-item" data-act="settings"><i data-lucide="settings-2"></i>Cloud settings</button>' +
+    '<button class="am-item" data-act="switch"><i data-lucide="users"></i>Use a different account…</button>' +
+    '<button class="am-item am-out" data-act="logout"><i data-lucide="log-out"></i>Log out</button>';
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.bottom = (window.innerHeight - r.top + 8) + "px";
+  drawIcons();
+  menu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const act = b.dataset.act; closeAccountMenu();
+    if (act === "settings") { autoPushNow(); openSettings(); }
+    else if (act === "logout") accountLogout(false);
+    else if (act === "switch") accountLogout(true);
+  });
+  setTimeout(() => document.addEventListener("pointerdown", _acctMenuOutside), 0);
 }
 // ── Click sparks: rapid clicking shoots theme-colored sparks from the cursor —
 //    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
@@ -5367,7 +5609,7 @@ function openSettings() {
     // Repaint either way: a success may have just learned the verified flag.
     if (s.token) cloudAuthCheck().then((ok) => { refreshCloud(); if (!ok) clSay("Your cloud login expired — enter your password and hit Log in. Your data is safe.", "err"); });
   })();
-  // when a DIFFERENT account takes over this browser, switchAccountData has already swapped
+  // when a DIFFERENT account takes over this browser, cloudLogin has already swapped
   // localStorage to the new account — but the board/theme/character render from in-memory state
   // loaded once at boot, so a full reload is the safe way to come up cleanly as the new account
   // (a stale board could even write the old account's layout into the new account's vault).
@@ -5375,21 +5617,38 @@ function openSettings() {
   const reloadIfSwitched = (before) => {
     const now = cloudState().userId;
     if (before && now && now !== before) { clSay("✓ Switched account — reloading…", "ok"); setTimeout(() => location.reload(), 500); return true; }
+    // a login that RESTORED a parked silo must also reload — the userId may be unchanged
+    // (same account back from logout), but the board booted from the empty live slot and
+    // would keep showing (and saving) that emptiness over the just-restored data
+    if (_cloudLoginRestored) { clSay("✓ Logged in — loading your cache…", "ok"); setTimeout(() => location.reload(), 500); return true; }
     return false;
   };
+  // a login that FAILED after the storage was already swapped (a mid-restore quota abort) leaves
+  // the board rendering the previous account from memory over a cleared, parked slot — reload
+  // once the error has been readable, so the screen matches the truth instead of ghosting data
+  const reloadIfAborted = () => { if (window.__cacheStorageSwapped) setTimeout(() => location.reload(), 3000); };
   clSignup.addEventListener("click", async () => {
     clSay("Creating account…", "work");
     const before = cloudState().userId;
     try { await cloudSignup(clUrl.value.trim(), clEmail.value.trim(), clPass.value); if (reloadIfSwitched(before)) return; refreshCloud(); clSay("✓ Account created — you’re signed in. Hit ⬆ Back up to cloud and you’re done.", "ok"); }
-    catch (e) { clSay("Couldn’t create account: " + (e.message || e), "err"); }
+    catch (e) { clSay("Couldn’t create account: " + (e.message || e), "err"); reloadIfAborted(); }
   });
   clLogin.addEventListener("click", async () => {
     clSay("Logging in…", "work");
     const before = cloudState().userId;
     try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); if (reloadIfSwitched(before)) return; refreshCloud(); cloudChip(); cloudAutoPull(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
-    catch (e) { clSay("Login failed: " + (e.message || e), "err"); }
+    catch (e) { clSay("Login failed: " + (e.message || e), "err"); reloadIfAborted(); }
   });
-  clLogout.addEventListener("click", () => { cloudLogout(); clPass.value = ""; refreshCloud(); try { cloudChip(); } catch (e) {} try { socialUpdateBadge(); } catch (e) {} clSay("Logged out.", ""); });
+  clLogout.addEventListener("click", () => {
+    const hadAcct = !!cloudState().userId;
+    const parked = cloudLogout(); clPass.value = "";
+    refreshCloud(); try { cloudChip(); } catch (e) {} try { socialUpdateBadge(); } catch (e) {}
+    // parked → the account's data left the live slot, but the board still renders it from
+    // memory — reload so a shared computer really shows a clean cache the moment you log out
+    if (parked) { clSay("Logged out — clearing this screen…", "ok"); setTimeout(() => location.reload(), 500); }
+    else if (hadAcct) clSay("Logged out — but this device is out of storage, so your data couldn't be tucked away and stays visible here. Free up space and log out again to clear it.", "err");
+    else clSay("Logged out.", "");
+  });
   clPush.addEventListener("click", async () => {
     if (!cloudState().token) { clSay("Do Step 1 first — create or log into your account.", "err"); return; }
     if (phrase() && phrase().length < 6) { clSay("A zero-knowledge passphrase needs 6+ characters (or clear the field for the simple default).", "err"); return; }
@@ -7182,20 +7441,30 @@ function feedbackContext() {
 // founder (and the future roadmap wizard) can read, instead of dying in an email inbox.
 // Fire-and-forget: if the collection doesn't exist yet or the network is down, the email
 // path above still carries the report — this never blocks or breaks the button.
-function sendFeedbackToInbox(kind, text, email) {
+// `credit` is the reporter's PER-REPORT opt-in ("credit this to my cache"): only then —
+// and only while actually signed in — does the record carry `owner` (their account id),
+// which is what lets the fixed-it news + EXP find their way back. Without it the report
+// is exactly as anonymous as it always was: no owner, no auth header, equally welcome.
+function sendFeedbackToInbox(kind, text, email, credit) {
   try {
     let from = "";
     try { from = profileName() || ""; } catch (e) {}   // card first, legacy money.profile fallback — the direct read went stale once edits moved to the card
+    const s = cloudState();
+    const withOwner = !!(credit && s.token && s.userId);
+    const body = { kind: kind || "note", message: (text || "").slice(0, 4000), reply_to: email || "", from_name: from.slice(0, 80), context: feedbackContext().slice(0, 300) };
+    if (withOwner) body.owner = s.userId;
+    const hdr = { "Content-Type": "application/json" };
+    if (withOwner) hdr.Authorization = s.token;   // the create rule only lets you attach YOURSELF
     fetch(cloudUrl() + "/api/collections/feedback/records", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: kind || "note", message: (text || "").slice(0, 4000), reply_to: email || "", from_name: from.slice(0, 80), context: feedbackContext().slice(0, 300) }),
+      headers: hdr,
+      body: JSON.stringify(body),
     }).catch(() => {});
   } catch (e) {}
 }
 // Returns a promise<boolean> — true if it was sent (or the mail app was opened).
-function sendFeedback(kind, text, email) {
-  sendFeedbackToInbox(kind, text, email);
+function sendFeedback(kind, text, email, credit) {
+  sendFeedbackToInbox(kind, text, email, credit);
   const subject = "THE CACHE — " + kind + (email ? " — " + email : "");
   if (!FEEDBACK_KEY) {
     const body = text + "\n\n— kind: " + kind +
@@ -7221,6 +7490,53 @@ function sendFeedback(kind, text, email) {
     .then((r) => r.json())
     .then((d) => !!d.success)
     .catch(() => false);
+}
+// ── Closing the loop: "the thing you reported is fixed" ─────────────────────
+// On the 75s cloud loop (gently — a real check only every ~4 min; fixes are rare
+// events), fetch this account's OWN credited feedback rows that are marked fixed.
+// Any id not yet in the money.bugCredits union is genuinely new: claim it (EXP,
+// journey entry) and show one calm, celebratory card. Never a red alert, never
+// nagging — a claimed id never resurfaces, on any device.
+let _bugPolling = false, _bugPollAt = 0;
+async function bugPoll() {
+  const s = cloudState();
+  if (_bugPolling || !s.token || !s.userId) return;
+  if (Date.now() - _bugPollAt < 240000) return;
+  _bugPolling = true; _bugPollAt = Date.now();
+  try {
+    const d = await socialApi("/api/collections/feedback/records?perPage=100&filter=" + encodeURIComponent('owner="' + s.userId + '" && status="fixed"'));
+    const fresh = (d.items || []).filter((it) => it && it.id && bugCreditClaim(it.id, it.updated || it.created || ""));
+    if (fresh.length) {
+      try { renderStatsBar(); } catch (e) {}   // the contributor stat may have just appeared
+      openBugFixedCard(fresh);
+    }
+  } catch (e) {} finally { _bugPolling = false; }   // collection not created yet / offline → quietly try again later
+}
+// The card. Warm and specific — their own words back to them, plus Cozy's fix note
+// if there is one. Both strings go through escapeHtml before the DOM.
+function openBugFixedCard(items) {
+  const back = document.createElement("div"); back.className = "cat-backdrop";
+  const modal = document.createElement("div"); modal.className = "cat-modal bugfix-modal";
+  const close = () => { back.remove(); modal.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  const st = bugCreditStat();
+  const rows = items.map((it) => {
+    const what = String(it.message || "").slice(0, 140);
+    const note = String(it.fix_note || "");
+    return '<div class="bugfix-row">' +
+      '<div class="bugfix-what">“' + escapeHtml(what) + '”</div>' +
+      (note ? '<div class="bugfix-note">' + escapeHtml(note) + "</div>" : "") +
+      "</div>";
+  }).join("");
+  modal.innerHTML =
+    '<div class="cat-head"><span>🛠️ Fixed — thanks to you</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="bugfix-body">' +
+      '<div class="bugfix-lead">Remember ' + (items.length > 1 ? "these? You reported them, and now they’re" : "this? You reported it, and now it’s") + " fixed.</div>" +
+      rows +
+      '<div class="bugfix-exp">+' + (items.length * BUG_FIX_EXP) + " EXP · " + st.count + (st.count === 1 ? " report" : " reports") + " of yours " + (st.count === 1 ? "has" : "have") + " made the Cache better 💛</div>" +
+    "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", close);
 }
 function closeBugReport() {
   const m = document.querySelector(".bug-modal");
@@ -7271,6 +7587,12 @@ function openBugReport() {
       "</div>" +
       '<textarea class="bug-input" placeholder="What’s broken, or what would you love to see?"></textarea>' +
       '<input class="bug-email" type="email" placeholder="your email (optional — so cozy can reply)" />' +
+      // per-report opt-in — only offered when a cloud account is actually signed in.
+      // Plain about what gets attached; unchecked = exactly as anonymous as before.
+      (cloudState().token && cloudState().userId
+        ? '<label class="bug-credit"><input class="bug-credit-cb" type="checkbox" />' +
+          '<span><b>Credit this to my cache</b> — attaches your account so you hear back when it’s fixed (and earn EXP). Leave it off to send anonymously.</span></label>'
+        : "") +
       '<button class="bug-submit" type="button">Send to cozy</button>' +
       '<div class="bug-msg" aria-live="polite"></div>' +
     "</div>" +
@@ -7300,10 +7622,12 @@ function openBugReport() {
     const text = input.value.trim();
     if (!text) { input.focus(); return; }
     const email = emailEl.value.trim();
+    const creditCb = modal.querySelector(".bug-credit-cb");
+    const credit = !!(creditCb && creditCb.checked);
     submit.disabled = true;
     msgEl.className = "bug-msg";
     msgEl.textContent = "sending…";
-    sendFeedback(kind, text, email).then((ok) => {
+    sendFeedback(kind, text, email, credit).then((ok) => {
       submit.disabled = false;
       if (ok) {
         input.value = "";
@@ -9198,13 +9522,44 @@ const TD_AREAS = [
   ["💰", "Money"], ["🩺", "Health"], ["⏱️", "Time"], ["🏠", "Household"], ["✅", "Tasks"], ["🍳", "Meals"],
   ["🤝", "Community"], ["👥", "Relationships"], ["📚", "Learning"], ["🎨", "Creative"], ["🧰", "Home & Stuff"], ["📓", "Journal"],
 ];
+// ONE "how it's tracked" vocabulary — the full set (yes/no · number · 1–5 rating · a few
+// words), shared by the widget's ⋯ menu AND the detail sheet so the two pickers can't drift.
+// The values map onto the check-in runner's input primitives (yesno→check, amount, scale, note).
+const HABIT_TRACKS = [["check", "✓ Yes / no"], ["amount", "🔢 A number"], ["scale", "★ 1–5 rating"], ["note", "✏️ A few words"]];
+// ONE schedule vocabulary — shared by the routine sheet AND the habit sheet (habits recur too).
+const SCHED_FREQS = [["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]];
+const SCHED_DOW = [["0", "S"], ["1", "M"], ["2", "T"], ["3", "W"], ["4", "T"], ["5", "F"], ["6", "S"]];
+// The schedule picker's shared MARKUP + WIRING — rendered inside a detail sheet's .td-scroll.
+// Both the routine sheet and the habit sheet call these, so the recurrence UI is one thing.
+// getSched() reads the freshest sched; setSched(patch) merges + saves it (the caller stamps).
+function schedPickerHtml(s, esc) {
+  s = s || { freq: "daily", every: 1 };
+  const freq = s.freq || "daily", days = Array.isArray(s.days) ? s.days.map(String) : [];
+  const unit = freq === "weekly" ? "week(s)" : freq === "monthly" ? "month(s)" : freq === "yearly" ? "year(s)" : "day(s)";
+  return '<div class="td-field"><label>Repeats</label><div class="td-seg" id="spFreq">' + SCHED_FREQS.map((fq) => '<button data-freq="' + fq[0] + '"' + (freq === fq[0] ? ' class="on"' : "") + ">" + fq[1] + "</button>").join("") + "</div></div>" +
+    (freq === "weekly" ? '<div class="td-field"><label>On these days</label><div class="rd-days">' + SCHED_DOW.map((d) => '<button class="rd-day' + (days.indexOf(d[0]) !== -1 ? " on" : "") + '" data-dow="' + d[0] + '">' + d[1] + "</button>").join("") + "</div></div>" : "") +
+    '<div class="td-field"><label>Every</label><div class="rd-every"><input type="number" inputmode="numeric" class="rd-everyin" id="spEvery" value="' + esc(s.every || 1) + '" min="1"><span class="rd-everylbl">' + unit + "</span></div></div>" +
+    '<div class="td-field"><label>Starts</label><input type="date" class="td-due" id="spStart" value="' + esc(s.start) + '"></div>' +
+    '<div class="td-field rd-pausefield"><label class="rd-pauselbl"><input type="checkbox" id="spPaused"' + (s.paused ? " checked" : "") + "> Paused</label></div>";
+}
+function schedPickerWire(root, getSched, setSched, rerender) {
+  root.querySelectorAll("#spFreq button").forEach((b) => b.addEventListener("click", () => { setSched({ freq: b.dataset.freq }); rerender(); }));
+  root.querySelectorAll(".rd-day").forEach((b) => b.addEventListener("click", () => {
+    const s = getSched() || {}, days = Array.isArray(s.days) ? s.days.map(Number) : [], d = +b.dataset.dow, i = days.indexOf(d);
+    if (i === -1) days.push(d); else days.splice(i, 1);
+    setSched({ days: days.sort((x, y) => x - y) }); rerender();
+  }));
+  const ev = root.querySelector("#spEvery"); if (ev) ev.addEventListener("change", () => setSched({ every: Math.max(1, parseInt(ev.value) || 1) }));
+  const st = root.querySelector("#spStart"); if (st) st.addEventListener("change", (e) => setSched({ start: e.target.value || null }));
+  const pz = root.querySelector("#spPaused"); if (pz) pz.addEventListener("change", () => setSched({ paused: pz.checked ? 1 : 0 }));
+}
 // The ONE code path for task↔habit conversion + tracking mode — used by BOTH the widget's ⋯
 // quick menu and the detail sheet, so they can't drift. An edit, id UNCHANGED (§3). Callers
 // re-render their own surface (the widget via its cache:things listener; the sheet explicitly).
 function thingSetType(id, type) {
   const t = loadThings().find((x) => x && x.id === id); if (!t) return;
   if (type === "habit") { if (t.type !== "habit") saveThings([Object.assign({}, t, { type: "habit", track: t.track || "check", done: 0, doneAt: null, updated: Date.now() })]); }
-  else { const c = Object.assign({}, t, { type: "task", updated: Date.now() }); delete c.track; delete c.unit; saveThings([c]); }   // drop the tracking on downgrade
+  else { const c = Object.assign({}, t, { type: "task", updated: Date.now() }); delete c.track; delete c.unit; delete c.sched; saveThings([c]); }   // drop the tracking AND the schedule on downgrade — tasks are one-off, they never recur
 }
 function thingSetTrack(id, mode) {
   const t = loadThings().find((x) => x && x.id === id); if (!t) return;
@@ -9255,7 +9610,7 @@ function openTaskDetail(id) {
       let w = esc(e.kind) + " " + name;
       if (e.kind === "done") w = "<b>✓</b> completed " + (self ? "this" : name);
       else if (e.kind === "undone") w = "<b>↩</b> un-checked " + (self ? "this" : name);
-      else if (e.kind === "habit") w = "<b>◆</b> logged " + name + (e.value && e.value.qty != null ? " · " + esc(e.value.qty) : "");
+      else if (e.kind === "habit") { const v = e.value || {}; w = "<b>◆</b> logged " + name + (v.qty != null ? " · " + esc(v.qty) : v.rating != null ? " · " + esc(v.rating) + "/5" : v.text ? " · “" + esc(String(v.text).slice(0, 24)) + "”" : ""); }
       return '<div class="tkt-row"><span class="tkt-what">' + w + '</span><span class="tkt-when">' + esc(ageStr(now - (+e.at || 0))) + "</span></div>";
     };
     const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (t.area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("") +
@@ -9276,14 +9631,16 @@ function openTaskDetail(id) {
           '<button data-type="task"' + (!habit ? ' class="on"' : "") + '>✅ Task</button>' +
           '<button data-type="habit"' + (habit ? ' class="on"' : "") + '>↻ Habit</button>' +
         "</div></div>" +
-        (habit ? '<div class="td-field"><label>How it’s tracked</label><div class="td-seg" id="tdTrack">' +
-          '<button data-mode="check"' + (!amount ? ' class="on"' : "") + ">Yes / no</button>" +
-          '<button data-mode="amount"' + (amount ? ' class="on"' : "") + ">A number</button>" +
+        (habit ? '<div class="td-field"><label>How it’s tracked</label><div class="td-seg td-seg-wrap" id="tdTrack">' +
+          HABIT_TRACKS.map((tr) => '<button data-mode="' + tr[0] + '"' + ((t.track || "check") === tr[0] ? ' class="on"' : "") + ">" + tr[1] + "</button>").join("") +
           "</div>" + (amount ? '<input class="td-unit" id="tdUnit" value="' + esc(t.unit) + '" placeholder="unit — min, reps, pages…" aria-label="unit">' : "") + "</div>" : "") +
-        '<div class="td-field"><label>Due</label><div class="td-due-row">' +
-          '<input type="date" class="td-due" id="tdDue" value="' + esc(t.due) + '" aria-label="due date">' +
-          '<input type="time" class="td-due" id="tdDueTime" value="' + esc(t.dueTime) + '" aria-label="due time">' +
-        "</div></div>" +
+        // a HABIT recurs → its due area IS the schedule (same picker as a routine; no sched =
+        // every day). A task stays one-off: a due date + time, never a recurrence.
+        (habit ? schedPickerHtml(t.sched, esc)
+          : '<div class="td-field"><label>Due</label><div class="td-due-row">' +
+            '<input type="date" class="td-due" id="tdDue" value="' + esc(t.due) + '" aria-label="due date">' +
+            '<input type="time" class="td-due" id="tdDueTime" value="' + esc(t.dueTime) + '" aria-label="due time">' +
+          "</div></div>") +
         '<div class="td-field"><label>Area — where it belongs</label><div class="td-areas">' + areaChips + "</div></div>" +
         '<div class="td-field"><label>Notes</label><textarea class="td-notes" id="tdNotes" placeholder="anything to remember…" aria-label="notes">' + esc(t.notes) + "</textarea></div>" +
         '<div class="td-field"><label>Routine — part of a saved routine?</label><div class="td-areas td-rtrow">' + (routines.length ? rtChips : '<span class="td-soon-txt" style="margin-right:8px">No routines yet — make one in your deck.</span><button class="td-rt on" data-rt="">↩ None</button>') + "</div></div>" +
@@ -9307,8 +9664,10 @@ function openTaskDetail(id) {
     root.querySelectorAll("#tdType button").forEach((b) => b.addEventListener("click", () => { thingSetType(id, b.dataset.type); render(); }));
     root.querySelectorAll("#tdTrack button").forEach((b) => b.addEventListener("click", () => { thingSetTrack(id, b.dataset.mode); render(); }));
     const unit = root.querySelector("#tdUnit"); if (unit) unit.addEventListener("change", () => patch({ unit: unit.value.trim() }));
-    root.querySelector("#tdDue").addEventListener("change", (e) => patch({ due: e.target.value || null }));
-    root.querySelector("#tdDueTime").addEventListener("change", (e) => patch({ dueTime: e.target.value || null }));
+    // task → the due inputs; habit → the shared schedule picker (both null-safe: only one renders)
+    const due = root.querySelector("#tdDue"); if (due) due.addEventListener("change", (e) => patch({ due: e.target.value || null }));
+    const dueT = root.querySelector("#tdDueTime"); if (dueT) dueT.addEventListener("change", (e) => patch({ dueTime: e.target.value || null }));
+    schedPickerWire(root, () => get().sched, (p) => { const t = get(); patch({ sched: Object.assign({ freq: "daily", every: 1 }, t.sched || {}, p) }); }, render);
     root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { patch({ area: b.dataset.area || null }); render(); }));
     root.querySelectorAll(".td-rt").forEach((b) => b.addEventListener("click", () => {   // move in/out of a routine — same per-item edit as the deck's ⋯ picker
       const rid = b.dataset.rt || null, cur = get();
@@ -9686,20 +10045,13 @@ function openRoutineDetail(id) {
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
   document.addEventListener("keydown", onKey);
-  const FREQS = [["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]];
-  const DOW = [["0", "S"], ["1", "M"], ["2", "T"], ["3", "W"], ["4", "T"], ["5", "F"], ["6", "S"]];
   function render() {
-    const r = get(), s = r.sched || { freq: "daily", every: 1 }, freq = s.freq || "daily", days = Array.isArray(s.days) ? s.days.map(String) : [];
-    const unit = freq === "weekly" ? "week(s)" : freq === "monthly" ? "month(s)" : freq === "yearly" ? "year(s)" : "day(s)";
+    const r = get();
     root.innerHTML =
       '<div class="daily-top"><button class="daily-icn" id="rdClose" aria-label="close">✕</button><div class="td-htitle">🔁 Routine</div><button class="daily-icn td-del" id="rdDel" aria-label="delete" title="delete">🗑</button></div>' +
       '<div class="td-scroll">' +
         '<div class="qd-titlerow"><input class="qd-emoji" id="rdEmoji" value="' + esc(r.emoji) + '" maxlength="4" aria-label="emoji"><input class="td-title" id="rdName" value="' + esc(r.name) + '" placeholder="routine name…" aria-label="name"></div>' +
-        '<div class="td-field"><label>Repeats</label><div class="td-seg" id="rdFreq">' + FREQS.map((fq) => '<button data-freq="' + fq[0] + '"' + (freq === fq[0] ? ' class="on"' : "") + ">" + fq[1] + "</button>").join("") + "</div></div>" +
-        (freq === "weekly" ? '<div class="td-field"><label>On these days</label><div class="rd-days">' + DOW.map((d) => '<button class="rd-day' + (days.indexOf(d[0]) !== -1 ? " on" : "") + '" data-dow="' + d[0] + '">' + d[1] + "</button>").join("") + "</div></div>" : "") +
-        '<div class="td-field"><label>Every</label><div class="rd-every"><input type="number" inputmode="numeric" class="rd-everyin" id="rdEvery" value="' + esc(s.every || 1) + '" min="1"><span class="rd-everylbl">' + unit + "</span></div></div>" +
-        '<div class="td-field"><label>Starts</label><input type="date" class="td-due" id="rdStart" value="' + esc(s.start) + '"></div>' +
-        '<div class="td-field rd-pausefield"><label class="rd-pauselbl"><input type="checkbox" id="rdPaused"' + (s.paused ? " checked" : "") + "> Paused</label></div>" +
+        schedPickerHtml(r.sched, esc) +   // the SHARED recurrence picker (habits use the same one)
         '<div class="td-field td-soon"><label>Steps</label><div class="td-soon-txt">Add steps with the ＋ on the routine card in your deck.</div></div>' +
       "</div>";
     wire();
@@ -9716,11 +10068,7 @@ function openRoutineDetail(id) {
     });
     const em = root.querySelector("#rdEmoji"); em.addEventListener("change", () => patch({ emoji: em.value }));
     const nm = root.querySelector("#rdName"); nm.addEventListener("change", () => { const v = nm.value.trim(); if (v) patch({ name: v }); });
-    root.querySelectorAll("#rdFreq button").forEach((b) => b.addEventListener("click", () => { sched({ freq: b.dataset.freq }); render(); }));
-    root.querySelectorAll(".rd-day").forEach((b) => b.addEventListener("click", () => { const s = get().sched || {}, days = Array.isArray(s.days) ? s.days.map(Number) : [], d = +b.dataset.dow, i = days.indexOf(d); if (i === -1) days.push(d); else days.splice(i, 1); sched({ days: days.sort((x, y) => x - y) }); render(); }));
-    const ev = root.querySelector("#rdEvery"); ev.addEventListener("change", () => sched({ every: Math.max(1, parseInt(ev.value) || 1) }));
-    const st = root.querySelector("#rdStart"); st.addEventListener("change", (e) => sched({ start: e.target.value || null }));
-    const pz = root.querySelector("#rdPaused"); pz.addEventListener("change", () => sched({ paused: pz.checked ? 1 : 0 }));
+    schedPickerWire(root, () => get().sched, sched, render);
   }
   render();
 }
@@ -9787,7 +10135,7 @@ function calMonthGrid(anchorYmd, weekStart) {
 // routine container carries the occurrence. Pass thingsVisible(loadThings()) so tombstoned /
 // dangling subtrees are already filtered (same liveness rule as the Tasks widget).
 function calThingsOnDay(things, ymd) {
-  const tasks = [], events = [], routines = [];
+  const tasks = [], events = [], routines = [], habits = [];
   (things || []).forEach((t) => {
     if (!t || t.deleted) return;
     if (t.type === "task" && !t.routine) { if (t.due === ymd) tasks.push(t); }
@@ -9795,8 +10143,13 @@ function calThingsOnDay(things, ymd) {
       if (t.sched) { if (routineDueOn(t.sched, ymd)) events.push(t); }
       else { const s = t.start, e = t.end || t.start; if (s && ymd >= s && ymd <= e) events.push(t); }
     } else if (t.type === "routine") { if (routineDueOn(t.sched, ymd)) routines.push(t); }
+    // a habit with an EXPLICIT schedule spreads through the same engine as a routine. No
+    // sched = a plain daily habit that lives in the deck, NOT on the calendar — otherwise
+    // every habit would paint every single day (noise). A routine member's occurrence is
+    // carried by its routine, never doubled here.
+    else if (t.type === "habit" && !t.routine) { if (t.sched && routineDueOn(t.sched, ymd)) habits.push(t); }
   });
-  return { tasks: tasks, events: events, routines: routines };
+  return { tasks: tasks, events: events, routines: routines, habits: habits };
 }
 // the 7 local days of the week (aligned to weekStart) containing anchorYmd.
 function calWeekDays(anchorYmd, weekStart) {
@@ -9809,9 +10162,19 @@ function calWeekDays(anchorYmd, weekStart) {
 // Check a ONE-OFF task off from the calendar — same rule as the Tasks widget: a plain task's
 // done is a flag ON the object (routine members / habits recur and are log-derived, never shown
 // as checkable here). Logs the completion + awards EXP so the calendar and the deck agree.
-function calToggleTask(id) {
+function calToggleTask(id, ymd) {
   const all = loadThings(), t = all.find((x) => x && x.id === id);
-  if (!t || t.type !== "task" || t.routine) return;
+  if (!t || t.routine) return;
+  if (t.type === "habit") {
+    // a yes/no habit checks off from the calendar too — log-derived for THAT day (never a flag),
+    // exactly like the deck. Amount/rating/text habits open their detail instead (no checkbox).
+    if ((t.track || "check") !== "check") return;
+    const day = ymd || todayKey(), done = thingDoneOn(loadLog(), id, day);
+    try { logThingEvent(id, done ? "undone" : "done", { items: all, ts: day }); } catch (e) {}
+    if (!done) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Habit done · +2 EXP"); } catch (e) {} }
+    return;
+  }
+  if (t.type !== "task") return;
   const now = Date.now(), next = t.done ? 0 : 1;
   saveThings([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]);
   try { logThingEvent(id, next ? "done" : "undone", { items: all }); } catch (e) {}
@@ -9854,11 +10217,12 @@ function openCalendar() {
     const dow = calWeekdayLabels(weekStart).map((d) => "<span>" + d + "</span>").join("");
     const cellHtml = cells.map((c) => {
       const j = calThingsOnDay(things, c.ymd), et = chipsOf(j);   // events + dated tasks → chips
-      const chips = density === "chips" ? et.concat(j.routines.map((r) => ({ cls: "routine", em: r.emoji || "🔁", tx: r.name || "Routine" }))) : et;
+      const rec = j.routines.concat(j.habits);   // the recurring layer — routines + scheduled habits, one visual family
+      const chips = density === "chips" ? et.concat(rec.map((r) => ({ cls: "routine", em: r.emoji || (r.type === "habit" ? "↻" : "🔁"), tx: r.name || r.title || "Routine" }))) : et;
       const shown = chips.slice(0, 3), extra = chips.length - shown.length;
       const chipsH = shown.map((ch) => '<span class="cal-chip ' + ch.cls + '"><span class="ci-em" aria-hidden="true">' + ch.em + '</span><span class="ci-tx">' + esc(ch.tx) + "</span></span>").join("");
-      const rdots = density === "dots" ? j.routines.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || "routine") + '"></span>').join("") : "";
-      const nDots = (et.length ? '<span class="cal-dot cal-dot-i"></span>' : "") + j.routines.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || "routine") + '"></span>').join("");   // narrow: always dots
+      const rdots = density === "dots" ? rec.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || r.title || "routine") + '"></span>').join("") : "";
+      const nDots = (et.length ? '<span class="cal-dot cal-dot-i"></span>' : "") + rec.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || r.title || "routine") + '"></span>').join("");   // narrow: always dots
       return '<button class="cal-cell' + (c.inMonth ? "" : " other") + (c.ymd === today ? " today" : "") + '" data-ymd="' + c.ymd + '" aria-label="' + esc(dayTitle(c.ymd)) + '">' +
         '<span class="cal-daynum">' + c.day + "</span>" +
         '<div class="cal-items">' + chipsH + (extra > 0 ? '<span class="cal-more">+' + extra + " more</span>" : "") + (rdots ? '<div class="cal-dots">' + rdots + "</div>" : "") + "</div>" +
@@ -9867,10 +10231,10 @@ function openCalendar() {
     }).join("");
     return '<div class="cal-month"><div class="cal-dow">' + dow + '</div><div class="cal-grid">' + cellHtml + "</div></div>";
   }
-  function itemRow(act, id, em, tx, sub, done, checkable) {
+  function itemRow(act, id, em, tx, sub, done, checkable, ymd) {
     return '<div class="cal-arow' + (done ? " done" : "") + '" data-act="' + act + '" data-id="' + esc(id) + '" role="button" tabindex="0">' +
       (checkable
-        ? '<button class="cal-check' + (done ? " on" : "") + '" data-check="' + esc(id) + '" aria-label="' + (done ? "mark not done" : "mark done") + '"></button>'
+        ? '<button class="cal-check' + (done ? " on" : "") + '" data-check="' + esc(id) + '"' + (ymd ? ' data-ymd="' + esc(ymd) + '"' : "") + ' aria-label="' + (done ? "mark not done" : "mark done") + '"></button>'
         : '<span class="cal-arow-em" aria-hidden="true">' + em + "</span>") +
       '<span class="cal-arow-tx">' + esc(tx) + (sub ? '<span class="cal-arow-sub">' + esc(sub) + "</span>" : "") + "</span>" +
       '<span class="cal-arow-go" aria-hidden="true">›</span></div>';
@@ -9879,6 +10243,7 @@ function openCalendar() {
     const log = loadLog(), things = thingsVisible(loadThings()), j = calThingsOnDay(things, cursor), rows = [];
     j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime + (e.endTime ? "–" + e.endTime : "") : e.allDay ? "all day" : ""), false, false)));
     j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "due", !!t.done, true)));
+    j.habits.forEach((h) => rows.push(itemRow("detail", h.id, "↻", h.title || "Habit", "habit", thingDoneOn(log, h.id, cursor), (h.track || "check") === "check", cursor)));   // scheduled habits — log-derived per day; yes/no checks off in place
     j.routines.forEach((r) => {
       const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, cursor)).length;
       rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length + " done" : "routine", members.length > 0 && doneCt === members.length, false));
@@ -9892,6 +10257,7 @@ function openCalendar() {
       const j = calThingsOnDay(things, ymd), d = _ymd2date(ymd), rows = [];
       j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime : e.allDay ? "all day" : ""), false, false)));
       j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "", !!t.done, true)));
+      j.habits.forEach((h) => rows.push(itemRow("detail", h.id, "↻", h.title || "Habit", "", thingDoneOn(log, h.id, ymd), (h.track || "check") === "check", ymd)));
       j.routines.forEach((r) => { const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, ymd)).length; rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length : "", members.length > 0 && doneCt === members.length, false)); });
       return '<div class="cal-wday' + (ymd === today ? " today" : "") + '"><button class="cal-wday-head" data-ymd="' + ymd + '"><span class="cal-wday-dow">' + d.toLocaleDateString("en-US", { weekday: "short" }) + '</span><span class="cal-wday-num">' + d.getDate() + "</span></button>" +
         (rows.length ? '<div class="cal-wrows">' + rows.join("") + "</div>" : '<div class="cal-wempty" aria-hidden="true">·</div>') + "</div>";
@@ -9945,7 +10311,7 @@ function openCalendar() {
     root.querySelectorAll("#calDensity button").forEach((b) => b.addEventListener("click", () => { density = b.dataset.den === "chips" ? "chips" : "dots"; savePrefs(); render(); }));
     root.querySelectorAll(".cal-cell").forEach((c) => c.addEventListener("click", () => { cursor = c.dataset.ymd; view = "day"; render(); }));   // tap a day → that day's agenda
     root.querySelectorAll(".cal-wday-head").forEach((h) => h.addEventListener("click", () => { cursor = h.dataset.ymd; view = "day"; render(); }));   // tap a week-day header → its agenda
-    root.querySelectorAll(".cal-check").forEach((c) => c.addEventListener("click", (e) => { e.stopPropagation(); try { calToggleTask(c.dataset.check); } catch (er) {} }));   // check a task off in place; onCache repaints
+    root.querySelectorAll(".cal-check").forEach((c) => c.addEventListener("click", (e) => { e.stopPropagation(); try { calToggleTask(c.dataset.check, c.dataset.ymd); } catch (er) {} }));   // check a task/habit off in place (habits per-day); onCache repaints
     root.querySelectorAll(".cal-arow").forEach((r) => {
       const openRow = () => { const id = r.dataset.id, act = r.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); } catch (e) {} };
       r.addEventListener("click", openRow);
@@ -9982,7 +10348,7 @@ function openCalendar() {
   function onInfClick(e) {   // delegated — the stacked sections are dynamic, so one handler covers all
     const cell = e.target.closest(".cal-cell"); if (cell) { cursor = cell.dataset.ymd; view = "day"; render(); return; }
     const wh = e.target.closest(".cal-wday-head"); if (wh) { cursor = wh.dataset.ymd; view = "day"; render(); return; }
-    const chk = e.target.closest(".cal-check"); if (chk) { e.stopPropagation(); try { calToggleTask(chk.dataset.check); } catch (er) {} return; }
+    const chk = e.target.closest(".cal-check"); if (chk) { e.stopPropagation(); try { calToggleTask(chk.dataset.check, chk.dataset.ymd); } catch (er) {} return; }
     const add = e.target.closest(".cal-addevent"); if (add) { try { calAddEvent(add.dataset.ymd || cursor); } catch (er) {} return; }
     const arow = e.target.closest(".cal-arow"); if (arow) { const id = arow.dataset.id, act = arow.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); } catch (er) {} }
   }
@@ -10456,13 +10822,14 @@ function openMessages() {
     "</div>";
   };
 
-  // the account strip — "signed in as X · Switch account · Log out" — shown on every
-  // logged-in Messages view so you can always leave or swap accounts from here.
+  // the account strip — "signed in as X · Use a different account · Log out" — shown on
+  // every logged-in Messages view so you can always leave or swap accounts from here.
   const acctFooter = () => {
     if (!socialLoggedIn()) return "";
     const em = cloudState().email || "your account";
     return '<div class="msg-account"><span class="msg-acct-who">signed in as <b>' + esc(em) + "</b></span>" +
       '<span class="msg-acct-acts">' +
+      '<button class="msg-acct-btn" id="msgSwitch">Use a different account</button>' +
       '<button class="msg-acct-btn msg-acct-out" id="msgLogout">Log out</button>' +
       "</span></div>";
   };
@@ -10663,7 +11030,21 @@ function openMessages() {
     // account strip — log out (stay here, drop to the logged-out onboard) or switch
     // (log out + jump to the cloud sign-in so a different account can take over)
     const lo = root.querySelector("#msgLogout");
-    if (lo) lo.addEventListener("click", () => { cloudLogout(); view = "list"; activeUid = null; results = null; findErr = ""; claimErr = ""; try { cloudChip(); } catch (e) {} socialUpdateBadge(); render(); flash("Logged out."); });
+    if (lo) lo.addEventListener("click", () => {
+      const hadAcct = !!cloudState().userId;
+      const parked = cloudLogout(); view = "list"; activeUid = null; results = null; findErr = ""; claimErr = "";
+      try { cloudChip(); } catch (e) {} socialUpdateBadge();
+      // parked → the data left the live slot but the board still renders it from memory: reload
+      // to a clean cache. A failed stash (storage full) keeps the data live — say so plainly,
+      // same warning as the Settings logout, because on a shared machine "logged out" must not
+      // silently mean "everything still visible".
+      if (parked) { flash("Logged out."); setTimeout(() => location.reload(), 500); }
+      else if (hadAcct) { render(); flash("Logged out — but storage is full, so your data couldn't be cleared from this device."); }
+      else { render(); flash("Logged out."); }
+    });
+    // "Use a different account" = the shared switch flow (park + reload into a blank sign-in)
+    const sw = root.querySelector("#msgSwitch");
+    if (sw) sw.addEventListener("click", () => accountLogout(true));
     const claimGo = root.querySelector("#msgClaimGo"), claimIn = root.querySelector("#msgClaimIn");
     if (claimGo && claimIn) {
       const go = async () => { claimErr = ""; try { await socialClaimUsername(claimIn.value); flash("You're on — @" + socialState().username); } catch (e) { claimErr = e.message || "couldn't claim that"; render(); } };
@@ -11793,7 +12174,27 @@ function openClockSettings(anchor) {
   const sync = document.getElementById("syncHealth");
   if (sync) bar.appendChild(sync);
   const cloud = document.getElementById("cloudHealth");
-  if (cloud) { bar.appendChild(cloud); cloud.addEventListener("click", () => { autoPushNow(); openSettings(); }); }
+  if (cloud) {
+    bar.appendChild(cloud);
+    cloud.addEventListener("click", () => {
+      // signed in → the account menu (cloud settings / log out / different account);
+      // signed out → straight to Settings, where the sign-in stepper lives
+      if (cloudState().token) { openAccountMenu(cloud); return; }
+      autoPushNow(); openSettings();
+    });
+  }
+  // finish an account switch: "Use a different account…" logs out (parking the cache),
+  // reloads to this clean slate, and left a one-shot flag — take them straight to a
+  // blank sign-in instead of making them re-find Settings. (The hosted web app reloads
+  // into webcache's login gate instead, which reads the same flag itself.)
+  if (!window.__CACHE_WEB__) {
+    try {
+      if (sessionStorage.getItem(SWITCH_ACCT_FLAG) === "1") {
+        sessionStorage.removeItem(SWITCH_ACCT_FLAG);
+        setTimeout(() => { openSettings(); prepSwitchSignin(); flash("Sign in as the other account."); }, 350);
+      }
+    } catch (e) {}
+  }
   const oldBar = document.querySelector(".status-bar");
   if (oldBar) oldBar.remove();
 
@@ -11899,7 +12300,18 @@ function customStatEntry(cs) {
     return { val: "—" };
   } };
 }
-function allStats() { return STAT_DEFS.concat(ensureCustomStats().map(customStatEntry)); }
+// ── The contributor stat: how many reports of yours have been fixed ──
+// DERIVED from money.bugCredits (count + EXP sum) — never a second mutable counter.
+// Hidden entirely until the first one lands (no sad zero-state, per 1_PRINCIPLES:
+// someone who reports nothing must never see a gap where a stat "should" be), then
+// it appears in the strip as a small standing honor. Respects statsOrder/statsHidden
+// like every other chip once it exists.
+function bugStatEntry() {
+  const st = bugCreditStat();
+  if (!st.count) return [];
+  return [{ id: "bugfixes", label: "Cache builder", fn: () => ({ val: "🛠️ " + st.count, tone: "ok" }) }];
+}
+function allStats() { return STAT_DEFS.concat(bugStatEntry(), ensureCustomStats().map(customStatEntry)); }
 function statsList(key) { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch (e) { return []; } }
 function statsDefOrder() {
   const defs = allStats();
@@ -12078,4 +12490,6 @@ socialUpdateBadge();       // show any unread count from the last session's cach
 notifsFetch();             // the Cache's own news — seeds first-run read state, arms the news corner (never throws)
 if (socialReady()) socialPoll().catch(() => {});   // pull new messages + friend requests on load
 setInterval(() => { if (!document.hidden && socialReady()) socialPoll().catch(() => {}); }, 75000);   // near-live message check (the open surface polls faster)
+bugPoll().catch(() => {});   // did something you reported get fixed while you were away?
+setInterval(() => { if (!document.hidden) bugPoll().catch(() => {}); }, 75000);   // rides the same cadence; bugPoll self-throttles to ~4 min
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint
