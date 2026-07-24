@@ -2711,6 +2711,29 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 }
 
 /* period selector popover (opens above the dock) */
+/* ── the account menu — the cloud chip's tap menu while signed in ── */
+.acct-menu {
+  position: fixed; z-index: 80; min-width: 232px; max-width: min(320px, calc(100vw - 16px));
+  background: var(--paper); border: 1px solid var(--edge); border-radius: 14px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.22); padding: 8px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.am-who {
+  font-size: 11px; color: rgba(var(--ink-rgb), 0.6); padding: 8px 10px 9px;
+  border-bottom: 1px solid var(--edge-soft); margin-bottom: 5px; overflow-wrap: anywhere;
+}
+.am-who b { color: var(--ink); font-weight: 600; }
+.am-item {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; min-height: 44px; text-align: left; padding: 7px 10px;
+  border: 1px solid transparent; border-radius: 9px; background: none; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; color: var(--ink);
+}
+.am-item:hover { background: rgba(var(--ink-rgb), 0.06); }
+.am-item svg { width: 15px; height: 15px; opacity: 0.75; flex: none; }
+.am-out { color: #c9542e; }
+.am-out svg { opacity: 0.9; }
+
 .period-menu {
   position: fixed; z-index: 80; width: 232px; max-height: 60vh; overflow-y: auto;
   background: var(--paper); border: 1px solid var(--edge); border-radius: 14px;

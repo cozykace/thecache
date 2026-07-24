@@ -2985,6 +2985,13 @@ let PROFILE_STATS = (function () {
 })();
 let _statsTimer = null;
 function saveStats() {
+  // Storage-swap latch: once the live slot was swapped or cleared under this page (logout
+  // park, account switch, parked restore, a vault-merge reload), the in-memory stats belong
+  // to the PREVIOUS storage world — and this function is wired to pagehide/beforeunload, so
+  // without the latch it would stomp the swap on the very reload those flows schedule
+  // (writing the parked account's EXP back into the cleared slot, or a near-zero ledger over
+  // a just-restored one). The latch dies with the page; the reload starts fresh.
+  if (window.__cacheStorageSwapped) return;
   const p = getProfile();
   p.stats = PROFILE_STATS;
   try { localStorage.setItem("money.profile", JSON.stringify(p)); } catch (e) {}
@@ -3520,9 +3527,29 @@ async function cloudLogin(url, email, password) {
   const d = await r.json();
   if (!r.ok || !d.token) throw new Error(cloudErr(d) || "login failed");
   const prev = cloudState();
-  // a DIFFERENT account is signing in on this browser → drop the old account's
-  // device key, seal-mode memory, and record pointer, or the vaults would entangle
-  if (prev.userId && d.record && d.record.id !== prev.userId) {
+  const newUid = d.record && d.record.id;
+  if (prev.parked && newUid) {
+    // The previous session was PARKED by logout: its silo already holds its data and the live
+    // slot was cleared. RESTORE the incoming account's silo (a clean slate if it's new here) —
+    // and never stash first: the live slot is empty, so stashing it would overwrite the parked
+    // account's good silo with nothing. Clear the live slot before loading so anything a
+    // logged-out visitor scribbled into the empty cache can't blend into the restored account.
+    clearAccountData();
+    try { window.__cacheStorageSwapped = true; } catch (e) {}   // mute unload-time savers — the page's in-memory state predates this swap
+    if (!loadAccountData(newUid)) {
+      // the restore itself ran out of storage midway — wipe the partial copy and ABORT.
+      // Nothing is lost: the state is still parked and the silo untouched, so the next
+      // login retries a clean restore once space is freed.
+      clearAccountData();
+      throw new Error("Not enough storage to restore this account safely — free up space and try again. Your data is safe.");
+    }
+    _cloudLoginRestored = true;   // the board booted from the empty slot — the caller must reload
+    if (newUid !== prev.userId) {
+      // a DIFFERENT account than the parked one → it must not inherit the parked account's
+      // vault key, seal-mode memory, record pointer, or sync marks
+      cloudKeySet(""); prev.recordId = null; prev.lastPush = null; prev.lastHash = null; prev.lastSeenVault = null; prev.mode = null;
+    }
+  } else if (prev.userId && newUid && newUid !== prev.userId) {
     // FULL per-account isolation: silo the outgoing account's ENTIRE local cache (deck, tasks,
     // journal, layout, forms, character — AND its @handle, private key, message cache) under its
     // userId, then load the incoming account's silo (a clean slate if it's new here), so this
@@ -3531,15 +3558,30 @@ async function cloudLogin(url, email, password) {
     // relabeling the session — never leave the session pointing at the new account while the old
     // account's data (incl. its private key) is still live, or a later backup would seal one
     // account's data into another's vault. Data stays untouched on abort.
-    if (!switchAccountData(prev.userId, d.record.id)) throw new Error("Not enough storage to switch accounts safely — free up space (or back up and remove an account's cloud copy) and try again. Your data is untouched.");
+    if (!stashAccountData(prev.userId)) throw new Error("Not enough storage to switch accounts safely — free up space (or back up and remove an account's cloud copy) and try again. Your data is untouched.");
+    // The outgoing account is now safely parked in its silo. Record that BEFORE restoring the
+    // incoming one: if the restore below fails (storage), the login aborts into a clean PARKED
+    // state — both silos intact, live slot clear — and the next attempt heals itself through
+    // the parked path instead of leaving a half-restored hybrid labeled as the old session.
+    // VERIFY the write landed: a swallowed failure here would leave the state saying "live
+    // session" over a cleared slot, and the next logout would stash that emptiness over the
+    // good silo. If it didn't land, un-stash (put the live copy back) and abort unchanged.
+    try { cloudSaveState(Object.assign({}, prev, { token: "", parked: true })); } catch (e) {}
+    if (cloudState().parked !== true) { loadAccountData(prev.userId); throw new Error("Not enough storage to switch accounts safely — free up space and try again. Your data is untouched."); }
+    try { window.__cacheStorageSwapped = true; } catch (e) {}   // mute unload-time savers — they hold the outgoing account's world
+    if (!loadAccountData(newUid)) { clearAccountData(); throw new Error("Not enough storage to restore this account safely — free up space and try again. Your data is safe."); }
     cloudKeySet(""); prev.recordId = null; prev.lastPush = null; prev.lastHash = null; prev.lastSeenVault = null; prev.mode = null;
   }
   // same account → mode RIDES ALONG: the zero-knowledge downgrade guard reads it,
   // and losing it on a routine re-login would disarm the guard exactly when a
-  // tampering server would love that
-  cloudSaveState({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: prev.recordId, lastPush: prev.lastPush, lastHash: prev.lastHash, lastSeenVault: prev.lastSeenVault, mode: prev.mode || null, verified: !!(d.record && d.record.verified) });
+  // tampering server would love that. `parked` is deliberately NOT carried — a
+  // successful login always un-parks (the account's data is live again).
+  cloudSaveState({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: newUid, recordId: prev.recordId, lastPush: prev.lastPush, lastHash: prev.lastHash, lastSeenVault: prev.lastSeenVault, mode: prev.mode || null, verified: !!(d.record && d.record.verified) });
   return d;
 }
+// Set when cloudLogin restored a parked silo — the board/theme/character booted from the empty
+// live slot, so the login UI must reload to render the restored account (see reloadIfSwitched).
+let _cloudLoginRestored = false;
 async function cloudSignup(url, email, password) {
   const base = (url || "").replace(/\/+$/, "");
   const r = await fetch(base + "/api/collections/users/records", {
@@ -3555,12 +3597,24 @@ async function cloudSignup(url, email, password) {
 function cloudLogout() {
   const s = cloudState();
   cloudKeySet("");   // drop this device's vault data key (explicit logout is stricter than an expiry)
+  // PARK the account: silo its entire decrypted world (deck, tasks, journal, notes, @handle,
+  // ECDH private key, message cache, __lmeta) under cacheprof.<userId> and CLEAR the live slot,
+  // so the next person at a shared computer meets an empty cache — not this account's life.
+  // `parked` tells the next login "the silo already holds this account's data — RESTORE it,
+  // don't stash the (now empty) live slot over it". Two guarded edges:
+  //   · silo write failed (quota) → keep the data LIVE and don't park; losing data is worse
+  //     than leaving it visible on this one device (stashAccountData never deletes on failure).
+  //   · already parked (double logout) → skip the stash entirely; re-stashing the empty live
+  //     slot would overwrite the good silo with nothing.
+  const parked = s.parked ? true : stashAccountData(s.userId);
+  if (parked) try { window.__cacheStorageSwapped = true; } catch (e) {}   // mute unload-time savers (saveStats) — they'd write the parked data back into the cleared slot
   // Same shape as an expired session (see cloudAuthCheck): drop only the TOKEN, KEEP the
   // account pointer (userId/email/mode + sync marks). Wiping userId would blind cloudLogin's
   // different-account guard, so the NEXT account to log in on this browser would inherit the
   // previous one's messaging identity — its @handle AND private key. Keeping userId means a
   // switch to a different account correctly clears money.social/msgKey/dms.
-  cloudSaveState({ url: s.url || CLOUD_DEFAULT_URL, email: s.email, userId: s.userId, recordId: s.recordId, mode: s.mode || null, lastPush: s.lastPush, lastHash: s.lastHash, lastSeenVault: s.lastSeenVault });
+  cloudSaveState({ url: s.url || CLOUD_DEFAULT_URL, email: s.email, userId: s.userId, recordId: s.recordId, mode: s.mode || null, lastPush: s.lastPush, lastHash: s.lastHash, lastSeenVault: s.lastSeenVault, parked: !!parked });
+  return !!parked;   // callers reload on true (board renders from memory); warn on false with a live account
 }
 // PocketBase auth tokens expire (~14 days). Refresh on every real cloud touch so
 // regular use never logs you out — and when a session is truly dead, log out
@@ -3573,8 +3627,10 @@ async function cloudAuthCheck() {
     const r = await fetch(cloudUrl() + "/api/collections/users/auth-refresh", { method: "POST", headers: { Authorization: s.token } });
     if (r.status === 401 || r.status === 403) {
       // keep email/userId/mode — re-login is one password away, the same-account
-      // check needs userId, and the zk guard must survive an expiry round-trip
-      cloudSaveState({ url: s.url, email: s.email, userId: s.userId, recordId: s.recordId, mode: s.mode || null, lastPush: s.lastPush, lastHash: s.lastHash, lastSeenVault: s.lastSeenVault });
+      // check needs userId, and the zk guard must survive an expiry round-trip.
+      // `parked` rides along too: dropping it would make the next login stash the
+      // empty live slot over a parked account's good silo (undefined just falls out)
+      cloudSaveState({ url: s.url, email: s.email, userId: s.userId, recordId: s.recordId, mode: s.mode || null, lastPush: s.lastPush, lastHash: s.lastHash, lastSeenVault: s.lastSeenVault, parked: s.parked });
       return false;
     }
     if (r.ok) {
@@ -3662,22 +3718,31 @@ function stashAccountData(uid) {
   try { localStorage.removeItem(LMETA_KEY); } catch (e) {}   // its own __lmeta went into the silo; the incoming account's is loaded next (or absent = fresh)
   return true;
 }
-function loadAccountData(uid) {   // restore this account's siloed cache + its __lmeta (clean slate + fresh bookkeeping if it's new here)
-  if (!uid) return;
+// Restore this account's siloed cache + its __lmeta (clean slate + fresh bookkeeping if it's new
+// here). Returns false if any key FAILED to restore (quota — possible when other accounts' silos
+// grew since this one was stashed): a silent partial restore would look like a working login with
+// missing data, and the NEXT logout would stash that partial copy over the good silo, making the
+// loss permanent. Callers abort into a clean parked state instead (the silo keeps everything).
+function loadAccountData(uid) {
+  if (!uid) return true;
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(PROFILE_PREFIX + uid) || "null"); } catch (e) {}
-  if (saved && typeof saved === "object") Object.keys(saved).forEach((k) => { if (isAccountDataKey(k) || k === LMETA_KEY) { try { localStorage.setItem(k, saved[k]); } catch (e) {} } });
+  if (!saved || typeof saved !== "object") return true;   // new on this device → clean slate
+  let ok = true;
+  Object.keys(saved).forEach((k) => { if (isAccountDataKey(k) || k === LMETA_KEY) { try { localStorage.setItem(k, saved[k]); } catch (e) { ok = false; } } });
+  return ok;
 }
-// The whole account swap. Stash the outgoing account BEFORE loading the incoming one so B never
-// inherits A's keys; ABORT (leaving the outgoing account active) if the stash couldn't be saved,
-// so nothing is ever lost. A brand-new incoming account loads no silo → clean slate + no __lmeta
-// (fresh bookkeeping). Returns whether the swap actually happened.
-function switchAccountData(oldUid, newUid) {
-  if (!newUid || oldUid === newUid) return false;
-  if (!stashAccountData(oldUid)) return false;
-  loadAccountData(newUid);
-  return true;
+// Wipe the live account-data slot (incl. __lmeta), leaving device keys + silos untouched. Used
+// by the parked-restore login path: the desktop app is usable while logged out, so a logged-out
+// visitor may have scribbled into the empty slot — restore must be CLEAN, never a blend of a
+// stranger's scratch data and the account's real life. (In the switch path the stash already
+// performed this clear, so only parked logins need it explicitly.)
+function clearAccountData() {
+  accountDataKeys().forEach((k) => { try { localStorage.removeItem(k); } catch (e) {} });
+  try { localStorage.removeItem(LMETA_KEY); } catch (e) {}
 }
+// (switchAccountData is RETIRED: cloudLogin composes stash → interim parked-save → guarded load
+//  directly, so a restore failure aborts into a clean parked state instead of a silent partial.)
 // djb2 — a cheap content fingerprint so we can tell a real local edit apart from a
 // key we merely re-read (must match webcache.js's wLhash exactly).
 function lhash(s) { let h = 5381; s = s || ""; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h; }
@@ -4460,7 +4525,66 @@ function cloudChip(state, msg) {
   if (s.keyboxMissing) { dot.style.background = "#d6920f"; txt.textContent = "cloud: setup note"; el.title = "one-time server setup: add a 'keybox' text field to the vaults collection so your other devices can unlock"; return; }
   dot.style.background = s.lastPush ? "#3f8f4e" : "#d6920f";
   txt.textContent = s.lastPush ? "cloud ✓" : "cloud: not synced";
-  el.title = s.lastPush ? ("last sync " + cloudAgo(s.lastPush) + " — tap for cloud settings") : "connected — first backup pending (Settings → Cache cloud)";
+  el.title = s.lastPush ? ("last sync " + cloudAgo(s.lastPush) + " — tap for your account & sync") : "connected — first backup pending (tap for your account & sync)";
+}
+// ── The account menu — tap the cloud chip while signed in and your account is right
+//    there: cloud settings, log out, or hand the machine to a different account. This is
+//    the two-tap answer to "how do I log out / switch?" (logout used to live only inside
+//    Settings → Cache cloud, and nothing anywhere said "switch"). One-account-at-a-time
+//    stays the rule: a "switch" is a real log-out (parking your cache) + a real log-in. ──
+const SWITCH_ACCT_FLAG = "cache.switchAcct";   // sessionStorage: survives the logout reload, dies with the tab
+// The one logout everything shares (Settings + Messages have their own message surfaces,
+// the menu uses this). switching=true also routes the reload straight to a blank sign-in.
+function accountLogout(switching) {
+  if (switching) try { sessionStorage.setItem(SWITCH_ACCT_FLAG, "1"); } catch (e) {}
+  const hadAcct = !!cloudState().userId;
+  const parked = cloudLogout();
+  try { cloudChip(); } catch (e) {}
+  try { socialUpdateBadge(); } catch (e) {}
+  if (parked) { flash(switching ? "Logged out — sign in as the other account." : "Logged out."); setTimeout(() => location.reload(), 500); return; }
+  // stash failed (storage full) → data stays live by design; no reload, so finish the
+  // switch intent right here instead of leaving the flag armed for some later reload
+  try { sessionStorage.removeItem(SWITCH_ACCT_FLAG); } catch (e) {}
+  if (hadAcct) flash("Logged out — but storage is full, so your data couldn't be cleared from this device.");
+  else flash("Logged out.");
+  if (switching) { openSettings(); prepSwitchSignin(); }
+}
+// blank the sign-in so it's obvious ANY account can enter (it prefills the previous email)
+function prepSwitchSignin() {
+  try {
+    const em = document.getElementById("setCloudEmail"), pw = document.getElementById("setCloudPass");
+    if (em) { em.value = ""; em.focus(); }
+    if (pw) pw.value = "";
+  } catch (e) {}
+}
+function closeAccountMenu() {
+  const m = document.getElementById("acctMenu"); if (m) m.remove();
+  document.removeEventListener("pointerdown", _acctMenuOutside);
+}
+function _acctMenuOutside(e) { const m = document.getElementById("acctMenu"); if (m && !m.contains(e.target)) closeAccountMenu(); }
+function openAccountMenu(anchor) {
+  if (document.getElementById("acctMenu")) { closeAccountMenu(); return; }   // second tap toggles it shut
+  const s = cloudState();
+  const menu = document.createElement("div");
+  menu.className = "acct-menu"; menu.id = "acctMenu";
+  menu.innerHTML =
+    '<div class="am-who">Signed in as <b>' + escapeHtml(s.email || "your account") + "</b></div>" +
+    '<button class="am-item" data-act="settings"><i data-lucide="settings-2"></i>Cloud settings</button>' +
+    '<button class="am-item" data-act="switch"><i data-lucide="users"></i>Use a different account…</button>' +
+    '<button class="am-item am-out" data-act="logout"><i data-lucide="log-out"></i>Log out</button>';
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.bottom = (window.innerHeight - r.top + 8) + "px";
+  drawIcons();
+  menu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const act = b.dataset.act; closeAccountMenu();
+    if (act === "settings") { autoPushNow(); openSettings(); }
+    else if (act === "logout") accountLogout(false);
+    else if (act === "switch") accountLogout(true);
+  });
+  setTimeout(() => document.addEventListener("pointerdown", _acctMenuOutside), 0);
 }
 // ── Click sparks: rapid clicking shoots theme-colored sparks from the cursor —
 //    a playful nudge that every interaction banks EXP. Builds 5→10 thick the more
@@ -5199,7 +5323,7 @@ function openSettings() {
     // Repaint either way: a success may have just learned the verified flag.
     if (s.token) cloudAuthCheck().then((ok) => { refreshCloud(); if (!ok) clSay("Your cloud login expired — enter your password and hit Log in. Your data is safe.", "err"); });
   })();
-  // when a DIFFERENT account takes over this browser, switchAccountData has already swapped
+  // when a DIFFERENT account takes over this browser, cloudLogin has already swapped
   // localStorage to the new account — but the board/theme/character render from in-memory state
   // loaded once at boot, so a full reload is the safe way to come up cleanly as the new account
   // (a stale board could even write the old account's layout into the new account's vault).
@@ -5207,21 +5331,38 @@ function openSettings() {
   const reloadIfSwitched = (before) => {
     const now = cloudState().userId;
     if (before && now && now !== before) { clSay("✓ Switched account — reloading…", "ok"); setTimeout(() => location.reload(), 500); return true; }
+    // a login that RESTORED a parked silo must also reload — the userId may be unchanged
+    // (same account back from logout), but the board booted from the empty live slot and
+    // would keep showing (and saving) that emptiness over the just-restored data
+    if (_cloudLoginRestored) { clSay("✓ Logged in — loading your cache…", "ok"); setTimeout(() => location.reload(), 500); return true; }
     return false;
   };
+  // a login that FAILED after the storage was already swapped (a mid-restore quota abort) leaves
+  // the board rendering the previous account from memory over a cleared, parked slot — reload
+  // once the error has been readable, so the screen matches the truth instead of ghosting data
+  const reloadIfAborted = () => { if (window.__cacheStorageSwapped) setTimeout(() => location.reload(), 3000); };
   clSignup.addEventListener("click", async () => {
     clSay("Creating account…", "work");
     const before = cloudState().userId;
     try { await cloudSignup(clUrl.value.trim(), clEmail.value.trim(), clPass.value); if (reloadIfSwitched(before)) return; refreshCloud(); clSay("✓ Account created — you’re signed in. Hit ⬆ Back up to cloud and you’re done.", "ok"); }
-    catch (e) { clSay("Couldn’t create account: " + (e.message || e), "err"); }
+    catch (e) { clSay("Couldn’t create account: " + (e.message || e), "err"); reloadIfAborted(); }
   });
   clLogin.addEventListener("click", async () => {
     clSay("Logging in…", "work");
     const before = cloudState().userId;
     try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); if (reloadIfSwitched(before)) return; refreshCloud(); cloudChip(); cloudAutoPull(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
-    catch (e) { clSay("Login failed: " + (e.message || e), "err"); }
+    catch (e) { clSay("Login failed: " + (e.message || e), "err"); reloadIfAborted(); }
   });
-  clLogout.addEventListener("click", () => { cloudLogout(); clPass.value = ""; refreshCloud(); try { cloudChip(); } catch (e) {} try { socialUpdateBadge(); } catch (e) {} clSay("Logged out.", ""); });
+  clLogout.addEventListener("click", () => {
+    const hadAcct = !!cloudState().userId;
+    const parked = cloudLogout(); clPass.value = "";
+    refreshCloud(); try { cloudChip(); } catch (e) {} try { socialUpdateBadge(); } catch (e) {}
+    // parked → the account's data left the live slot, but the board still renders it from
+    // memory — reload so a shared computer really shows a clean cache the moment you log out
+    if (parked) { clSay("Logged out — clearing this screen…", "ok"); setTimeout(() => location.reload(), 500); }
+    else if (hadAcct) clSay("Logged out — but this device is out of storage, so your data couldn't be tucked away and stays visible here. Free up space and log out again to clear it.", "err");
+    else clSay("Logged out.", "");
+  });
   clPush.addEventListener("click", async () => {
     if (!cloudState().token) { clSay("Do Step 1 first — create or log into your account.", "err"); return; }
     if (phrase() && phrase().length < 6) { clSay("A zero-knowledge passphrase needs 6+ characters (or clear the field for the simple default).", "err"); return; }
@@ -10368,13 +10509,14 @@ function openMessages() {
     "</div>";
   };
 
-  // the account strip — "signed in as X · Switch account · Log out" — shown on every
-  // logged-in Messages view so you can always leave or swap accounts from here.
+  // the account strip — "signed in as X · Use a different account · Log out" — shown on
+  // every logged-in Messages view so you can always leave or swap accounts from here.
   const acctFooter = () => {
     if (!socialLoggedIn()) return "";
     const em = cloudState().email || "your account";
     return '<div class="msg-account"><span class="msg-acct-who">signed in as <b>' + esc(em) + "</b></span>" +
       '<span class="msg-acct-acts">' +
+      '<button class="msg-acct-btn" id="msgSwitch">Use a different account</button>' +
       '<button class="msg-acct-btn msg-acct-out" id="msgLogout">Log out</button>' +
       "</span></div>";
   };
@@ -10575,7 +10717,21 @@ function openMessages() {
     // account strip — log out (stay here, drop to the logged-out onboard) or switch
     // (log out + jump to the cloud sign-in so a different account can take over)
     const lo = root.querySelector("#msgLogout");
-    if (lo) lo.addEventListener("click", () => { cloudLogout(); view = "list"; activeUid = null; results = null; findErr = ""; claimErr = ""; try { cloudChip(); } catch (e) {} socialUpdateBadge(); render(); flash("Logged out."); });
+    if (lo) lo.addEventListener("click", () => {
+      const hadAcct = !!cloudState().userId;
+      const parked = cloudLogout(); view = "list"; activeUid = null; results = null; findErr = ""; claimErr = "";
+      try { cloudChip(); } catch (e) {} socialUpdateBadge();
+      // parked → the data left the live slot but the board still renders it from memory: reload
+      // to a clean cache. A failed stash (storage full) keeps the data live — say so plainly,
+      // same warning as the Settings logout, because on a shared machine "logged out" must not
+      // silently mean "everything still visible".
+      if (parked) { flash("Logged out."); setTimeout(() => location.reload(), 500); }
+      else if (hadAcct) { render(); flash("Logged out — but storage is full, so your data couldn't be cleared from this device."); }
+      else { render(); flash("Logged out."); }
+    });
+    // "Use a different account" = the shared switch flow (park + reload into a blank sign-in)
+    const sw = root.querySelector("#msgSwitch");
+    if (sw) sw.addEventListener("click", () => accountLogout(true));
     const claimGo = root.querySelector("#msgClaimGo"), claimIn = root.querySelector("#msgClaimIn");
     if (claimGo && claimIn) {
       const go = async () => { claimErr = ""; try { await socialClaimUsername(claimIn.value); flash("You're on — @" + socialState().username); } catch (e) { claimErr = e.message || "couldn't claim that"; render(); } };
@@ -11705,7 +11861,27 @@ function openClockSettings(anchor) {
   const sync = document.getElementById("syncHealth");
   if (sync) bar.appendChild(sync);
   const cloud = document.getElementById("cloudHealth");
-  if (cloud) { bar.appendChild(cloud); cloud.addEventListener("click", () => { autoPushNow(); openSettings(); }); }
+  if (cloud) {
+    bar.appendChild(cloud);
+    cloud.addEventListener("click", () => {
+      // signed in → the account menu (cloud settings / log out / different account);
+      // signed out → straight to Settings, where the sign-in stepper lives
+      if (cloudState().token) { openAccountMenu(cloud); return; }
+      autoPushNow(); openSettings();
+    });
+  }
+  // finish an account switch: "Use a different account…" logs out (parking the cache),
+  // reloads to this clean slate, and left a one-shot flag — take them straight to a
+  // blank sign-in instead of making them re-find Settings. (The hosted web app reloads
+  // into webcache's login gate instead, which reads the same flag itself.)
+  if (!window.__CACHE_WEB__) {
+    try {
+      if (sessionStorage.getItem(SWITCH_ACCT_FLAG) === "1") {
+        sessionStorage.removeItem(SWITCH_ACCT_FLAG);
+        setTimeout(() => { openSettings(); prepSwitchSignin(); flash("Sign in as the other account."); }, 350);
+      }
+    } catch (e) {}
+  }
   const oldBar = document.querySelector(".status-bar");
   if (oldBar) oldBar.remove();
 

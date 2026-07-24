@@ -283,18 +283,29 @@
     try { localStorage.removeItem(W_LMETA_KEY); } catch (e) {}
     return true;
   }
+  // returns false if any key FAILED to restore (quota) — a silent partial restore would get
+  // stashed over the good silo on the next logout; callers abort into a clean parked state
   function wLoadAccount(uid) {
-    if (!uid) return;
+    if (!uid) return true;
     var saved = null;
     try { saved = JSON.parse(localStorage.getItem(W_PROFILE_PREFIX + uid) || "null"); } catch (e) {}
-    if (saved && typeof saved === "object") Object.keys(saved).forEach(function (kk) { if (wIsAccountData(kk) || kk === W_LMETA_KEY) { try { localStorage.setItem(kk, saved[kk]); } catch (e) {} } });
+    if (!saved || typeof saved !== "object") return true;   // new on this device → clean slate
+    var ok = true;
+    Object.keys(saved).forEach(function (kk) { if (wIsAccountData(kk) || kk === W_LMETA_KEY) { try { localStorage.setItem(kk, saved[kk]); } catch (e) { ok = false; } } });
+    return ok;
   }
-  function wSwitchAccount(oldUid, newUid) {
-    if (!newUid || oldUid === newUid) return false;
-    if (!wStashAccount(oldUid)) return false;   // abort rather than risk losing the outgoing account
-    wLoadAccount(newUid);
-    return true;
+  // wipe the live account-data slot (incl. __lmeta) without touching device keys or silos —
+  // the parked-restore login path clears before loading so nothing scribbled into the empty
+  // slot while logged out can blend into the restored account (mirror of app.js clearAccountData)
+  function wClearAccount() {
+    var i, k, del = [];
+    for (i = 0; i < localStorage.length; i++) { k = localStorage.key(i); if (wIsAccountData(k)) del.push(k); }
+    del.forEach(function (kk) { try { localStorage.removeItem(kk); } catch (e) {} });
+    try { localStorage.removeItem(W_LMETA_KEY); } catch (e) {}
   }
+  // set when login() restored a parked silo — the app booted (under the gate) from the empty
+  // live slot, so enter() must reload instead of resolving the gate over stale in-memory state
+  var _wRestored = false;
   function wStampGeneric(lm) {
     lm = lm || wLmetaGet();
     try {
@@ -322,14 +333,41 @@
     var d = await r.json();
     if (!r.ok || !d.token) throw new Error(errMsg(d) || "login failed");
     var prev = cloudState();
-    // a different account on this browser → silo its whole local cache FIRST so this account starts
-    // clean (nothing blended, nothing lost); if it can't be safely siloed (storage full), ABORT
-    // before relabeling the session — otherwise a later backup could seal one account into another's vault.
-    if (prev.userId && d.record && d.record.id !== prev.userId) {
-      if (!wSwitchAccount(prev.userId, d.record.id)) throw new Error("Not enough storage to switch accounts safely — free up space and try again. Your data is untouched.");
+    var newUid = d.record && d.record.id;
+    if (prev.parked && newUid) {
+      // logout PARKED the previous account (app.js cloudLogout siloed its data and cleared the
+      // live slot) → RESTORE the incoming account's silo, clean slate if it's new here. Never
+      // stash first: the live slot is empty, and stashing it would overwrite the parked
+      // account's good silo with nothing. Clear before loading so pre-login scraps can't blend.
+      wClearAccount();
+      try { window.__cacheStorageSwapped = true; } catch (e) {}   // mute app.js's unload-time savers — their in-memory state predates this swap
+      if (!wLoadAccount(newUid)) {
+        // restore ran out of storage midway — wipe the partial copy and ABORT; the state is
+        // still parked and the silo untouched, so the next login retries a clean restore
+        wClearAccount();
+        throw new Error("Not enough storage to restore this account safely — free up space and try again. Your data is safe.");
+      }
+      _wRestored = true;
+      if (newUid !== prev.userId) { keySet(""); prev.recordId = null; prev.mode = null; }   // a different account inherits nothing
+    } else if (prev.userId && newUid && newUid !== prev.userId) {
+      // a different account on a LIVE session → silo its whole local cache FIRST so this account
+      // starts clean (nothing blended, nothing lost); if it can't be safely siloed (storage
+      // full), ABORT before relabeling the session — otherwise a later backup could seal one
+      // account into another's vault.
+      if (!wStashAccount(prev.userId)) throw new Error("Not enough storage to switch accounts safely — free up space and try again. Your data is untouched.");
+      // the outgoing account is now safely parked — record that BEFORE the restore, so a failed
+      // restore aborts into a clean parked state (both silos intact) that self-heals on retry.
+      // VERIFY the write landed (a swallowed failure = "live session" over a cleared slot, and
+      // the next logout stashes that emptiness over the good silo): if not, un-stash and abort.
+      try { cloudSave(Object.assign({}, prev, { token: "", parked: true })); } catch (e) {}
+      if (cloudState().parked !== true) { wLoadAccount(prev.userId); throw new Error("Not enough storage to switch accounts safely — free up space and try again. Your data is untouched."); }
+      try { window.__cacheStorageSwapped = true; } catch (e) {}
+      if (!wLoadAccount(newUid)) { wClearAccount(); throw new Error("Not enough storage to restore this account safely — free up space and try again. Your data is safe."); }
+      _wRestored = true;   // live-switch swaps storage too — enter() must reload, even when the incoming vault is empty
       keySet(""); prev.recordId = null; prev.mode = null;
     }
-    cloudSave({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: d.record && d.record.id, recordId: prev.recordId, mode: prev.mode || null });
+    // `parked` deliberately not carried forward — a successful login always un-parks
+    cloudSave({ url: base, token: d.token, email: (d.record && d.record.email) || email, userId: newUid, recordId: prev.recordId, mode: prev.mode || null });
   }
   async function signup(email, pass) {
     var base = cloudUrl();
@@ -495,6 +533,7 @@
       var last = 0; try { last = parseInt(sessionStorage.getItem("wcReloaded")) || 0; } catch (e) {}
       if (Date.now() - last > 30000) {
         try { sessionStorage.setItem("wcReloaded", String(Date.now())); } catch (e) {}
+        try { window.__cacheStorageSwapped = true; } catch (e) {}   // the merge changed storage under the booted app — mute its unload-time savers so they can't stomp it during this reload
         location.reload();
         return { empty: false, reloading: true };
       }
@@ -577,6 +616,11 @@
     g.className = "wc-gate";
     var s = cloudState();
     var returning = !!(s.token && s.email);
+    // "Use a different account…" left a one-shot flag before its logout reload: show the
+    // sign-in with a BLANK email so it's obvious any account can enter (it normally
+    // prefills the previous account's address, which read as "only I can log in here")
+    var switching = false;
+    try { if (sessionStorage.getItem("cache.switchAcct") === "1") { switching = true; sessionStorage.removeItem("cache.switchAcct"); } } catch (e) {}
     // the real logo, picked to match the theme: light ink = dark background = white mark
     var ink = 20;
     try { ink = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--ink-rgb")) || 20; } catch (e) {}
@@ -588,7 +632,7 @@
       '<div class="wc-sub">' + (returning
         ? ("Signed in as " + esc(s.email) + ".")
         : "Your cache is encrypted on this device before it syncs, and follows you when you sign in. Set a passphrase for zero-knowledge mode, where only you can open it.") + '</div>' +
-      '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Email</label><input id="wcEmail" type="email" autocomplete="username" value="' + esc(s.email || "") + '" placeholder="you@email.com"></div>' +
+      '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Email</label><input id="wcEmail" type="email" autocomplete="username" value="' + (switching ? "" : esc(s.email || "")) + '" placeholder="you@email.com"></div>' +
       '<div class="wc-field wc-acct" ' + (returning ? 'style="display:none"' : '') + '><label>Account password</label><input id="wcPass" type="password" autocomplete="current-password" placeholder="your account password"></div>' +
       '<div class="wc-field wc-phrase wc-hidden"><label>Passphrase (zero-knowledge mode only)</label><input id="wcPhrase" type="password" autocomplete="off" placeholder="only if you set one"></div>' +
       '<div class="wc-row">' +
@@ -619,6 +663,15 @@
 
     async function enter(phrase) {
       var res = await pullVault(phrase);
+      if (res && res.reloading) return;   // pullVault is already rebooting from the merged storage
+      if (_wRestored) {
+        // this login restored a parked silo AFTER the app booted from the empty live slot —
+        // reload so the board comes up as the restored account, never the stale empty state
+        // (pullVault has already persisted the vault key, so the reload unlocks silently)
+        say("✓ Logged in — loading your cache…", "ok");
+        location.reload();
+        return;
+      }
       READY = true; resolveGate();
       if (res.empty) say("✓ Logged in. This account has no synced cache yet — it fills up as you use the app.", "ok");
       g.style.opacity = "0";
