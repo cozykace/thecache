@@ -59,6 +59,7 @@ _Last updated: 2026-07-16_
 - **Drag-and-drop board** — place, resize, and arrange widgets freely, with magnet snap, zoom, pan, and up to six independent pages.
 - **Accessibility Hub** — a first-class home for comfort: one-tap presets, seizure-safe motion, adjustable contrast and text size, a color-blind-safe palette, full keyboard and screen-reader support. Accessibility requests jump the line.
 - **Themes, fonts, icon stickers, custom cursor, optional soundtrack** — small touches that make it feel like yours.
+- **A profile that's yours to edit** — tap your character card and the cache opens as your full profile: rename your cache, say who you are (name, pronouns, what you do, a private "about"), and see the level, badges, and journey you've earned. Everything autosaves as you type and stays private in your encrypted cache. If you've claimed an @handle, showing a display name next to it is one clearly-labeled switch — flip it off and it's gone from public view immediately.
 - **Works on your phone** — on a small screen the board becomes a clean single-column scroll, and the check-in was born phone-first (privately, over your own network — never the public internet).
 
 ## Stay on top of it

@@ -2,7 +2,11 @@
 
 What's coming, what's in progress, and what's recently shipped in THE CACHE. New ideas get added as they come up and checked off as they land.
 
-_Last updated: 2026-07-16_
+_Last updated: 2026-07-22_
+
+## 🪪 Your profile
+- [x] **Edit profile — the character view is where you are someone** (shipped 2026-07-22) — tap your character card (or Settings → Edit profile) and your cache opens as a full-screen profile: your cache's name (rename it right there), level, EXP, merit badges, journey, and your feats ledger — plus calm, autosaving fields for your name, pronouns, what you do, and an "about" that's yours alone. **Private by default, and explicit about it:** everything on the page stays in your encrypted cache and follows you across your devices. The one exception is opt-in, one field at a time — if you've claimed an @handle you can choose to show a display name next to it, with the plain truth spelled out (anyone who can find your handle sees it), and turning it off retracts it immediately. A profile with nothing filled in is a complete profile.
+- [ ] **Fast switching between accounts** — jump between signed-in accounts without typing a password each time (the Instagram pattern). Parked deliberately: it means one browser holding several accounts' keys at once, which is a safety decision that deserves its own careful pass. Meanwhile the profile page's "Switch account" routes through the one safe account menu.
 
 ## 🏦 Bank connection
 - [ ] **Connect a bank with just your account — no computer required** (RESEARCHED + VERIFIED FEASIBLE 2026-07-22) — today, connecting a bank needs the desktop app running on your own machine, because that's what keeps your bank data private: your computer does the pulling, and only sealed, unreadable data ever reaches the cloud. Research confirmed we can move that job **into your browser** instead — your own browser talks to your bank feed directly, so the desktop becomes genuinely optional **and we still never see your data**. (Verified end to end with a real browser, then independently re-verified.) Before building: a written OK from the bank-feed provider, since the capability we'd depend on is undocumented and their usage terms changed the day before we looked. Also needs the money engine to run in the browser. Full findings + gotchas in the private infrastructure notes.

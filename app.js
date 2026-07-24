@@ -2840,11 +2840,15 @@ function guaranteedIncome(d) {
   return (d && d.income && d.income.per_month) || 0;  // fallback until you set it
 }
 function ordinal(n) { const s = ["th", "st", "nd", "rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+// LEGACY writer — nothing calls this anymore: the Edit-profile surface writes
+// name/role/note to money.profileCard (GENERIC, converges), and money.profile's
+// stats ride saveStats. Kept so an in-flight branch calling it still works;
+// if you're about to use it, you almost certainly want setProfileCard instead.
 function setProfile(p) { localStorage.setItem("money.profile", JSON.stringify(p)); updateGreeting(); }
 // Founder mode: a goofy compliment under the greeting, just for Cozy K Ace.
 function isFounder() {
   if (localStorage.getItem("money.founder") === "1") return true;
-  const n = (getProfile().name || "").toLowerCase().trim();
+  const n = (profileName() || "").toLowerCase().trim();   // card first, legacy money.profile fallback
   return ["cozy k ace", "cozy", "king cozy", "cozyace", "cozy ace"].includes(n);
 }
 const FOUNDER_COMPLIMENTS = [
@@ -2877,10 +2881,9 @@ const PUBLIC_JOKES = [
 function updateGreeting() {
   const g = document.getElementById("greeting");
   if (!g) return;
-  const p = getProfile();
   const h = new Date().getHours();
   const part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
-  const name = (p.name || "").trim().replace(/\b\w/g, (m) => m.toUpperCase());
+  const name = (profileName() || "").trim().replace(/\b\w/g, (m) => m.toUpperCase());
   if (!name) { g.textContent = ""; g.style.display = "none"; return; }
   let html = "Good " + part + ", " + escapeHtml(name) + ".";
   const set = isFounder() ? FOUNDER_COMPLIMENTS : PUBLIC_JOKES;
@@ -3003,7 +3006,7 @@ function saveStats() {
 function getCacheName() {
   try { const n = localStorage.getItem("money.cacheName"); if (n && n.trim()) return n.trim(); } catch (e) {}
   if (isFounder()) return "King Cozy Cache";  // the founder's cache — built + tested on his own life
-  const nm = (getProfile().name || "").trim();
+  const nm = (profileName() || "").trim();
   return nm ? nm.replace(/\b\w/g, (m) => m.toUpperCase()) + "’s Cache" : "THE CACHE";
 }
 function setCacheName(n) {
@@ -3155,57 +3158,344 @@ function syncBadges() {
   BADGES.forEach((b) => { if (got.has(b.id) && !prevSet.has(b.id)) { logChar("feat", "Earned the " + b.name + " badge"); changed = true; } });
   if (changed || got.size !== prevSet.size) localStorage.setItem(BADGES_KEY, JSON.stringify([...got]));
 }
-function openCharLog() {
+// ── Edit profile: the character view is where you ARE someone — see who you are,
+//    edit it inline, and choose what (if anything) is public. ALL editable text
+//    (name/role/note/pronouns/bio) lives in money.profileCard, its OWN GENERIC
+//    key (per-key newest-wins by mtime — the engine handles it with zero
+//    merge-code changes), deliberately NOT on money.profile: that key's merge +
+//    witness are the EXP ledger's (see _authoredProject), widening them re-opens
+//    the livelock class this codebase keeps rediscovering, and its text fields
+//    are exp-richer-wins — a peer with more EXP at merge time would silently
+//    revert a fresh edit. The surface NEVER writes money.profile; legacy values
+//    there read through via profileField() until the first card edit. ──
+const PROFILE_CARD_KEY = "money.profileCard";
+function getProfileCard() { try { return JSON.parse(localStorage.getItem(PROFILE_CARD_KEY) || "{}") || {}; } catch (e) { return {}; } }
+function setProfileCard(patch) {
+  const c = Object.assign(getProfileCard(), patch || {});
+  try { localStorage.setItem(PROFILE_CARD_KEY, JSON.stringify(c)); } catch (e) {}
+  try { autoPushSoon(); } catch (e) {}
+  return c;
+}
+// name/role/note live on the CARD too (not money.profile): that key's text fields
+// are exp-richer-wins — a peer with more EXP at merge time would silently revert a
+// fresh edit, and the witness (EXP-core-only, on purpose) could never see it to
+// correct it. The card is GENERIC newest-wins, so edits actually follow you.
+// Legacy values already sitting on money.profile still read through until the
+// first card edit; nothing writes money.profile's text fields anymore.
+function profileField(key) {
+  const c = getProfileCard();
+  if (typeof c[key] === "string") return c[key];   // an explicit clear ("") is respected
+  const p = getProfile();
+  return typeof p[key] === "string" ? p[key] : "";
+}
+function profileName() { return profileField("name"); }
+function openProfile() {
+  if (document.getElementById("profSpace")) return;
   syncBadges();  // award + log any newly-earned badges before we draw them
-  const back = document.createElement("div"); back.className = "cat-backdrop";
-  const modal = document.createElement("div"); modal.className = "cat-modal char-modal";
-  const close = () => { back.remove(); modal.remove(); };
-  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
-  const L = cacheLevel(PROFILE_STATS.exp);
-  const log = charLog().slice().reverse();
-  const rows = log.length
-    ? log.map((ev) => '<div class="char-ev"><span class="char-ev-i">' + (CHAR_ICON[ev.k] || "•") + "</span>" +
-        '<span class="char-ev-d">' + escapeHtml(ev.d) + '</span><span class="char-ev-t">' + agoStr(ev.t) + "</span></div>").join("")
-    : '<div class="char-empty">Your journey is just beginning — do the work and it fills in here.</div>';
-  const since = new Date(charSince()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const curArc = Math.min(JOURNEY.length - 1, Math.floor((L.lvl - 1) / 2));
-  const arcs = JOURNEY.map((a, i) => {
-    const st = i < curArc ? "done" : i === curArc ? "now" : "lock";
-    return '<div class="tt-tier ' + st + '"><div class="tt-node"><span class="tt-arc">' + escapeHtml(a.arc) + '</span><span class="tt-lvl">Lvl ' + a.lvls + "</span></div>" +
-      '<div class="tt-branch">' + a.feats.map((f) => '<span class="tt-feat">' + escapeHtml(f) + "</span>").join("") + "</div></div>";
-  }).join("");
-  const skills = [
-    { name: "Blessed clicks", req: "max cache health", got: _healthFull },
-    { name: "Sword shing", req: "max cache health", got: _healthFull },
-    { name: "Cursor magnification", req: "coming soon", got: false },
-    { name: "Art backgrounds", req: "coming soon", got: false },
-  ].map((s) => '<button class="sk-pill ' + (s.got ? "got" : "lock") + '"' + (s.got ? "" : " disabled") + '><span class="sk-i">' + (s.got ? "✦" : "🔒") + "</span>" + escapeHtml(s.name) + (s.got ? '<span class="sk-go">unleashed</span>' : '<span class="sk-req">' + escapeHtml(s.req) + "</span>") + "</button>").join("");
-  modal.innerHTML =
-    '<div class="cat-head"><span>' + L.emoji + " " + escapeHtml(getCacheName()) + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
-    '<div class="char-body">' +
+  const root = document.createElement("div"); root.id = "profSpace"; root.className = "daily-space prof-space";
+  // the old character view was a focus-trapped dialog (the cat-modal auto-enhancer);
+  // this surface must not be less accessible than what it replaced
+  root.setAttribute("role", "dialog"); root.setAttribute("aria-modal", "true"); root.setAttribute("aria-label", "Your profile"); root.tabIndex = -1;
+  const opener = document.activeElement;
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  let pubRow = null, pubTouched = false, shareBusy = false;   // pubRow = the server's profiles row (the authority on what's public)
+  let shareArmed = false;   // an explicit toggle-ON press arms ONE publish-by-typing; consumed on the first success (after that the server row itself authorizes updates)
+  // ONE writer at a time to the public row: a toggle-off retract must land AFTER any
+  // in-flight typed-name save — never be overtaken by it and silently undone
+  let pubQueue = Promise.resolve();
+  const queuePub = (fn) => { const run = pubQueue.then(fn, fn); pubQueue = run.then(() => {}, () => {}); return run; };
+  // debounced autosaves are FLUSHED on close, never dropped — "it saves as you type"
+  // must stay true for the edit made half a second before tapping ✕
+  const debounced = {};
+  const later = (id, fn, ms) => { if (debounced[id]) clearTimeout(debounced[id].t); debounced[id] = { fn: fn, t: setTimeout(() => { delete debounced[id]; fn(); }, ms) }; };
+  const flushEdits = () => { Object.keys(debounced).forEach((k) => { const d = debounced[k]; delete debounced[k]; clearTimeout(d.t); try { d.fn(); } catch (e) {} }); };
+  const onKey = (e) => {
+    if (document.querySelector(".cat-modal")) return;   // a stacked modal (Settings) owns the keyboard — one Escape must not close both layers
+    if (e.key === "Escape") {
+      // the modal enhancer closes its modal SYNCHRONOUSLY inside this same keydown
+      // (so the DOM check above already misses it) — but it preventDefaults when it
+      // consumes the key, and that signal survives
+      if (e.defaultPrevented) return;
+      close(); return;
+    }
+    if (e.key === "Tab") {   // keep Tab inside the dialog (parity with the enhanced modals)
+      const list = [...root.querySelectorAll('button, input, textarea, select, a[href], [tabindex]:not([tabindex="-1"])')].filter((el) => !el.disabled && el.offsetParent !== null);
+      if (!list.length) return;
+      const first = list[0], last = list[list.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === root)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  };
+  // a vault merge may have adopted fresher fields — repaint, but never yank a field
+  // mid-edit; bank any pending debounce FIRST so the repaint can't show pre-edit
+  // values, and put focus back where it was so the Tab trap never leaks
+  const onLogged = () => {
+    if (!root.isConnected) { cleanup(); return; }
+    const a = document.activeElement;
+    if (root.contains(a) && a !== root && a.id !== "profClose") return;   // an editor is live — leave the DOM alone
+    const fid = root.contains(a) && a.id ? a.id : "";
+    flushEdits();
+    render();
+    if (fid) { const el = root.querySelector("#" + fid); if (el && el.focus) el.focus(); }
+  };
+  const cleanup = () => { flushEdits(); document.removeEventListener("keydown", onKey); document.removeEventListener("cache:logged", onLogged); };
+  const close = () => { cleanup(); root.remove(); try { if (opener && opener.isConnected && opener.focus) opener.focus(); } catch (e) {} };
+  document.addEventListener("keydown", onKey);
+  document.addEventListener("cache:logged", onLogged);
+  const savedTick = (sel) => { const el = root.querySelector(sel); if (!el) return; el.textContent = "saved ✓"; later("tick" + sel, () => { if (el.isConnected) el.textContent = ""; }, 1600); };
+
+  function heroHtml() {
+    const L = cacheLevel(PROFILE_STATS.exp);
+    const since = new Date(charSince()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return '<div class="prof-hero">' +
+      '<div class="prof-emoji" aria-hidden="true">' + L.emoji + "</div>" +
+      '<input class="prof-name-in" id="profCacheName" type="text" maxlength="40" autocomplete="off" value="' + esc(getCacheName()) + '" aria-label="your cache&#39;s name" title="rename your cache — it saves as you type">' +
       '<div class="char-stats">' +
-        '<div class="char-stat"><b>Lvl ' + L.lvl + "</b><span>" + escapeHtml(L.title) + "</span></div>" +
+        '<div class="char-stat"><b>Lvl ' + L.lvl + "</b><span>" + esc(L.title) + "</span></div>" +
         '<div class="char-stat"><b>' + PROFILE_STATS.exp.toLocaleString() + "</b><span>EXP</span></div>" +
         '<div class="char-stat"><b>' + (PROFILE_STATS.clicks || 0).toLocaleString() + "</b><span>interactions</span></div>" +
-        '<div class="char-stat"><b>' + log.length + "</b><span>feats logged</span></div>" +
+        '<div class="char-stat"><b>' + charLog().length + "</b><span>feats logged</span></div>" +
       "</div>" +
       '<div class="char-bar"><span style="width:' + (L.pct * 100).toFixed(1) + '%"></span></div>' +
       '<div class="char-since">since ' + since + " · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1) + "</div>" +
-      renderBadges() +
-      '<div class="char-sec">Skills &amp; unlocks</div><div class="sk-pills">' + skills + "</div>" +
-      '<div class="char-sec">Journey · tech tree</div><div class="tt-tree">' + arcs + "</div>" +
-      '<div class="char-sec">Your ledger</div>' + rows +
+      '<div class="prof-saved" id="profSavedHero" aria-live="polite"></div>' +
     "</div>";
-  document.body.appendChild(back); document.body.appendChild(modal);
-  modal.querySelector(".cat-close").addEventListener("click", close);
-  modal.querySelectorAll(".sk-pill.got").forEach((b) => b.addEventListener("click", () => {  // "unleash" pulse
-    b.classList.remove("unleash"); void b.offsetWidth; b.classList.add("unleash");
-  }));
-  const cap = modal.querySelector("#badgeCaption");
-  modal.querySelectorAll(".badge").forEach((el) => el.addEventListener("click", () => {  // tap to reveal name + how it's earned
-    if (cap) cap.textContent = el.dataset.bn + " — " + el.dataset.bd + (el.dataset.on === "1" ? " ✓ earned" : " · locked");
-  }));
+  }
+  function aboutHtml() {
+    const c = getProfileCard();
+    return '<div class="char-sec">About you · <span class="prof-tag">🔒 only you see these</span></div>' +
+      '<div class="prof-hint">These live in your cache and only ever travel inside your encrypted vault. Fill in as much or as little as you like — empty is fine.</div>' +
+      '<div class="prof-fields">' +
+        '<label class="prof-field"><span>Name</span><input id="profName" type="text" maxlength="60" autocomplete="off" value="' + esc(profileField("name")) + '" placeholder="what you go by"></label>' +
+        '<label class="prof-field"><span>Pronouns</span><input id="profPronouns" type="text" maxlength="24" autocomplete="off" value="' + esc(c.pronouns || "") + '" placeholder="if you want them here"></label>' +
+        '<label class="prof-field"><span>What you do</span><input id="profRole" type="text" maxlength="80" autocomplete="off" value="' + esc(profileField("role")) + '" placeholder="musician · gig work · freelance"></label>' +
+        '<label class="prof-field prof-field-area"><span>About</span><textarea id="profBio" maxlength="400" rows="3" placeholder="anything you want your cache to hold for you">' + esc(c.bio || "") + "</textarea></label>" +
+        '<label class="prof-field"><span>Note to self</span><input id="profNote" type="text" maxlength="120" autocomplete="off" value="' + esc(profileField("note")) + '" placeholder="optional"></label>' +
+      "</div>" +
+      '<div class="prof-saved" id="profSavedAbout" aria-live="polite"></div>';
+  }
+  // The public section. The ONLY thing that can be public today is what Messages
+  // already needs: your @handle (claimed there) and, per-field opt-in, a display
+  // name on the same profiles row. The sharing-tier model (Ghost/Neighbor/Beacon)
+  // is a pending product decision — do NOT add public fields here without it.
+  function pubHintHtml(on, curName) {
+    const st = socialState();
+    return on
+      ? (String(curName || "").trim()
+        ? "This name is <b>public</b> — anyone who can find @" + esc(st.username) + " sees it. Everything else on this page stays private."
+        : "Type a name above — it becomes <b>public</b> (visible to anyone who can find @" + esc(st.username) + ") once it saves.")
+      : "Off — only your @handle is public, and only to people who search for it exactly. The name box just holds your draft.";
+  }
+  function publicHtml() {
+    const c = getProfileCard(), st = socialState();
+    let inner;
+    if (!socialLoggedIn())
+      inner = '<div class="prof-hint">You have no public profile — everything on this page stays with your cache, and that&#39;s a complete setup. Friends and messaging start with a cloud account, whenever (and if) you want them.</div>';
+    else if (!st.optedIn || !st.username)
+      inner = '<div class="prof-hint">You&#39;re not discoverable — nothing about you is visible to anyone. If you&#39;d like friends to find you, claim an @handle in Messages.</div>' +
+        '<div class="prof-btnrow"><button class="set-btn" id="profToMessages">💬 Open Messages</button></div>';
+    else {
+      const on = !!c.shareName;
+      const pubName = pubRow && typeof pubRow.name === "string" ? pubRow.name : "";
+      const curName = (c.publicName != null ? c.publicName : pubName) || "";
+      inner =
+        '<div class="prof-handle"><span class="prof-at">@</span><b>' + esc(st.username) + '</b><span class="prof-handle-note">your handle — friends find you by searching it exactly</span></div>' +
+        '<button class="prof-share-tgl' + (on ? " on" : "") + '" id="profShareTgl" role="switch" aria-checked="' + (on ? "true" : "false") + '"' + (shareBusy ? " disabled" : "") + '><span class="prof-share-knob" aria-hidden="true"></span><span class="prof-share-lbl">Show a display name next to your handle</span></button>' +
+        '<label class="prof-field"><span>Display name</span><input id="profPubName" type="text" maxlength="40" autocomplete="off" value="' + esc(curName) + '" placeholder="how you&#39;d appear"' + (shareBusy ? " disabled" : "") + "></label>" +
+        '<div class="prof-hint" id="profPubHint">' + pubHintHtml(on, curName) + "</div>";
+    }
+    return '<div class="char-sec">Public · <span class="prof-tag">🌐 opt-in, one field at a time</span></div>' + inner +
+      '<div class="prof-saved" id="profSavedPub" aria-live="polite"></div>';
+  }
+  function acctHtml() {
+    if (!cloudState().token)
+      return '<div class="prof-acct"><span class="prof-acct-who">Not signed in — your cache lives on this device.</span>' +
+        '<button class="set-btn" id="profCloudSet">☁️ Cloud settings</button></div>';
+    return '<div class="prof-acct"><span class="prof-acct-who">Signed in as <b>' + esc(cloudState().email || "your account") + "</b></span>" +
+      '<button class="set-btn" id="profSwitch"><i data-lucide="users"></i> Switch account</button></div>';
+  }
+  function render() {
+    const prevBody = root.querySelector(".prof-body");
+    const scrollAt = prevBody ? prevBody.scrollTop : 0;   // a background merge repaint must not yank the reader back to the top
+    const log = charLog().slice().reverse();
+    const rows = log.length
+      ? log.map((ev) => '<div class="char-ev"><span class="char-ev-i">' + (CHAR_ICON[ev.k] || "•") + "</span>" +
+          '<span class="char-ev-d">' + esc(ev.d) + '</span><span class="char-ev-t">' + agoStr(ev.t) + "</span></div>").join("")
+      : '<div class="char-empty">Your journey is just beginning — do the work and it fills in here.</div>';
+    const L = cacheLevel(PROFILE_STATS.exp);
+    const curArc = Math.min(JOURNEY.length - 1, Math.floor((L.lvl - 1) / 2));
+    const arcs = JOURNEY.map((a, i) => {
+      const st = i < curArc ? "done" : i === curArc ? "now" : "lock";
+      return '<div class="tt-tier ' + st + '"><div class="tt-node"><span class="tt-arc">' + esc(a.arc) + '</span><span class="tt-lvl">Lvl ' + a.lvls + "</span></div>" +
+        '<div class="tt-branch">' + a.feats.map((f) => '<span class="tt-feat">' + esc(f) + "</span>").join("") + "</div></div>";
+    }).join("");
+    const skills = [
+      { name: "Blessed clicks", req: "max cache health", got: _healthFull },
+      { name: "Sword shing", req: "max cache health", got: _healthFull },
+      { name: "Cursor magnification", req: "coming soon", got: false },
+      { name: "Art backgrounds", req: "coming soon", got: false },
+    ].map((s) => '<button class="sk-pill ' + (s.got ? "got" : "lock") + '"' + (s.got ? "" : " disabled") + '><span class="sk-i">' + (s.got ? "✦" : "🔒") + "</span>" + esc(s.name) + (s.got ? '<span class="sk-go">unleashed</span>' : '<span class="sk-req">' + esc(s.req) + "</span>") + "</button>").join("");
+    root.innerHTML =
+      '<div class="daily-top"><button class="daily-icn" id="profClose" aria-label="close">✕</button>' +
+        '<div class="cal-title">Your profile</div><span class="daily-icn" aria-hidden="true"></span></div>' +
+      '<div class="prof-body">' +
+        heroHtml() + aboutHtml() +
+        '<div id="profPubSec">' + publicHtml() + "</div>" +
+        renderBadges() +
+        '<div class="char-sec">Skills &amp; unlocks</div><div class="sk-pills">' + skills + "</div>" +
+        '<div class="char-sec">Journey · tech tree</div><div class="tt-tree">' + arcs + "</div>" +
+        '<div class="char-sec">Your ledger</div>' + rows +
+        acctHtml() +
+      "</div>";
+    const nb = root.querySelector(".prof-body"); if (nb && scrollAt) nb.scrollTop = scrollAt;
+    wire(); wirePublic();
+    try { drawIcons(); } catch (e) {}
+  }
+  function paintPublic() {
+    const box = root.querySelector("#profPubSec"); if (!box) return;
+    const a = document.activeElement, fid = box.contains(a) && a.id ? a.id : "";   // a rebuild must not drop focus out of the aria-modal trap
+    box.innerHTML = publicHtml(); wirePublic();
+    if (fid) { const el = root.querySelector("#" + fid); if (el && !el.disabled && el.focus) el.focus(); else root.focus(); }
+    try { drawIcons(); } catch (e) {}
+  }
+  // sync the switch (class + aria) AND the hint without touching the name input —
+  // used when the heal lands while the user is typing in the public box, so neither
+  // the switch nor the words under it can disagree with what the next click will do
+  function paintPublicSoft() {
+    const tgl = root.querySelector("#profShareTgl"); if (!tgl) return;
+    const c = getProfileCard(), on = !!c.shareName;
+    tgl.classList.toggle("on", on); tgl.setAttribute("aria-checked", on ? "true" : "false");
+    const hint = root.querySelector("#profPubHint"), pn0 = root.querySelector("#profPubName");
+    if (hint) hint.innerHTML = pubHintHtml(on, (pn0 && pn0.value) || c.publicName || "");
+  }
+  function wire() {
+    root.querySelector("#profClose").addEventListener("click", close);
+    // cache name — inline rename, saves as you type (blank falls back to the default name)
+    const nameIn = root.querySelector("#profCacheName");
+    if (nameIn) nameIn.addEventListener("input", () => later("cacheName", () => {
+      setCacheName(nameIn.value);
+      try { renderBrand(); renderCharacter(); } catch (e) {}
+      savedTick("#profSavedHero");
+    }, 500));
+    // every About field saves to the CARD (GENERIC newest-wins — edits converge);
+    // money.profile is never written here, so its EXP ledger can't be touched
+    const bindCard = (sel, key, after) => { const el = root.querySelector(sel); if (!el) return; el.addEventListener("input", () => later("c." + key, () => {
+      const patch = {}; patch[key] = el.value.trim(); setProfileCard(patch);
+      if (after) try { after(); } catch (e) {}
+      savedTick("#profSavedAbout");
+    }, 500)); };
+    bindCard("#profName", "name", () => { try { updateGreeting(); renderBrand(); renderCharacter(); } catch (e) {} });   // the greeting + default cache name read it
+    bindCard("#profRole", "role"); bindCard("#profNote", "note");
+    bindCard("#profPronouns", "pronouns"); bindCard("#profBio", "bio");
+    root.querySelectorAll(".sk-pill.got").forEach((b) => b.addEventListener("click", () => {  // "unleash" pulse
+      b.classList.remove("unleash"); void b.offsetWidth; b.classList.add("unleash");
+    }));
+    const cap = root.querySelector("#badgeCaption");
+    root.querySelectorAll(".badge").forEach((el) => el.addEventListener("click", () => {  // tap to reveal name + how it's earned
+      if (cap) cap.textContent = el.dataset.bn + " — " + el.dataset.bd + (el.dataset.on === "1" ? " ✓ earned" : " · locked");
+    }));
+    const cs = root.querySelector("#profCloudSet"); if (cs) cs.addEventListener("click", () => { try { openSettings(); } catch (e) {} });
+    const sw = root.querySelector("#profSwitch");
+    if (sw) sw.addEventListener("click", () => {
+      // ONE account switcher only (data-safety decision — see account-isolation):
+      // route to the cloud chip's 2-tap account menu once it ships; until that
+      // worktree merges, cloud Settings (log out / sign in) is the honest fallback.
+      if (typeof openAccountMenu === "function") openAccountMenu(sw);
+      else { try { openSettings(); } catch (e) {} }
+    });
+  }
+  function wirePublic() {
+    const toMsg = root.querySelector("#profToMessages");
+    if (toMsg) toMsg.addEventListener("click", () => { close(); try { openMessages(); } catch (e) {} });
+    const tgl = root.querySelector("#profShareTgl");
+    if (tgl) tgl.addEventListener("click", async () => {
+      pubTouched = true;
+      // trust what the user SAW, not storage — a background heal may have moved the
+      // flag under a stale paint, and the click must do what the switch showed
+      const was = tgl.getAttribute("aria-checked") === "true", on = !was;
+      const nameEl = root.querySelector("#profPubName");
+      const typed = nameEl ? nameEl.value.trim() : (getProfileCard().publicName || "");
+      const card = setProfileCard({ shareName: on ? 1 : 0, publicName: typed });
+      shareArmed = on;
+      if (on && !typed) {   // nothing to publish yet — arm it and ask for the name (publishes as they type)
+        paintPublic();
+        const pn2 = root.querySelector("#profPubName"); if (pn2) pn2.focus();
+        return;
+      }
+      shareBusy = true; paintPublic();
+      try {
+        await queuePub(() => socialSetPublicName(card, on));
+        shareArmed = false;   // consumed — from here the server row itself authorizes typed updates (requireShared passes because the name is live)
+        shareBusy = false; paintPublic();
+        flash(on ? "Display name is now public" : "Display name hidden — handle-only again");
+      } catch (e) {
+        // couldn't confirm the change — read the row back and show the SERVER's truth
+        // (a dropped response can land after the server already applied the PATCH)
+        let truth = null;
+        try {
+          const d = await socialApi("/api/collections/profiles/records" + socialFilter('owner="' + cloudState().userId + '"'));
+          const row = (d.items || [])[0]; truth = row && typeof row.name === "string" ? row.name : "";
+        } catch (e2) {}
+        if (truth === null) setProfileCard({ shareName: was ? 1 : 0 });   // fully unreachable → put the switch back
+        else setProfileCard({ shareName: truth.trim() ? 1 : 0, publicName: truth.trim() ? truth : typed });
+        shareArmed = false; shareBusy = false; paintPublic();
+        flash(e.message || "couldn't update your public profile");
+      }
+    });
+    const pn = root.querySelector("#profPubName");
+    if (pn) pn.addEventListener("input", () => {
+      pubTouched = true;   // SYNCHRONOUS — the open-heal must never flip a draft into a publish mid-typing
+      later("pubName", async () => {
+        setProfileCard({ publicName: pn.value.trim() });
+        if (!getProfileCard().shareName) { savedTick("#profSavedPub"); return; }   // switch off → the name stays a local draft
+        try {
+          await queuePub(async () => {
+            const c2 = getProfileCard();
+            if (!c2.shareName) return;   // a queued retract ran first — it stands; this save stays local
+            // without this visit's explicit toggle-ON press, typing may only UPDATE a name
+            // the server already shows — it must never RE-publish one retracted elsewhere
+            await socialSetPublicName(c2, true, !shareArmed);
+            shareArmed = false;   // the arm covers one publish; after it the live server name authorizes the rest
+          });
+          savedTick("#profSavedPub");
+        } catch (e) {
+          if (e && e.notShared) {   // retracted on another device — respect it, never silently re-publish
+            setProfileCard({ shareName: 0 });
+            paintPublic();
+            flash("Sharing was turned off on another device — flip the switch if you still want a public name.");
+          } else flash(e.message || "couldn't update your public name");
+        }
+      }, 700);
+    });
+  }
+  render();
+  try { root.focus(); } catch (e) {}   // move focus into the dialog (restored to the opener on close)
+  // the Settings → "Edit profile" path closes the modal in the same task, and the
+  // modal enhancer's focus-restore runs AFTER ours (its MutationObserver fires at
+  // end of task) — re-assert on the next task so focus can't be parked behind the dialog
+  setTimeout(() => { try { if (root.isConnected && !root.contains(document.activeElement)) root.focus(); } catch (e) {} }, 0);
+  // the server's profiles row is the authority on what's actually public — fetch it,
+  // and heal the local flag TOWARD it (reflect a publish, respect a retraction; this
+  // path never publishes anything itself)
+  if (socialReady()) {
+    socialApi("/api/collections/profiles/records" + socialFilter('owner="' + cloudState().userId + '"'))
+      .then((d) => {
+        pubRow = (d.items || [])[0] || null;
+        if (!pubTouched && pubRow) {
+          const c = getProfileCard();
+          if (pubRow.name && !c.shareName) setProfileCard({ shareName: 1, publicName: pubRow.name });        // published elsewhere → reflect it
+          else if (!pubRow.name && c.shareName) setProfileCard({ shareName: 0 });                            // retracted elsewhere → respect it
+        }
+        if (!root.isConnected) return;
+        const box = root.querySelector("#profPubSec"), a = document.activeElement;
+        if (!box || !box.contains(a)) paintPublic();   // focus elsewhere (About fields etc.) is safe — only the public box repaints
+        else paintPublicSoft();                        // typing in the public box → sync the switch, leave the input alone
+      })
+      .catch(() => {});
+  }
 }
+function openCharLog() { openProfile(); }   // the character modal grew into the full profile surface — one view, same journey + badges + ledger
 function renderCharacter() {
   const e = document.getElementById("sidebarXp");
   if (!e) return;
@@ -3220,7 +3510,7 @@ function renderCharacter() {
       '<div class="cc-xp"><b>' + PROFILE_STATS.exp.toLocaleString() + "</b> EXP · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1) + "</div>" +
     "</div>";
   const card = e.querySelector(".cache-char");
-  if (card) { card.style.cursor = "pointer"; card.title = "view your journey, skills & ledger"; card.addEventListener("click", openCharLog); }
+  if (card) { card.style.cursor = "pointer"; card.title = "your profile — view & edit"; card.addEventListener("click", openCharLog); }
   const nameBtn = e.querySelector(".cc-name");
   if (nameBtn) nameBtn.addEventListener("click", (ev) => {
     ev.stopPropagation();  // don't open the ledger when renaming
@@ -5033,7 +5323,6 @@ function openSettings() {
   back.addEventListener("pointerdown", (e) => { if (e.target === back) closeCategorizer(); });
   const modal = document.createElement("div");
   modal.className = "cat-modal set-modal";
-  const p = getProfile();
   const v = (k) => { const x = localStorage.getItem(k); return x === null ? "" : x; };
   modal.innerHTML =
     '<div class="cat-head"><span>Settings</span><button class="cat-close" aria-label="Close">✕</button></div>' +
@@ -5083,9 +5372,8 @@ function openSettings() {
         '<div class="set-hint cloud-msg" id="setCloudMsg"></div>' +
       '</div>') +
       '<div class="set-sec">Profile</div>' +
-      '<label class="set-row"><span>Your name</span><input id="setName" type="text" value="' + escapeHtml(p.name || "") + '" placeholder="your name"></label>' +
-      '<label class="set-row"><span>What you do</span><input id="setRole" type="text" value="' + escapeHtml(p.role || "") + '" placeholder="musician · gig work · freelance"></label>' +
-      '<label class="set-row"><span>Note to self</span><input id="setNote" type="text" value="' + escapeHtml(p.note || "") + '" placeholder="optional"></label>' +
+      '<div class="set-hint">your name, pronouns, about — plus what (if anything) you share publicly</div>' +
+      '<div class="set-bk-row"><button class="set-btn" id="setEditProfile">🪪 Edit profile</button></div>' +
       '<div class="set-sec">Bank connection</div>' +
       '<div class="set-bank-status" id="setBankStatus">checking…</div>' +
       '<div class="set-token-wrap"><input id="setToken" class="set-bank-input" type="password" placeholder="paste your SimpleFIN setup token">' +
@@ -5140,12 +5428,10 @@ function openSettings() {
   modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer());
   modal.querySelector("#setBackCache").addEventListener("click", () => openBackCache());
 
-  const saveProfile = () => setProfile({
-    name: modal.querySelector("#setName").value.trim(),
-    role: modal.querySelector("#setRole").value.trim(),
-    note: modal.querySelector("#setNote").value.trim(),
-  });
-  ["#setName", "#setRole", "#setNote"].forEach((s) => modal.querySelector(s).addEventListener("input", saveProfile));
+  // profile fields moved to the Edit-profile surface (openProfile) — it writes
+  // money.profileCard only (GENERIC, converges); money.profile is never touched,
+  // so the old whole-object save's stats-clobber can't happen anymore
+  modal.querySelector("#setEditProfile").addEventListener("click", () => { closeCategorizer(); openProfile(); });
 
   const bind = (sel, key) => modal.querySelector(sel).addEventListener("change", (e) => {
     const val = e.target.value.trim();
@@ -7162,7 +7448,7 @@ function feedbackContext() {
 function sendFeedbackToInbox(kind, text, email, credit) {
   try {
     let from = "";
-    try { from = (JSON.parse(localStorage.getItem("money.profile") || "{}").name || ""); } catch (e) {}
+    try { from = profileName() || ""; } catch (e) {}   // card first, legacy money.profile fallback — the direct read went stale once edits moved to the card
     const s = cloudState();
     const withOwner = !!(credit && s.token && s.userId);
     const body = { kind: kind || "note", message: (text || "").slice(0, 4000), reply_to: email || "", from_name: from.slice(0, 80), context: feedbackContext().slice(0, 300) };
@@ -10343,6 +10629,33 @@ async function socialClaimUsername(raw) {
   socialSaveState(Object.assign(socialState(), { username: username, optedIn: true }));
   document.dispatchEvent(new CustomEvent("cache:social"));
   return username;
+}
+// The ONLY fields the Edit-profile surface may ever put on the public profiles row,
+// and only while the per-field toggle is on. Private-by-default is the whole
+// posture: pronouns/bio/note/etc. must NEVER appear here. Do not add a field
+// without an explicit product decision — the sharing-tier model
+// (Ghost/Neighbor/Beacon, anonymity-line proposal) is pending and this is the floor.
+function profilePublicPayload(card, shareName) {
+  return { name: shareName ? String((card && card.publicName) || "").trim().slice(0, 40) : "" };
+}
+// Publish / retract the optional public display name — the profiles row's `name`
+// field Messages already renders in find-friends. Only ever PATCHes an EXISTING
+// row: claiming the @handle (socialClaimUsername) is the sole opt-in that creates
+// a public row at all. With requireShared, the PATCH goes through only if the
+// server ALREADY shows a name — so a debounced text edit can update a shared name
+// but can never re-publish one that was retracted on another device (the caller
+// gets e.notShared and heals its local flag instead).
+async function socialSetPublicName(card, shareName, requireShared) {
+  const s = cloudState();
+  if (!s.token) throw new Error("log in to your cloud account first");
+  const own = await socialApi("/api/collections/profiles/records" + socialFilter('owner="' + s.userId + '"'));
+  const row = (own.items || [])[0];
+  if (!row) throw new Error("claim your @handle in Messages first");
+  if (requireShared && !(typeof row.name === "string" && row.name.trim())) {
+    const e = new Error("sharing is off for this account right now"); e.notShared = true; throw e;
+  }
+  await socialApi("/api/collections/profiles/records/" + row.id, { method: "PATCH", body: JSON.stringify(profilePublicPayload(card, shareName)) });
+  return true;
 }
 async function socialRequest(toUid) {
   const s = cloudState();
