@@ -4232,8 +4232,30 @@ async function cloudPush(passphrase) {
   // existing blob with the CURRENT key, and must never overwrite real financial
   // data with an empty bundle just because the open failed
   let files = {}, api = {}, exported, filesMeta = {}, curLocal = null, curLocalMeta = null, vaultAuthored = null;
+  let _foldedMoney = null;   // web: the CSV deltas this push is sealing — confirmed only after upload lands (so a failed push stays retryable)
   if (window.__CACHE_WEB__) {
     if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; filesMeta = cur.filesMeta || {}; curLocal = cur.local || null; curLocalMeta = cur.localMeta || null; vaultAuthored = authoredHash(cur.local || {}, cur.files || {}); }
+    // web money WRITER (the ONE narrow write): fold this session's CSV imports into the
+    // vault's FRESHEST ledger — never this device's possibly-stale copy — so a concurrent
+    // desktop bank sync is never lost. mergeLedger is append-only + honors tombstones, so
+    // re-running this on every push is idempotent (the content-hash short-circuit then makes
+    // repeats free). The imported money files (ledger/balances/transactions) aren't in
+    // MAP_FILE_NAMES, so the authored-hash witness is unaffected.
+    try {
+      if (window.__cacheMoneyApplyToVault) {
+        const applied = window.__cacheMoneyApplyToVault(files);
+        if (applied) {
+          files = applied.files;
+          _foldedMoney = applied.folded || null;
+          // drop any stale precomputed summary from the sealed vault — every web reader
+          // (this device and others) computes /api/summary LIVE from the merged ledger,
+          // which also keeps a mixed desktop+CSV cache correct. A now-dependent mtd summary
+          // would otherwise churn the content hash and re-upload on every push.
+          if (api && typeof api === "object") delete api.summary;
+          try { if (window.__cacheWebMoney) window.__cacheWebMoney.commit(applied.files); } catch (e) {}   // serve() now reflects the sealed truth
+        }
+      }
+    } catch (e) {}   // a failed fold leaves _pending intact (unconfirmed) → cloudSealPendingMoney keeps retrying and tells the user; the vault meanwhile seals its own files, never a half-merge
   } else {
     // open the vault FIRST so we can merge another device's user-edit maps
     // (categories/income/subs/income-links) into our local backend before exporting —
@@ -4308,6 +4330,9 @@ async function cloudPush(passphrase) {
   //                                   vault → we never claim synced against one.
   if (!mintedKey && !writeKeybox && id && hash === s.lastHash && vaultAuthored !== null && vaultAuthored === ourAuthored) {
     cloudSaveState(Object.assign(cloudState(), { lastPush: new Date().toISOString() }));   // confirmed in sync — the chip stays truthful
+    // the vault's blob already equals this (folded) payload → the imported money is provably
+    // sealed → clear it from _pending so the import's "still saving…" watcher resolves
+    if (_foldedMoney && window.__cacheMoneyConfirmSealed) { try { window.__cacheMoneyConfirmSealed(_foldedMoney); } catch (e) {} }
     return { count, bytes: s.bytes || 0, unchanged: true };
   }
   const body = { blob: await cloudSeal(Object.assign(JSON.parse(payloadCore), { exported })) };
@@ -4335,6 +4360,9 @@ async function cloudPush(passphrase) {
     // can't adopt the key until the field exists (self-clears once it does)
     keyboxMissing: body.keybox ? (d && d.keybox === undefined) : (d && d.keybox !== undefined ? false : !!s.keyboxMissing),
   }));
+  // the upload landed → the folded CSV import is now durably in the vault → clear it from
+  // _pending so the import's "still saving…" watcher resolves to "sealed ✓"
+  if (_foldedMoney && window.__cacheMoneyConfirmSealed) { try { window.__cacheMoneyConfirmSealed(_foldedMoney); } catch (e) {} }
   return { count, bytes: (body.blob || "").length };
 }
 // a zero-knowledge account must never silently accept an escrow keybox — that
@@ -4445,6 +4473,28 @@ async function autoPushNow() {
     if (++_apFails <= 3) { clearTimeout(_apT); _apT = setTimeout(autoPushNow, 15000 * _apFails); }
   }
   _apBusy = false;
+}
+// Web CSV imports live only in RAM (webcache FILES + webmoney _pending) until the vault push
+// lands — there's no on-device money store to fall back on. The normal auto-push retry gives up
+// after 3 tries, and cloudAutoPull's ahead-check can't see the money files (they're excluded
+// from the authored-hash witness), so a failed/paused push would never re-arm and the import
+// would vanish on reload while the toast claimed success. This watches the seal to completion:
+// it fires a push, checks whether _pending drained (cloudPush clears it only after the upload
+// confirms), reports truthfully, and keeps retrying so the import seals as soon as the network
+// returns. (A reload BEFORE the first seal still loses it — an accepted v1 limit; the message
+// tells the user to keep the tab open.)
+let _moneySealT = null;
+function cloudSealPendingMoney(label, tries) {
+  if (!window.__CACHE_WEB__) return;
+  tries = tries || 0;
+  const pend = () => { try { return (window.__cacheMoneyPending && window.__cacheMoneyPending().length) || 0; } catch (e) { return 0; } };
+  clearTimeout(_moneySealT); _moneySealT = null;
+  if (!pend()) { if (tries > 0) flash((label ? "Saved " + label : "Your import") + " — sealed to your cloud ✓"); return; }
+  if (!cloudReady()) { flash("Your import is only in memory — turn Cloud sync on to keep it (it's gone on reload until then)."); return; }
+  try { autoPushNow(); } catch (e) {}                         // single-flight; re-queues if a push is already running
+  if (tries === 5) flash("Still saving your import to the cloud — keep this tab open; it'll finish when the connection's back.");
+  // retry until it seals: tight at first, then a calm background cadence (cleared the instant _pending drains)
+  _moneySealT = setTimeout(() => cloudSealPendingMoney(label, tries + 1), tries < 5 ? 6000 : 30000);
 }
 // Merge the "local" layer another device left in the vault. NEVER wholesale —
 // each key gets the merge it deserves, so nothing here can eat local progress:
@@ -5093,26 +5143,38 @@ function openConnect() {
   back.addEventListener("pointerdown", (e) => { if (e.target === back) closeCategorizer(); });
   const modal = document.createElement("div");
   modal.className = "cat-modal connect-modal";
-  // On the hosted web app there is no local sync engine — it's a read-only window into the
-  // cache the DESKTOP app pulls from the bank. Presenting the SimpleFIN steps + a token box
-  // here dead-ends the user with a generic "editing is coming soon" reject AFTER they've done
-  // all the work (exactly how a tester got stuck). So on web we say it plainly up front and
-  // point them at the desktop app, instead of offering controls that can't work.
+  // On the hosted web app the SimpleFIN token flow can't run (no local sync engine), so the
+  // web modal leads with what DOES work here: importing a bank CSV (parsed + computed in the
+  // browser by webmoney.js, sealed into the vault). A live bank connection is still a
+  // desktop-only, once setup — the modal names it as the "or, automatic" path.
   const web = !!window.__CACHE_WEB__;
   if (web) {
     modal.innerHTML =
-      '<div class="cat-head"><span>Connect a bank</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+      '<div class="cat-head"><span>Get your money in</span><button class="cat-close" aria-label="Close">✕</button></div>' +
       '<div class="connect-body">' +
         '<div class="cn-status">checking…</div>' +
-        '<div class="cn-intro">You’re viewing your cache on the <b>web</b> — a read-only window into it. Connecting a bank happens once in the <b>desktop app</b> (the part that securely pulls your bank data). After that, your cache <b>syncs here automatically</b> and you can see everything from any device.</div>' +
-        '<ol class="cn-steps">' +
-          '<li>Open <b>THE CACHE desktop app</b> on your computer.</li>' +
-          '<li>Tap <b>Connect a bank</b> and paste your SimpleFIN <b>setup token</b> there.</li>' +
-          '<li>Come back here — your accounts and transactions will already be showing.</li>' +
-        '</ol>' +
+        '<div class="cn-intro">Right here on the web you can <b>import a bank CSV</b> — download your transactions from your bank, drop the file in, and your cache computes your spending, safe-to-spend and income in your browser, then <b>syncs it to your other devices</b>. Nothing leaves your device unencrypted.</div>' +
+        '<div class="cn-alts">' +
+          '<button class="cn-csv">Import a bank CSV</button>' +
+        '</div>' +
+        '<div class="cn-or">— or, for automatic daily bank sync —</div>' +
+        '<div class="cn-intro">A live bank connection (SimpleFIN) is set up once in the <b>desktop app</b>; after that your cache syncs here automatically. A CSV import and a live sync live happily in the same cache.</div>' +
         '<div class="cn-result"></div>' +
       '</div>';
-  } else {
+    document.body.appendChild(back);
+    document.body.appendChild(modal);
+    if (typeof makeModalResizable === "function") makeModalResizable(modal, "money.connect");
+    modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer());
+    fetch("/api/connect-status").then((r) => r.json()).then((d) => {
+      const statusEl = modal.querySelector(".cn-status");
+      statusEl.innerHTML = (d && d.connected)
+        ? '<span class="cn-ok">✓ Your cache already has money in it.</span> Import another CSV any time — duplicates are skipped automatically.'
+        : '<span class="cn-no">No money in your cache yet.</span> Import a CSV to get started.';
+    }).catch(() => { const s = modal.querySelector(".cn-status"); if (s) s.textContent = ""; });
+    modal.querySelector(".cn-csv").addEventListener("click", () => { closeCategorizer(); document.getElementById("importStatement").click(); });
+    return;
+  }
+  {
     modal.innerHTML =
       '<div class="cat-head"><span>Connect a bank</span><button class="cat-close" aria-label="Close">✕</button></div>' +
       '<div class="connect-body">' +
@@ -11634,6 +11696,32 @@ function handleCsvFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
     flash("Importing " + file.name + "…");
+    // On the hosted web app there's no backend — the money engine (webmoney.js) parses,
+    // dedupes, computes the ledger + snapshot HERE in the browser, then seals it into the
+    // encrypted vault. This is the one place the web app writes money; everything else
+    // still routes to the desktop. Falls back to the friendly message if the engine or
+    // cloud store isn't ready yet.
+    if (window.__CACHE_WEB__ && window.__cacheMoneyImport) {
+      // On the web there is NO on-device persistence for money — the ONLY durable copy is the
+      // sealed cloud vault. So an import is safe only once its push lands; never claim "syncing"
+      // when we can't, and refuse the volatile import rather than lose it silently on reload.
+      if (!cloudReady()) {
+        flash(cloudPaused()
+          ? "Turn Cloud sync on first (Settings) — on the web your cache lives in your cloud, so an import can't be kept while sync is off."
+          : "Log in to import — on the web your imported data is saved to your cloud.");
+        return;
+      }
+      let res;
+      try { res = window.__cacheMoneyImport(file.name, String(reader.result)); }
+      catch (e) { flash("Couldn't import that CSV — " + ((e && e.message) || "unknown error")); return; }
+      if (!res || !res.ok) { flash((res && res.error) || "import failed"); return; }
+      if (!res.added) { flash("Nothing new — those " + (res.dup || 0) + " were already in your cache"); return; }
+      flash("Imported " + res.added + " new from " + file.name + " — saving to your cloud…");
+      Store.refresh();                                        // re-pull /api/summary (now live from the new ledger)
+      try { updateSyncHealth(); } catch (e) {}
+      cloudSealPendingMoney(file.name);                       // seal into the vault, report truthfully, retry until it lands
+      return;
+    }
     fetch("/api/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

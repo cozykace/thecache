@@ -17,6 +17,7 @@ mkdir -p "$DEST/av assets"
 cp "$HERE/app.js"      "$DEST/app.js"
 cp "$HERE/styles.css"  "$DEST/styles.css"
 cp "$HERE/webcache.js" "$DEST/webcache.js"
+cp "$HERE/webmoney.js" "$DEST/webmoney.js"   # the browser money engine (CSV import + compute)
 cp "$HERE/theme-preload.js" "$DEST/theme-preload.js"
 # the notification center's news feed — deploys in LOCKSTEP with the code it describes
 cp "$HERE/release-notes.json" "$DEST/release-notes.json"
@@ -45,11 +46,12 @@ find "$DEST/av assets" -type f ! -name "THECACHE_LOGO_WHITE.png" ! -name "THECAC
 # Without this, styles.css/app.js are cached by their (unchanging) URL, so a plain refresh
 # keeps serving the OLD build — the "I pulled to refresh AND hit update, still nothing"
 # trap. The hash only changes when the code changes, so unchanged assets stay cached.
-VER="$(cat "$HERE/app.js" "$HERE/styles.css" "$HERE/webcache.js" "$HERE/theme-preload.js" | shasum | cut -c1-10)"
+VER="$(cat "$HERE/app.js" "$HERE/styles.css" "$HERE/webcache.js" "$HERE/webmoney.js" "$HERE/theme-preload.js" | shasum | cut -c1-10)"
+# webcache.js (gate/vault) then webmoney.js (money engine) then app.js — defer keeps order
 sed \
   -e 's#href="styles\.css"#href="styles.css?v='"$VER"'"#' \
   -e 's#src="theme-preload\.js"#src="theme-preload.js?v='"$VER"'"#' \
-  -e 's#<script defer src="app\.js"></script>#<script defer src="webcache.js?v='"$VER"'"></script>\n    <script defer src="app.js?v='"$VER"'"></script>#' \
+  -e 's#<script defer src="app\.js"></script>#<script defer src="webcache.js?v='"$VER"'"></script>\n    <script defer src="webmoney.js?v='"$VER"'"></script>\n    <script defer src="app.js?v='"$VER"'"></script>#' \
   "$HERE/index.html" > "$DEST/index.html"
 echo "   cache-bust version: $VER"
 

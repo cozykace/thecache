@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-24-web-csv-import",
+    "date": "2026-07-24",
+    "title": "Get your money in — right in the browser",
+    "body": "The web app can now take money in on its own, no desktop required. Download a CSV from your bank and drop it onto your cache (or Menu → Import statement) — your browser builds your ledger and works out your spending, safe-to-spend and income, then syncs it to your devices, sealed so the cloud never sees it. Re-import as often as you like; duplicates are skipped."
+  },
+  {
     "id": "2026-07-22-notification-center",
     "date": "2026-07-22",
     "title": "News lands here now",

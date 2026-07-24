@@ -545,6 +545,44 @@
     return { empty: false, count: Object.keys(FILES).length };
   }
 
+  // ── browser CSV-import bridge ────────────────────────────────────────────────
+  // The web money engine (webmoney.js) reads/writes the decrypted money files THROUGH here,
+  // so it never sees the crypto and webcache never sees the compute. MONEY_LIVE flips true
+  // once an import has written money this session → /api/summary is then computed live from
+  // the ledger (so the imported data shows AND period-switching works). A desktop-synced
+  // cache with a precomputed API.summary and no web import is served UNCHANGED.
+  var MONEY_LIVE = false;
+  window.__cacheWebMoney = {
+    getFiles: function () { return FILES; },
+    // replace the money files and flip live-compute on. The stale precomputed summary (if
+    // any) is dropped so serve() computes /api/summary live from the new ledger.
+    commit: function (newFiles) {
+      if (newFiles) Object.keys(newFiles).forEach(function (n) { FILES[n] = newFiles[n]; });
+      delete API.summary;
+      MONEY_LIVE = true;
+    },
+  };
+  function _qsParams(url) {
+    var out = {}, q = url.split("?")[1] || "";
+    q.split("&").forEach(function (p) { if (!p) return; var kv = p.split("="); out[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || ""); });
+    return out;
+  }
+  function _liveSummary(url) {
+    var p = _qsParams(url);
+    var led = window.CacheMoney.parseJsonl(FILES["ledger.jsonl"] || "");
+    var txns = Object.keys(led).map(function (k) { return led[k]; });
+    var bal; try { bal = JSON.parse(FILES["balances.json"] || "{}"); } catch (e) { bal = {}; }
+    var cm; try { cm = JSON.parse(FILES["catmeta.json"] || "{}"); } catch (e) { cm = {}; }
+    var ov; try { ov = JSON.parse(FILES["categories.json"] || "{}"); } catch (e) { ov = {}; }
+    var io; try { io = JSON.parse(FILES["income.json"] || "{}"); } catch (e) { io = {}; }
+    return window.CacheMoney.periodSummary(txns,
+      // start/end are YYYY-MM-DD STRINGS (periodQS emits them so; resolvePeriod splits on "-").
+      // Coercing with +p.start gave NaN → the custom branch was skipped and a custom range
+      // silently fell back to the current calendar month. Pass the raw strings through.
+      { kind: p.kind || "mtd", ym: p.ym || null, start: p.start || null, end: p.end || null },
+      { balances: bal, overrides: ov, incomeOverrides: io, remap: cm.remap || {}, catmetaLabels: cm.labels || {} });
+  }
+
   // ── serve app data from the decrypted store ──────────────────────────────────
   function J(obj) { return new Response(JSON.stringify(obj), { status: 200, headers: { "Content-Type": "application/json" } }); }
   function serve(url, method) {
@@ -554,13 +592,22 @@
     if (url.indexOf("/api/") !== -1) {
       var key = url.split("/api/")[1].split("?")[0].replace(/\/+$/, "");
       if (key === "ping") return J({ ok: true, founder: false, web: true });
-      // "connected" tells the truth: this cache HAS bank data (synced by the
-      // desktop engine) — this device just reads it. An empty vault reads false,
-      // which correctly lets the setup wizard greet a brand-new account.
-      if (key === "connect-status") return J({ connected: Object.keys(FILES).length > 0, web: true, readonly: true });
+      // "connected" tells the truth: this cache HAS bank data (synced by the desktop engine
+      // OR imported here from a CSV) — an empty vault reads false, which correctly lets the
+      // setup wizard greet a brand-new account. `readonly` stays true: everything BUT CSV
+      // import is still desktop-only (categorize / tag / delete route through the gate).
+      if (key === "connect-status") return J({ connected: Object.keys(FILES).length > 0 || MONEY_LIVE, web: true, readonly: true });
       if (key === "update-check") return J({ ok: true, available: false, current: "web" });
       if (key === "export-data") return J({ ok: true, files: FILES, api: API, exported: 0, count: Object.keys(FILES).length });
       if (key === "webdav-config") return J({ ok: true, configured: false, url: "", user: "" });
+      // the dashboard's single feed: after a web import (or when the vault has a ledger but
+      // no precomputed summary) compute it live from the ledger, so imported money shows and
+      // the period selector works. Otherwise serve the desktop-precomputed one, unchanged.
+      if (M === "GET" && key === "summary" && window.CacheMoney) {
+        if (MONEY_LIVE || (API.summary == null && FILES["ledger.jsonl"] != null)) {
+          try { return J(_liveSummary(url)); } catch (e) {}
+        }
+      }
       if (M === "GET" && API[key] != null) return J(API[key]);
       if (M === "GET") return J({ ok: true });
       // writes aren't supported on the web yet — read-only mirror of your desktop cache

@@ -1,0 +1,842 @@
+// THE CACHE — browser money engine (the web app's own sync engine, for CSV import).
+//
+// The hosted web app used to be a READ-ONLY mirror: money entered the vault only from a
+// desktop running store.py. This file changes that — it is a faithful JS port of the
+// CORE of store.py so a browser with only a cloud account can take in a bank CSV, compute
+// its own ledger + core views, and seal the result into the same encrypted vault.
+//
+// ⚠️ THE ONE RULE (Cozy, 2026-07-24): REUSE the money data contract. This engine must
+// produce the SAME ledger.jsonl / balances.json (snapshot) shapes store.py produces, so
+// web-imported data and desktop data are interoperable in one vault. The contract is
+// VALUE-for-value (parsed-equal), not raw-byte-equal: the two ledgers agree on the parsed
+// transaction set and every computed number, but the on-disk .jsonl bytes can differ
+// (JS JSON.stringify renders a whole-dollar amount as "50" and drops separator spaces,
+// Python json.dumps renders "50.0" with ", "/": " — and our ids are djb2 vs sha1). The
+// merge path compares by PARSED key-union, never bytes, so that's harmless. The parity
+// tests (tests/webmoney_parity.py) are the correctness anchor — they compare parsed values:
+// a money engine that disagrees with the desktop on any VALUE is a bug, not a variant.
+// Every function below mirrors a named store.py function — keep them in lockstep.
+//
+// PORTED (the core money views): categorize (+ categories.json/catmeta remap),
+//   prettifyMerchant, the income heuristic, merge_ledger (append + dedupe by key + honor
+//   deleted.json tombstones), subscription_items, build_snapshot, categories_from_txns,
+//   resolve_period + period_summary, rebuild_from_ledger, and the CSV importer.
+// DEFERRED for v1 (stubbed / left to the desktop's canonical recompute on the next sync):
+//   monthly history rollup (monthly.json), coverage (coverage.json), detect_recurring /
+//   recurring_transfers / the heavy /api views. Spending, safe-to-spend, income and
+//   categories all work from a CSV; absolute balance (total/cash) still needs a bank sync,
+//   exactly as on the desktop (a CSV carries no live balance).
+(function () {
+  "use strict";
+
+  // ── Python-compatible rounding ───────────────────────────────────────────────
+  // store.py uses round(), which is round-HALF-TO-EVEN (banker's) on the TRUE value of the
+  // double. JS Math.round is half-UP (2.5→3 vs Python's 2), and multiplying by 10^nd first
+  // (the naive fix) introduces error that misreads near-half values (2.675 is really
+  // 2.67499… so Python gives 2.67, not 2.68). So round on the double's exact decimal
+  // string instead — this matches CPython's dtoa-based round() bit-for-bit at our magnitudes.
+  function pyRound(x, nd) {
+    nd = nd || 0;
+    if (!isFinite(x)) return x;
+    var neg = x < 0; if (neg) x = -x;
+    var s = x.toFixed(Math.min(100, nd + 25));   // exact decimal to well past the cut point
+    var dot = s.indexOf(".");
+    var digits = s.replace(".", "");
+    var cut = dot + nd;                            // index one past the last kept digit
+    var keep = digits.slice(0, cut), rest = digits.slice(cut);
+    var roundUp = false;
+    if (rest.length) {
+      var first = rest.charCodeAt(0) - 48;
+      if (first > 5) roundUp = true;
+      else if (first === 5) {
+        if (/[1-9]/.test(rest.slice(1))) roundUp = true;                    // >½ → up
+        else roundUp = (keep.length ? (keep.charCodeAt(keep.length - 1) - 48) % 2 === 1 : false);   // exactly ½ → to even
+      }
+    }
+    var val = keep === "" ? 0 : parseInt(keep, 10);
+    if (roundUp) val += 1;
+    var result = val / Math.pow(10, nd);
+    return neg ? -result : result;
+  }
+  function round2(x) { return pyRound(x, 2); }
+
+  // ── category rules (mirror store.CATEGORY_RULES — first match wins) ──────────
+  var CATEGORY_RULES = [
+    ["housing", ["rent", "apartment", "property mgmt", "mortgage", "landlord", "leasing"]],
+    ["subscriptions", ["spotify", "netflix", "hulu", "adobe", "apple.com", "patreon",
+      "disney", "youtube", "dropbox", "notion", "openai", "anthropic", "claude"]],
+    ["utilities", ["electric", "water util", "pg&e", "utility", "sewer", "sewage",
+      "trash", "waste mgmt", "gas company", "power company", "con ed",
+      "duke energy", "internet", "comcast", "xfinity", "spectrum"]],
+    ["bills", ["at&t", "verizon", "t-mobile", "insurance", "phone bill", "wireless", "mint mobile"]],
+    ["transport", ["uber", "lyft", "shell", "chevron", "exxon", "gas ", "fuel", "parking",
+      "transit", "bart", "metro", "toll", "arco", "76 "]],
+    ["groceries", ["trader joe", "whole foods", "safeway", "grocery", "market", "aldi",
+      "kroger", "costco", "sprouts", "ralphs", "wegmans", "publix"]],
+    ["dining", ["restaurant", "cafe", "coffee", "starbucks", "chipotle", "doordash",
+      "uber eats", "grubhub", "mcdonald", "pizza", "taco", "sushi", "tavern",
+      "brewing", "dunkin", "peet", "diner", "kitchen", "grill"]],
+    ["music_art", ["guitar", "sam ash", "blick", "vinyl", "sweetwater", "reverb", "music", "art supply"]],
+    ["health", ["pharmacy", "cvs", "walgreens", "gym", "fitness", "doctor", "medical", "dental", "clinic"]],
+    ["entertainment", ["cinema", "theater", "movie", "ticketmaster", "steam ", "playstation",
+      "xbox", "nintendo", "concert", "bar "]],
+    ["shopping", ["amazon", "target", "walmart", "etsy", "ebay", "best buy", "store", "shop"]],
+    ["fees", ["fee", "atm", "interest charge", "overdraft", "service charge"]],
+    ["transfer", ["transfer", "zelle", "venmo", "cash app", "paypal", "withdrawal",
+      "online payment", "autopay", "ach ", "bill pay",
+      "pymt", "e-payment", "epayment", "payment thank you", "card payment",
+      "credit card payment", "web pmt", "pmt thank"]],
+  ];
+  var NOT_INCOME = ["fee", "waiv", "interest", "refund", "reversal", "adjustment",
+    "rebate", "redemption", "mobile pymt", "mobile payment", "returned"];
+  var INCOME_HINTS = ["instacart", "shipt", "dasher", "doordash", "payroll",
+    "direct dep", "gusto", "deel", "adp "];
+
+  // ── _clean: reduce a raw description to merchant words (mirror store._clean) ──
+  var _CLEAN_WORDS = ["pos", "debit", "credit", "card", "purchase", "payment", "ach",
+    "recurring", "online", "www", "com", "usa", "the",
+    "visa", "mastercard", "amex", "discover", "mc"];
+  function _clean(desc) {
+    var d = (desc || "").toLowerCase().replace(/[^a-z& ]/g, " ");
+    for (var i = 0; i < _CLEAN_WORDS.length; i++) {
+      d = d.replace(new RegExp("\\b" + _CLEAN_WORDS[i] + "\\b", "g"), " ");
+    }
+    return d.replace(/\s+/g, " ").trim();
+  }
+
+  // ── prettifyMerchant (mirror store.prettify_merchant) ────────────────────────
+  var _PRETTY_PREFIX = new RegExp(
+    "^(?:" +
+    "purchase\\s+authorized\\s+on\\s+\\d+|" +
+    "recurring\\s+payment\\s+authorized\\s+on\\s+\\d+|" +
+    "(?:payment|pmt)\\s+authorized\\s+on\\s+\\d+|" +
+    "web\\s+authorized\\s+(?:pmt|payment)?|" +
+    "external\\s+(?:withdrawal|deposit)|" +
+    "pos\\s+(?:debit|purchase)|debit\\s+card\\s+purchase|" +
+    "checkcard\\s*\\d*|check\\s*card|" +
+    "ach\\s+(?:debit|credit)|" +
+    "(?:bill|online|electronic)\\s+payment" +
+    ")\\b", "i");
+  // These four are keyed by USER-DERIVED tokens (bank descriptions). A plain {} would
+  // let an inherited Object.prototype name — "constructor" is the one all-lowercase
+  // member that survives token-stripping — read truthy and silently drop the word (or
+  // mis-title it), diverging from store.py where a Python dict/tuple has no such member.
+  // Null-prototype maps match the Python set/tuple semantics exactly.
+  var _PRETTY_DROP = Object.assign(Object.create(null), {
+    sp: 1, wp: 1, tst: 1, sq: 1, pp: 1, fs: 1, dbt: 1, crd: 1, ckcd: 1, pos: 1, dda: 1,
+    visa: 1, mastercard: 1, amex: 1, discover: 1, mc: 1, debit: 1, credit: 1, card: 1,
+    purchase: 1, payment: 1, pmt: 1, pymt: 1, authorized: 1, auth: 1, recurring: 1,
+    web: 1, ach: 1, ppd: 1, ccd: 1, indn: 1, des: 1, xxxxx: 1,
+    llc: 1, inc: 1, corp: 1, ltd: 1, subscription: 1, subscr: 1,
+  });
+  var _US_STATES = Object.create(null);
+  ("al ak az ar ca co ct de fl ga hi id il in ia ks ky la me md ma mi mn ms mo mt " +
+    "ne nv nh nj nm ny nc nd oh ok or pa ri sc sd tn tx ut vt va wa wv wi wy dc").split(" ")
+    .forEach(function (s) { _US_STATES[s] = 1; });
+  var _ACRONYMS = Object.assign(Object.create(null), { ai: "AI", fka: "FKA", usa: "USA", us: "US", uk: "UK", sf: "SF", nyc: "NYC" });
+  function _capitalize(w) { return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w; }
+  function prettifyMerchant(raw, fallback) {
+    fallback = fallback || "";
+    var s = (raw || "").trim().replace(_PRETTY_PREFIX, " ");
+    var toks = s.split(/[^A-Za-z&]+/).filter(function (w) { return w && !_PRETTY_DROP[w.toLowerCase()]; });
+    var dedup = [];
+    for (var i = 0; i < toks.length; i++) {   // collapse consecutive repeats
+      if (!dedup.length || dedup[dedup.length - 1].toLowerCase() !== toks[i].toLowerCase()) dedup.push(toks[i]);
+    }
+    while (dedup.length && _US_STATES[dedup[dedup.length - 1].toLowerCase()]) dedup.pop();   // drop trailing state code
+    while (dedup.length > 1 && dedup[dedup.length - 1].length === 1) dedup.pop();             // drop stray trailing single letters
+    if (!dedup.length) return fallback || (raw || "").trim().replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+    return dedup.map(function (w) { return _ACRONYMS[w.toLowerCase()] || _capitalize(w); }).join(" ");
+  }
+
+  function isIncome(desc) {
+    var d = (desc || "").toLowerCase();
+    for (var i = 0; i < NOT_INCOME.length; i++) if (d.indexOf(NOT_INCOME[i]) !== -1) return false;
+    return true;
+  }
+
+  // ── categorize (mirror store.categorize) ─────────────────────────────────────
+  // overrides: {substring: category}; remap: {deletedKey: targetKey} (catmeta fold-ins).
+  function _resolveRemap(cat, remap) {
+    var seen = 0;
+    while (remap && Object.prototype.hasOwnProperty.call(remap, cat) && seen < 12) { cat = remap[cat]; seen++; }
+    return cat;
+  }
+  function categorize(desc, overrides, remap) {
+    var d = (desc || "").toLowerCase();
+    var cat = "other", matched = false, k;
+    if (overrides) {
+      var subs = Object.keys(overrides);
+      for (var si = 0; si < subs.length; si++) {
+        var sub = subs[si];
+        var words = sub.split(/\s+/).filter(function (w) { return w.length >= 3; });
+        if (words.length && words.every(function (w) { return d.indexOf(w) !== -1; })) { cat = overrides[sub]; matched = true; break; }
+      }
+    }
+    if (!matched) {
+      outer:
+      for (var ci = 0; ci < CATEGORY_RULES.length; ci++) {
+        var c = CATEGORY_RULES[ci][0], keys = CATEGORY_RULES[ci][1];
+        for (k = 0; k < keys.length; k++) { if (d.indexOf(keys[k]) !== -1) { cat = c; break outer; } }
+      }
+    }
+    return _resolveRemap(cat, remap || {});
+  }
+
+  // ── income key + decision (mirror store._income_key / income_decision) ───────
+  function _isRefcode(token) {
+    if (/\d/.test(token)) return true;
+    var letters = token.replace(/[^a-z]/g, "");
+    if (letters.length >= 9) {
+      var vowels = 0;
+      for (var i = 0; i < letters.length; i++) if ("aeiou".indexOf(letters[i]) !== -1) vowels++;
+      if (vowels / letters.length <= 0.25) return true;
+    }
+    return false;
+  }
+  var _INCOME_DROP = Object.create(null);   // null-proto: "constructor" et al must not read truthy (parity with store.py's tuple)
+  ("zelle instant pmt pymt payment from deposit electronic mobile banking transfer ach online " +
+    "recurring direct the des id ext web ppd co").split(" ").forEach(function (w) { _INCOME_DROP[w] = 1; });
+  function _incomeKey(desc) {
+    var kept = [];
+    (desc || "").toLowerCase().split(/\s+/).forEach(function (w) {
+      if (!w || _isRefcode(w)) return;
+      w = w.replace(/[^a-z&]/g, "");
+      if (w) kept.push(w);
+    });
+    var toks = kept.filter(function (w) { return !_INCOME_DROP[w] && w.length >= 2; });
+    return toks.join(" ").trim() || "income";
+  }
+  // Returns [key, isIncome, isTagged]. Precedence: your tag > gig/payroll hint > auto.
+  function incomeDecision(desc, incomeOverrides, overrides, remap) {
+    incomeOverrides = incomeOverrides || {};
+    var key = _incomeKey(desc);
+    if (Object.prototype.hasOwnProperty.call(incomeOverrides, key)) {
+      var ov = incomeOverrides[key];
+      return [key, ov === "income", true];
+    }
+    var d = (desc || "").toLowerCase();
+    for (var i = 0; i < INCOME_HINTS.length; i++) if (d.indexOf(INCOME_HINTS[i]) !== -1) return [key, true, false];
+    var auto = categorize(desc, overrides, remap) !== "transfer" && isIncome(desc);
+    return [key, auto, false];
+  }
+
+  // ── ledger key + tombstones (mirror store._ledger_key / is_deleted) ──────────
+  function ledgerKey(t) {
+    if (t.id != null && t.id !== "") return String(t.id);
+    return String(t.posted) + "|" + String(t.amount) + "|" + String(t.description || "").slice(0, 40);
+  }
+  function isDeleted(key, tomb) {
+    var e = tomb && tomb[key];
+    return !!(e && typeof e === "object" && e.deleted);
+  }
+
+  // parse a .jsonl string into {key: txn} (mirror store._parse_jsonl_str: skip bad lines)
+  function parseJsonl(text) {
+    var led = {};
+    (text || "").split(/\r?\n/).forEach(function (line) {
+      line = line.trim();
+      if (!line) return;
+      var t;
+      try { t = JSON.parse(line); } catch (e) { return; }
+      if (t && typeof t === "object") led[ledgerKey(t)] = t;
+    });
+    return led;
+  }
+  function serializeJsonl(led) {
+    return Object.keys(led).map(function (k) { return JSON.stringify(led[k]); }).join("\n") + (Object.keys(led).length ? "\n" : "");
+  }
+
+  // ── merge_ledger (mirror store.merge_ledger) ─────────────────────────────────
+  // Append-only accumulate, deduped by key. THE choke point where tombstones are
+  // enforced: a deleted txn can never be resurrected. Shrink guard: a merge only ever
+  // adds. Takes + returns a {key: txn} object (the caller serializes to .jsonl).
+  function mergeLedger(led, txns, tomb) {
+    led = led || {};
+    tomb = tomb || {};
+    txns = (txns || []).filter(function (t) { return !isDeleted(ledgerKey(t), tomb); });
+    var out = {}; Object.keys(led).forEach(function (k) { out[k] = led[k]; });
+    var before = Object.keys(out).length;
+    txns.forEach(function (t) {
+      var k = ledgerKey(t);
+      if (JSON.stringify(out[k]) === JSON.stringify(t)) return;   // already stored, identical
+      out[k] = t;
+    });
+    if (Object.keys(out).length < before) throw new Error("ledger merge would shrink — aborting to protect data");
+    return out;
+  }
+
+  // ── spending / income aggregates ─────────────────────────────────────────────
+  // categories_from_txns (mirror store.categories_from_txns) — transfers EXCLUDED.
+  // (build_snapshot INCLUDES transfers in spending; recompute_spending / period_summary
+  // EXCLUDE them. This is an existing store.py distinction — both ported faithfully.)
+  function categoriesFromTxns(txns, overrides, remap) {
+    var cats = Object.create(null);   // null-proto: a category keyed "constructor" must aggregate, not read the inherited fn
+    txns.forEach(function (t) {
+      var amt = t.amount || 0;
+      if (amt < 0) {
+        var c = categorize(t.description || "", overrides, remap);
+        if (c === "transfer") return;
+        cats[c] = (cats[c] || 0) + (-amt);
+      }
+    });
+    return Object.keys(cats).map(function (k) { return { key: k, amount: round2(cats[k]) }; })
+      .sort(function (a, b) { return b.amount - a.amount; });
+  }
+
+  // subscription_items (mirror store.subscription_items) — the "subscriptions" category
+  // grouped by merchant. NOTE this is the cheap grouping, NOT detect_recurring (deferred).
+  function subscriptionItems(txns, overrides, remap) {
+    var agg = Object.create(null), order = [];   // null-proto: a merchant that _cleans to "constructor" must not read Object.prototype.constructor (was a hard crash on it.descriptions)
+    txns.forEach(function (t) {
+      var amt = t.amount || 0;
+      if (amt < 0 && categorize(t.description || "", overrides, remap) === "subscriptions") {
+        var key = _clean(t.description || "") || "subscription";
+        var it = agg[key];
+        if (!it) { it = agg[key] = { name: _titleCase(key), key: key, amount: 0, count: 0, descriptions: [], accounts: [] }; order.push(key); }
+        it.amount += -amt;
+        it.count += 1;
+        var desc = (t.description || "").trim();
+        if (desc && it.descriptions.indexOf(desc) === -1 && it.descriptions.length < 6) it.descriptions.push(desc);
+        var acct = (t.account || "").trim();
+        if (acct && it.accounts.indexOf(acct) === -1) it.accounts.push(acct);
+      }
+    });
+    var rows = order.map(function (k) { agg[k].amount = round2(agg[k].amount); return agg[k]; });
+    rows.sort(function (a, b) { return b.amount - a.amount; });
+    return rows;
+  }
+  function _titleCase(s) { return (s || "").replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
+
+  // ── build_snapshot (mirror store.build_snapshot) ─────────────────────────────
+  // The bank-sync path. accounts: [{id,name,org,balance,currency,transactions:[...]}].
+  // Returns {snapshot, txns}. Transfers ARE included in spending here (parity anchor).
+  function buildSnapshot(accounts, opts) {
+    opts = opts || {};
+    var windowDays = opts.windowDays || 30;
+    var now = opts.now || Math.floor(Date.now() / 1000);
+    var fetchDays = opts.fetchDays || windowDays;
+    var overrides = opts.overrides || {}, incomeOverrides = opts.incomeOverrides || {}, remap = opts.remap || {};
+    var fetchCutoff = now - fetchDays * 86400;
+    var summaryCutoff = now - windowDays * 86400;
+    var mid = now - Math.floor(windowDays / 2) * 86400;
+    var total = 0, cash = 0, outflow = 0, recent = 0, older = 0, incomeTotal = 0;
+    var cats = Object.create(null), inc = Object.create(null), untaggedInc = Object.create(null);   // null-proto — user-derived keys (see categoriesFromTxns)
+    var outAccounts = [], txns = [];
+
+    (accounts || []).forEach(function (a) {
+      var bal = parseFloat(a.balance || 0) || 0;
+      total += bal;
+      if (bal > 0) cash += bal;
+      (a.transactions || []).forEach(function (t) {
+        var posted, amt;
+        try { posted = parseInt(t.posted, 10); amt = parseFloat(t.amount || 0) || 0; } catch (e) { return; }
+        if (!isFinite(posted)) return;
+        if (posted < fetchCutoff) return;
+        var desc = t.description || t.payee || "";
+        txns.push({ id: t.id, posted: posted, amount: round2(amt), description: desc, account: a.name || "Account" });
+        if (posted < summaryCutoff) return;
+        if (amt < 0) {
+          var spend = -amt;
+          outflow += spend;
+          var c = categorize(desc, overrides, remap);
+          cats[c] = (cats[c] || 0) + spend;
+          if (posted >= mid) recent += spend; else older += spend;
+        } else if (amt > 0) {
+          var dec = incomeDecision(desc, incomeOverrides, overrides, remap);
+          if (!dec[2]) untaggedInc[dec[0]] = 1;
+          if (dec[1]) { incomeTotal += amt; inc[dec[0]] = (inc[dec[0]] || 0) + amt; }
+        }
+      });
+      outAccounts.push({
+        id: a.id, name: a.name || "Account",
+        org: (a.org && a.org.name) || "",
+        balance: round2(bal), currency: a.currency || "USD",
+      });
+    });
+
+    var half = windowDays / 2.0;
+    var rd = recent / half, od = older / half;
+    var trend = od > 0 ? pyRound((rd - od) / od * 100) : null;
+    var catsList = Object.keys(cats).map(function (k) { return { key: k, amount: round2(cats[k]) }; })
+      .sort(function (a, b) { return b.amount - a.amount; });
+    var incomeSources = Object.keys(inc).map(function (k) {
+      return { source: prettifyMerchant(k, _titleCase(k)), key: k, amount: round2(inc[k]), tagged: Object.prototype.hasOwnProperty.call(incomeOverrides, k) };
+    }).sort(function (a, b) { return b.amount - a.amount; });
+    var windowTxns = txns.filter(function (t) { return t.posted >= summaryCutoff; });
+    var subsItems = subscriptionItems(windowTxns, overrides, remap);
+    var subsTotal = round2(subsItems.reduce(function (s, x) { return s + x.amount; }, 0));
+
+    var snapshot = {
+      updated: opts.updated || _isoNow(),
+      total: round2(total),
+      cash: round2(cash),
+      burn_per_day: round2(outflow / windowDays),
+      spend_window_days: windowDays,
+      spending: {
+        window_days: windowDays,
+        total: round2(outflow),
+        per_month: round2(outflow / windowDays * 30),
+        per_day: round2(outflow / windowDays),
+        trend_pct: trend,
+        categories: catsList,
+      },
+      income: {
+        window_days: windowDays,
+        total: round2(incomeTotal),
+        per_month: round2(incomeTotal / windowDays * 30),
+        sources: incomeSources,
+        untagged: Object.keys(untaggedInc).length,
+      },
+      subscriptions: {
+        window_days: windowDays,
+        total: subsTotal,
+        per_month: round2(subsTotal / windowDays * 30),
+        items: subsItems,
+      },
+      accounts: outAccounts,
+    };
+    return { snapshot: snapshot, txns: txns };
+  }
+  function _isoNow() { try { return new Date().toISOString().replace(/\.\d+Z$/, "Z"); } catch (e) { return ""; } }
+
+  // ── resolve_period / period_summary (mirror store) ───────────────────────────
+  // The DASHBOARD read path: /api/summary?<period>. Computes income/spending/subs for an
+  // arbitrary period from the full ledger. Transfers EXCLUDED (reported as a footnote).
+  function _ymd(dateSecs) { var d = new Date(dateSecs * 1000); return { y: d.getFullYear(), m: d.getMonth() + 1, day: d.getDate() }; }
+  function _localMidnight(y, m, day) { return Math.floor(new Date(y, m - 1, day || 1, 0, 0, 0, 0).getTime() / 1000); }
+  var _MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function resolvePeriod(kind, ym, now, startD, endD, ledgerTxns) {
+    now = now || Math.floor(Date.now() / 1000);
+    if (kind === "custom" && startD && endD) {
+      var a = startD.split("-").map(Number), b = endD.split("-").map(Number);
+      if (a.length === 3 && b.length === 3 && a.every(isFinite) && b.every(isFinite)) {
+        var start = _localMidnight(a[0], a[1], a[2]);
+        var end = _localMidnight(b[0], b[1], b[2]) + 86400;
+        if (end <= start) { var t = start; start = end - 86400; end = t + 86400; }
+        var label = _MONTH_ABBR[a[1] - 1] + " " + a[2] + " – " + _MONTH_ABBR[b[1] - 1] + " " + b[2];
+        return { start: start, end: end, label: label };
+      }
+    }
+    if (kind === "30d") return { start: now - 30 * 86400, end: now, label: "Last 30 days" };
+    if (kind === "90d") return { start: now - 90 * 86400, end: now, label: "Last 90 days" };
+    if (kind === "all") {
+      var ts = (ledgerTxns || []).map(function (t) { return t.posted || 0; }).filter(Boolean);
+      return { start: ts.length ? Math.min.apply(null, ts) : now - 365 * 86400, end: now, label: "All time" };
+    }
+    var n = _ymd(now);
+    if (!ym) ym = n.y + "-" + String(n.m).padStart(2, "0");
+    var y = parseInt(ym.slice(0, 4), 10), mo = parseInt(ym.slice(5, 7), 10);
+    var s = _localMidnight(y, mo, 1);
+    var ny = mo === 12 ? y + 1 : y, nm = mo === 12 ? 1 : mo + 1;
+    var e = Math.min(_localMidnight(ny, nm, 1), now);
+    return { start: s, end: e, label: _MONTH_ABBR[mo - 1] + " " + y };
+  }
+  // ctx: {balances, overrides, incomeOverrides, remap, catmetaLabels}
+  function periodSummary(ledgerTxns, params, ctx) {
+    params = params || {};
+    ctx = ctx || {};
+    var overrides = ctx.overrides || {}, incomeOverrides = ctx.incomeOverrides || {}, remap = ctx.remap || {};
+    var now = params.now || Math.floor(Date.now() / 1000);
+    var p = resolvePeriod(params.kind || "mtd", params.ym, now, params.start, params.end, ledgerTxns);
+    var win = (ledgerTxns || []).filter(function (t) { return p.start <= (t.posted || 0) && (t.posted || 0) < p.end; });
+    var days = Math.max(1, pyRound((p.end - p.start) / 86400.0));   // banker's round to match store.py's round() (Math.round is half-up → off by a day on .5 boundaries)
+    var outflow = 0, incomeTotal = 0, xferTotal = 0;
+    var cats = Object.create(null), inc = Object.create(null), untaggedInc = Object.create(null);   // null-proto — user-derived keys
+    win.forEach(function (t) {
+      var amt = parseFloat(t.amount || 0); if (!isFinite(amt)) return;
+      var desc = t.description || t.payee || "";
+      if (amt < 0) {
+        var spend = -amt;
+        var c = categorize(desc, overrides, remap);
+        if (c === "transfer") { xferTotal += spend; return; }
+        outflow += spend;
+        cats[c] = (cats[c] || 0) + spend;
+      } else if (amt > 0) {
+        var dec = incomeDecision(desc, incomeOverrides, overrides, remap);
+        if (!dec[2]) untaggedInc[dec[0]] = 1;
+        if (dec[1]) { incomeTotal += amt; inc[dec[0]] = (inc[dec[0]] || 0) + amt; }
+      }
+    });
+    var catsList = Object.keys(cats).map(function (k) { return { key: k, amount: round2(cats[k]) }; })
+      .sort(function (a, b) { return b.amount - a.amount; });
+    var incomeSources = Object.keys(inc).map(function (k) {
+      return { source: prettifyMerchant(k, _titleCase(k)), key: k, amount: round2(inc[k]), tagged: Object.prototype.hasOwnProperty.call(incomeOverrides, k) };
+    }).sort(function (a, b) { return b.amount - a.amount; });
+    var subsItems = subscriptionItems(win, overrides, remap);
+    var subsTotal = round2(subsItems.reduce(function (s, x) { return s + x.amount; }, 0));
+    var bal = ctx.balances || {};
+    var norm = 30.0 / days;
+    return {
+      period: { kind: params.kind || "mtd", ym: params.ym || null, start: p.start, end: p.end, days: days, label: p.label, count: win.length },
+      catmeta: { labels: ctx.catmetaLabels || {} },
+      updated: bal.updated != null ? bal.updated : null,
+      rev: bal.rev || 0,
+      total: bal.total != null ? bal.total : null,
+      cash: bal.cash != null ? bal.cash : null,
+      accounts: bal.accounts || [],
+      burn_per_day: round2(outflow / days),
+      spend_window_days: days,
+      spending: {
+        window_days: days, total: round2(outflow),
+        per_month: round2(outflow * norm), per_day: round2(outflow / days),
+        trend_pct: null, categories: catsList,
+        transfers: round2(xferTotal),
+      },
+      income: {
+        window_days: days, total: round2(incomeTotal),
+        per_month: round2(incomeTotal * norm),
+        sources: incomeSources, untagged: Object.keys(untaggedInc).length,
+      },
+      subscriptions: {
+        window_days: days, total: subsTotal,
+        per_month: round2(subsTotal * norm), items: subsItems,
+      },
+    };
+  }
+
+  // ── rebuild_from_ledger (mirror store.rebuild_from_ledger + recompute_spending +
+  //    recompute_income) ─────────────────────────────────────────────────────────
+  // Takes a files map {name: jsonText}, rebuilds transactions.json (30d window) and the
+  // balances.json spending/income/subscriptions blocks + bumps rev, all from the full
+  // ledger. Account balances (total/cash/accounts/updated) are LEFT AS-IS, exactly like a
+  // desktop CSV import (a CSV carries no live balance). Returns a NEW files map.
+  // Coverage + monthly rollups are DEFERRED (left untouched) — the desktop recomputes them
+  // canonically on its next sync.
+  function _overridesFrom(files) {
+    return {
+      overrides: _parseObj(files["categories.json"]),
+      incomeOverrides: _parseObj(files["income.json"]),
+      remap: (_parseObj(files["catmeta.json"]).remap) || {},
+      catmetaLabels: (_parseObj(files["catmeta.json"]).labels) || {},
+      tomb: _parseObj(files["deleted.json"]),
+    };
+  }
+  function _parseObj(text) { try { var v = JSON.parse(text || "{}"); return (v && typeof v === "object" && !Array.isArray(v)) ? v : {}; } catch (e) { return {}; } }
+  function _nextRev(bal) { try { return (parseInt((bal || {}).rev, 10) || 0) + 1; } catch (e) { return 1; } }
+
+  function rebuildFromLedger(files, opts) {
+    opts = opts || {};
+    var windowDays = opts.windowDays || 30;
+    var now = opts.now || Math.floor(Date.now() / 1000);
+    var ctx = _overridesFrom(files);
+    var led = parseJsonl(files["ledger.jsonl"]);
+    var txns = Object.keys(led).map(function (k) { return led[k]; });
+    var cutoff = now - windowDays * 86400;
+    var window = txns.filter(function (t) { return (t.posted || 0) >= cutoff; });
+    window.sort(function (a, b) { return (b.posted || 0) - (a.posted || 0); });
+
+    var out = {}; Object.keys(files).forEach(function (n) { out[n] = files[n]; });
+    // transactions.json (mirror save_transactions)
+    out["transactions.json"] = JSON.stringify({ updated: _isoNow(), window_days: windowDays, transactions: window }, null, 2);
+
+    // balances.json — recompute_spending + recompute_income (both read the WINDOW, not the
+    // full ledger, and neither touches total/cash/accounts/updated). rev bumps once per
+    // recompute in store.py; we mirror that (two bumps: spending then income).
+    var bal = _parseObj(files["balances.json"]);
+    // recompute_spending
+    var sp = (bal.spending && typeof bal.spending === "object") ? bal.spending : {};
+    sp.categories = categoriesFromTxns(window, ctx.overrides, ctx.remap);
+    bal.spending = sp;
+    var subsItems = subscriptionItems(window, ctx.overrides, ctx.remap);
+    var subsTotal = round2(subsItems.reduce(function (s, x) { return s + x.amount; }, 0));
+    var wd = sp.window_days || 30;
+    bal.subscriptions = { window_days: wd, total: subsTotal, per_month: round2(subsTotal / wd * 30), items: subsItems };
+    bal.rev = _nextRev(bal);
+    // recompute_income
+    var incWd = (bal.income && bal.income.window_days) || bal.spend_window_days || 30;
+    var total = 0, inc = Object.create(null), untagged = Object.create(null);   // null-proto — user-derived income keys
+    window.forEach(function (t) {
+      var amt = t.amount || 0;
+      if (amt > 0) {
+        var dec = incomeDecision(t.description || "", ctx.incomeOverrides, ctx.overrides, ctx.remap);
+        if (!dec[2]) untagged[dec[0]] = 1;
+        if (dec[1]) { total += amt; inc[dec[0]] = (inc[dec[0]] || 0) + amt; }
+      }
+    });
+    var sources = Object.keys(inc).map(function (k) {
+      return { source: prettifyMerchant(k, _titleCase(k)), key: k, amount: round2(inc[k]), tagged: Object.prototype.hasOwnProperty.call(ctx.incomeOverrides, k) };
+    }).sort(function (a, b) { return b.amount - a.amount; });
+    bal.income = { window_days: incWd, total: round2(total), per_month: round2(total / incWd * 30), sources: sources, untagged: Object.keys(untagged).length };
+    bal.rev = _nextRev(bal);
+    out["balances.json"] = JSON.stringify(bal, null, 2);
+    return out;
+  }
+
+  // ── CSV importer (mirror import_statements.py) ───────────────────────────────
+  var DATE_KEYS = ["date", "posting date", "posted date", "transaction date", "trans date"];
+  var AMT_KEYS = ["amount", "amt"];
+  var DEBIT_KEYS = ["debit", "withdrawal", "withdrawals", "money out", "outflow"];
+  var CREDIT_KEYS = ["credit", "deposit", "deposits", "money in", "inflow"];
+  var DESC_KEYS = ["description", "payee", "name", "memo", "details", "merchant", "transaction"];
+  var ACCT_KEYS = ["account", "account name"];
+  var ACCT_NUM_KEYS = ["card no", "card number", "account number", "account no", "acct no", "acct number", "card"];
+
+  // a small RFC-4180-ish parser: handles quoted fields, embedded commas/newlines, "" escapes
+  function parseCsvRows(text) {
+    var rows = [], row = [], field = "", i = 0, inQ = false, c;
+    text = (text || "").replace(/^﻿/, "");   // strip BOM (utf-8-sig)
+    while (i < text.length) {
+      c = text[i];
+      if (inQ) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+          inQ = false; i++; continue;
+        }
+        field += c; i++; continue;
+      }
+      if (c === '"') { inQ = true; i++; continue; }
+      if (c === ",") { row.push(field); field = ""; i++; continue; }
+      if (c === "\r") { i++; continue; }
+      if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; i++; continue; }
+      field += c; i++;
+    }
+    if (field !== "" || row.length) { row.push(field); rows.push(row); }
+    return rows;
+  }
+  function _find(headers, keys) {
+    var low = {};
+    headers.forEach(function (h) { if (h) low[h.toLowerCase().trim()] = h; });
+    for (var i = 0; i < keys.length; i++) if (low[keys[i]]) return low[keys[i]];
+    for (var j = 0; j < headers.length; j++) {
+      var h = headers[j];
+      if (h && keys.some(function (k) { return h.toLowerCase().indexOf(k) !== -1; })) return h;
+    }
+    return null;
+  }
+  function _num(x) {
+    x = (x || "").trim().replace(/\$/g, "").replace(/,/g, "");
+    var neg = x.charAt(0) === "(" && x.charAt(x.length - 1) === ")";
+    x = x.replace(/^\(+|\)+$/g, "");
+    if (!x) return null;
+    // Accept exactly what Python float() accepts for realistic amounts: optional sign,
+    // digits with an optional decimal point (leading OR trailing dot ok), optional exponent.
+    // The old /\d*\.?\d+/ rejected "5." and "1e3" — which store.py's bare float() KEEPS — so
+    // those rows were present on desktop but silently missing from a web import (ledger fork).
+    if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(x)) return null;
+    var v = parseFloat(x);
+    if (!isFinite(v)) return null;   // reject inf/nan (store.py gets the matching guard) — a non-finite amount would corrupt every sum
+    return neg ? -v : v;
+  }
+  function _parseAmount(row, amtCol, debitCol, creditCol) {
+    if (amtCol) return _num(row[amtCol]);
+    var d = debitCol ? _num(row[debitCol]) : null;
+    var c = creditCol ? _num(row[creditCol]) : null;
+    if (d) return -Math.abs(d);
+    if (c) return Math.abs(c);
+    return null;
+  }
+  // date parse — try store's DATE_FORMATS in order, validating ranges, using LOCAL time
+  // (Python's naive datetime.strptime(...).timestamp() is local; both sides share the tz)
+  // Try store's DATE_FORMATS in order; a format that matches the shape but yields an
+  // out-of-range date (e.g. month 15) must FALL THROUGH to the next, exactly like Python's
+  // strptime raising ValueError — this is what lets "15/01/2026" reach %d/%m/%Y.
+  function parseDate(s) {
+    s = (s || "").trim();
+    if (!s) return null;
+    var m, r;
+    // %m/%d/%Y  ·  %m/%d/%Y %H:%M
+    if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/))) { r = _mk(+m[3], +m[1], +m[2], +m[4] || 0, +m[5] || 0); if (r != null) return r; }
+    // %m/%d/%y — C89 pivot, matching Python strptime %y: 69-99 → 19xx, 00-68 → 20xx
+    if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/))) { var yy = +m[3]; r = _mk(yy >= 69 ? 1900 + yy : 2000 + yy, +m[1], +m[2]); if (r != null) return r; }
+    // %Y-%m-%d  ·  %Y-%m-%d %H:%M:%S
+    if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2}):(\d{2}))?$/))) { r = _mk(+m[1], +m[2], +m[3], +m[4] || 0, +m[5] || 0, +m[6] || 0); if (r != null) return r; }
+    // %m-%d-%Y
+    if ((m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/))) { r = _mk(+m[3], +m[1], +m[2]); if (r != null) return r; }
+    // %Y/%m/%d
+    if ((m = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/))) { r = _mk(+m[1], +m[2], +m[3]); if (r != null) return r; }
+    // %d/%m/%Y (reached only when %m/%d/%Y failed — i.e. month>12)
+    if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) { r = _mk(+m[3], +m[2], +m[1]); if (r != null) return r; }
+    // %b %d, %Y  → "Jan 5, 2026"
+    if ((m = s.match(/^([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4})$/))) {
+      var mo = _MONTH_ABBR.map(function (x) { return x.toLowerCase(); }).indexOf(m[1].toLowerCase());
+      if (mo >= 0) { r = _mk(+m[3], mo + 1, +m[2]); if (r != null) return r; }
+    }
+    return null;
+  }
+  function _mk(y, mo, d, H, M, S) {
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    var dt = new Date(y, mo - 1, d, H || 0, M || 0, S || 0, 0);
+    if (dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;   // reject overflow (Feb 30 etc), like strptime
+    return Math.floor(dt.getTime() / 1000);
+  }
+  function _last4(s) { var d = (s || "").replace(/\D/g, ""); return d.length >= 4 ? d.slice(-4) : null; }
+  function _acctFromName(filename) {
+    var name = (filename || "").replace(/^.*[\\/]/, "").replace(/\.[^.]*$/, "");
+    // .toLowerCase() first so this matches Python str.title() (upper first letter, LOWER the
+    // rest of each word) — without it "myCard.csv" → "MyCard" on web but "Mycard" on desktop,
+    // stamping a different account label into the shared vault for the same file.
+    return name.replace(/[_\-0-9]+/g, " ").trim().toLowerCase().replace(/\b\w/g, function (c) { return c.toUpperCase(); }) || "Imported";
+  }
+  // deterministic id (mirror import_statements._gen_id shape "csv:<hash>"). NOT SHA-1: a
+  // hand-rolled sync SHA-1 is a needless parity risk, and cross-device double-counting is
+  // already prevented by the content-key dedupe below (a web-csv row and the same
+  // desktop-csv row collapse on day|amount|desc, whatever their ids). So a stable djb2 id
+  // is enough and clearly namespaced. Interop note lives in the pending-merge memory.
+  function _genId(t) {
+    var raw = t.account + "|" + t.posted + "|" + t.amount + "|" + t.description;
+    var h = 5381; for (var i = 0; i < raw.length; i++) h = ((h << 5) + h + raw.charCodeAt(i)) | 0;
+    return "csv:" + (h >>> 0).toString(16);
+  }
+  function _liveAccountMap(led) {
+    var out = {};
+    Object.keys(led || {}).forEach(function (k) {
+      var n = led[k].account; if (!n) return;
+      var d = n.replace(/\D/g, "");
+      if (d.length >= 4 && !out[d.slice(-4)]) out[d.slice(-4)] = n;
+    });
+    return out;
+  }
+  // parse CSV text → {txns, error}. led (existing ledger) drives last-4 account matching.
+  function parseCsv(text, filename, led) {
+    var rows = parseCsvRows(text);
+    if (!rows.length) return { txns: [], error: "empty file" };
+    var headers = rows[0];
+    var dateCol = _find(headers, DATE_KEYS);
+    var amtCol = _find(headers, AMT_KEYS);
+    var debitCol = _find(headers, DEBIT_KEYS);
+    var creditCol = _find(headers, CREDIT_KEYS);
+    var descCol = _find(headers, DESC_KEYS);
+    var acctCol = _find(headers, ACCT_KEYS);
+    var acctnumCol = _find(headers, ACCT_NUM_KEYS);
+    if (!dateCol || !(amtCol || debitCol || creditCol)) {
+      var seen = headers.filter(Boolean).join(", ") || "(no header row)";
+      return { txns: [], error: "couldn't find date/amount columns — saw: " + seen };
+    }
+    var live = _liveAccountMap(led);
+    var acctGuess = _acctFromName(filename);
+    var fnameAcct = null, grps = (filename || "").match(/\d{4}/g) || [];
+    for (var g = 0; g < grps.length; g++) { if (live[grps[g]]) { fnameAcct = live[grps[g]]; break; } }
+    var idx = {}; headers.forEach(function (h, i) { idx[h] = i; });
+    var txns = [];
+    for (var r = 1; r < rows.length; r++) {
+      var cells = rows[r];
+      if (cells.length === 1 && cells[0] === "") continue;   // blank line
+      var row = {}; headers.forEach(function (h, i) { row[h] = cells[i] != null ? cells[i] : ""; });
+      var posted = parseDate(row[dateCol]);
+      var amt = _parseAmount(row, amtCol, debitCol, creditCol);
+      if (posted == null || amt == null) continue;
+      var desc = descCol ? (row[descCol] || "").trim() : "";
+      var acct = acctCol ? (row[acctCol] || "").trim() : "";
+      if (!acct && acctnumCol) { var l4 = _last4(row[acctnumCol] || ""); if (l4 && live[l4]) acct = live[l4]; }
+      if (!acct) acct = fnameAcct || acctGuess;
+      var t = { id: null, posted: posted, amount: round2(amt), description: desc, account: acct };
+      t.id = _genId(t);
+      txns.push(t);
+    }
+    return { txns: txns, error: null };
+  }
+
+  // content-key dedupe (mirror import_statements._content_key + import_records) — a
+  // MULTISET so a genuine second identical purchase the same day still comes through.
+  function _contentKey(t) {
+    var day = Math.floor((t.posted || 0) / 86400);
+    var desc = (t.description || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 18);
+    return day + "|" + round2(t.amount || 0) + "|" + desc;
+  }
+  // Import parsed txns into a files map: dedupe against the existing ledger, merge the new
+  // ones, rebuild the window + snapshot. Returns {files, added, dup}. Mirrors
+  // import_statements.import_records + store.rebuild_from_ledger.
+  function importTxns(files, txns, opts) {
+    opts = opts || {};
+    // mintSuffix: freshly-parsed CSV rows carry un-suffixed ids, so the n-th same-content
+    // occurrence needs a "-n" suffix to stay a distinct ledger key (matches store.py). But
+    // applyToVault re-folds _pending, whose ids are ALREADY final/occurrence-suffixed — running
+    // them through the suffixer again would mint "csv:h-2-2". So that path passes mintSuffix:false.
+    var mintSuffix = opts.mintSuffix !== false;
+    var ctx = _overridesFrom(files);
+    var led = parseJsonl(files["ledger.jsonl"]);
+    var have = Object.create(null), used = Object.create(null);   // keys are "day|amt|desc" (never a bare proto name), but null-proto for uniformity
+    Object.keys(led).forEach(function (k) { var ck = _contentKey(led[k]); have[ck] = (have[ck] || 0) + 1; });
+    var newTxns = [], dup = 0;
+    txns.forEach(function (t) {
+      var ck = _contentKey(t);
+      used[ck] = (used[ck] || 0) + 1;
+      if (used[ck] <= (have[ck] || 0)) { dup++; return; }
+      t = Object.assign({}, t);
+      if (mintSuffix && used[ck] > 1) t.id = t.id + "-" + used[ck];   // unique id per occurrence (fresh CSV rows only)
+      newTxns.push(t);
+    });
+    // a txn the user deleted (tombstoned) is dropped by mergeLedger and must not be counted
+    // as "added" — count only what actually lands
+    var landed = newTxns.filter(function (t) { return !isDeleted(ledgerKey(t), ctx.tomb); });
+    if (!landed.length) return { files: files, added: 0, dup: dup };
+    var mergedLed = mergeLedger(led, newTxns, ctx.tomb);
+    var out = {}; Object.keys(files).forEach(function (n) { out[n] = files[n]; });
+    out["ledger.jsonl"] = serializeJsonl(mergedLed);
+    out = rebuildFromLedger(out, opts);
+    return { files: out, added: landed.length, dup: dup };
+  }
+
+  // ── public surface ───────────────────────────────────────────────────────────
+  var CacheMoney = {
+    pyRound: pyRound, round2: round2,
+    categorize: categorize, prettifyMerchant: prettifyMerchant, isIncome: isIncome,
+    incomeDecision: incomeDecision, subscriptionItems: subscriptionItems,
+    categoriesFromTxns: categoriesFromTxns,
+    ledgerKey: ledgerKey, isDeleted: isDeleted, mergeLedger: mergeLedger,
+    parseJsonl: parseJsonl, serializeJsonl: serializeJsonl,
+    buildSnapshot: buildSnapshot,
+    resolvePeriod: resolvePeriod, periodSummary: periodSummary,
+    rebuildFromLedger: rebuildFromLedger,
+    parseCsv: parseCsv, importTxns: importTxns,
+    _clean: _clean, _incomeKey: _incomeKey, _contentKey: _contentKey, _genId: _genId,
+  };
+
+  if (typeof window !== "undefined") window.CacheMoney = CacheMoney;
+  if (typeof module !== "undefined" && module.exports) module.exports = CacheMoney;   // node tests require() this directly (no anchor slicing to rot)
+
+  // ── web wiring: the import flow (only on the hosted web app) ──────────────────
+  // Reads the current money files from webcache's decrypted store, runs the import +
+  // compute here in the browser, writes the result back, and arms a cloud push so the
+  // sealed vault syncs to the user's other devices. Everything happens client-side; the
+  // server only ever sees ciphertext. This is the ONE place the web app writes money.
+  if (typeof window !== "undefined" && window.__CACHE_WEB__) {
+    // remember every txn imported this session (the deltas) so the push can safely re-merge
+    // them into the FRESHEST vault ledger — never clobbering a concurrent desktop bank sync.
+    var _pending = [];
+    window.__cacheMoneyPending = function () { return _pending.slice(); };
+    window.__cacheMoneyImport = function (filename, text) {
+      var bridge = window.__cacheWebMoney;
+      if (!bridge) return { ok: false, error: "cloud not ready yet — try again in a moment" };
+      var files = bridge.getFiles() || {};
+      var parsed = parseCsv(text, filename, parseJsonl(files["ledger.jsonl"]));
+      if (parsed.error) return { ok: false, error: parsed.error };
+      if (!parsed.txns.length) return { ok: false, error: "no transactions found in that CSV" };
+      var res = importTxns(files, parsed.txns, {});
+      if (!res.added) return { ok: true, added: 0, dup: res.dup };
+      // record the raw deltas (the ledger keys new since before this import, not already
+      // pending) for the push-time re-merge into the freshest vault ledger
+      var led = parseJsonl(res.files["ledger.jsonl"]);
+      var preLed = parseJsonl(files["ledger.jsonl"]);
+      var known = {}; _pending.forEach(function (t) { known[ledgerKey(t)] = 1; });
+      Object.keys(led).forEach(function (k) { if (!preLed[k] && !known[k]) _pending.push(led[k]); });
+      // commit the new money files; the dashboard's /api/summary is computed LIVE from the
+      // ledger by webcache (MONEY_LIVE), so the imported data shows immediately — no stale,
+      // now-dependent precomputed summary to seal or churn.
+      bridge.commit(res.files);
+      return { ok: true, added: res.added, dup: res.dup };
+    };
+    // called by cloudPush's web branch: merge this session's imported txns into the vault's
+    // OWN (freshest) files, so a concurrent desktop bank sync is never lost. Returns the
+    // merged {files} or null when there's nothing to apply.
+    window.__cacheMoneyApplyToVault = function (vaultFiles) {
+      if (!_pending.length) return null;
+      // mintSuffix:false — _pending ids are already final (occurrence-suffixed at import);
+      // re-suffixing here would fork the ledger id from what store.py produces for the same CSV.
+      var res = importTxns(vaultFiles || {}, _pending, { mintSuffix: false });
+      // hand back a SNAPSHOT of exactly what this push is sealing; the caller confirms it only
+      // after the upload lands, so a failed push leaves _pending intact and retryable.
+      return { files: res.files, folded: _pending.slice() };
+    };
+    // Called by cloudPush ONLY after the vault upload succeeds (or is confirmed already-sealed):
+    // drop the sealed deltas from _pending so the import's "still saving…" retry knows it's done.
+    // Removes exactly the folded keys — imports that arrived mid-push stay pending and seal next.
+    window.__cacheMoneyConfirmSealed = function (folded) {
+      if (!folded || !folded.length) return;
+      var done = Object.create(null);
+      folded.forEach(function (t) { done[ledgerKey(t)] = 1; });
+      _pending = _pending.filter(function (t) { return !done[ledgerKey(t)]; });
+    };
+  }
+})();

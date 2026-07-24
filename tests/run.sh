@@ -18,6 +18,7 @@ cd "$(dirname "$0")/.."
 echo "── compile ──"
 node --check app.js      || exit 1
 node --check webcache.js || exit 1
+node --check webmoney.js || exit 1
 python3 -m py_compile store.py server.py || exit 1
 echo "   ok"
 
@@ -33,12 +34,12 @@ run() { # run <cmd...>
 }
 
 echo "── JS (client merge engine) ──"
-for t in merge_test authored_test livelock_test profile_test profilecard_test timer_test deck_test things_test forms_test logderive_test crypto_interop_test social_test routine_test cal_test deckday_test escape_test notifs_test bugcredit_test; do
+for t in merge_test authored_test livelock_test profile_test profilecard_test timer_test deck_test things_test forms_test logderive_test crypto_interop_test social_test routine_test cal_test deckday_test escape_test notifs_test bugcredit_test webmoney_test; do
   run "$t" node "tests/$t.js"
 done
 
 echo "── Python (backend merge engine) ──"
-for t in map_test roundtrip_test maptie_test restore_test rev_test catmeta_test tomb_test deck_parity checkinlog_test; do
+for t in map_test roundtrip_test maptie_test restore_test rev_test catmeta_test tomb_test deck_parity checkinlog_test webmoney_parity; do
   run "$t" env PYTHONPATH="$PWD" python3 "tests/$t.py"
 done
 
