@@ -3754,28 +3754,37 @@ function cloudKeySet(b64) { try { if (b64) localStorage.setItem(CLOUDKEY_KEY, b6
 // Gmail plus-addressing means hellocozyace+cachetest@gmail.com lands in your normal inbox but
 // is its own account, so you can make as many as you want without a single extra mailbox.
 function isTestAccount() { return (cloudState().email || "").toLowerCase().indexOf("+cachetest") !== -1; }
-// Return a test account to a BRAND-NEW signup: delete its cloud vault (blob + keybox) and drop
-// the local key, so the next render shows the first-time "Just me / Keep a spare" choice again.
+// Return a test account to a TRULY brand-new state: delete its cloud vault AND its whole
+// account (the user record), then LOG OUT and hard-discard this device's copy — so you land
+// on a clean signup screen and can re-run the entire onboarding (account creation + the
+// "Just me / Keep a spare" key choice) with the same +cachetest email. Deleting-but-staying-
+// logged-in was confusing; this makes "reset to a fresh signup" mean exactly that.
 // Double-guarded (button hidden AND this refuses) so it can never touch a real account.
 async function resetTestToFresh() {
   const s = cloudState();
   if (!isTestAccount()) { try { flash("Fresh-reset is only for +cachetest test accounts."); } catch (e) {} return; }
   if (!s.token) { try { flash("Log into the test account first."); } catch (e) {} return; }
-  confirmDelete("the CLOUD vault of " + (s.email || "this test account") + " — a fresh-signup reset", async () => {
+  confirmDelete("the ENTIRE test account " + (s.email || "") + " — its account, cloud vault, and this device's copy (fresh-signup reset)", async () => {
+    let acctGone = false;
     try {
-      const id = await cloudFindVaultId(s);
-      if (id) {
-        const r = await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "DELETE", headers: { Authorization: s.token } });
-        if (!r.ok && r.status !== 404) throw new Error("couldn't delete the vault (HTTP " + r.status + ")");
+      const id = await cloudFindVaultId(s);   // delete the cloud vault (blob + keybox) if any
+      if (id) { try { await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "DELETE", headers: { Authorization: s.token } }); } catch (e) {} }
+      if (s.userId) {                          // delete the account itself, so the same email can sign up fresh
+        try { const r = await fetch(cloudUrl() + "/api/collections/users/records/" + s.userId, { method: "DELETE", headers: { Authorization: s.token } }); acctGone = r.ok; } catch (e) {}
       }
-      cloudKeySet("");                                        // drop the held vault key
-      try { localStorage.removeItem("money.simplefin"); } catch (e) {}   // per-account bank credential
-      const ns = cloudState();                               // forget "we have a backup" so the fresh flow shows
-      ["lastPush", "lastSeenVault", "mode", "keyboxMissing"].forEach((k) => { delete ns[k]; });
-      cloudSaveState(ns);
-      try { flash("Reset to a fresh signup — reloading…"); } catch (e) {}
-      setTimeout(() => location.reload(), 700);
-    } catch (e) { try { flash("Reset failed: " + ((e && e.message) || e)); } catch (e2) {} }
+    } catch (e) {}
+    // HARD local discard (no parking — the account is gone): drop the key, wipe every
+    // account-scoped key from the live slot, remove any parked silo, clear the session pointer.
+    try { cloudKeySet(""); } catch (e) {}
+    try { clearAccountData(); } catch (e) {}
+    try { if (s.userId) localStorage.removeItem(PROFILE_PREFIX + s.userId); } catch (e) {}
+    try { localStorage.removeItem(CLOUD_KEY); } catch (e) {}
+    try {
+      flash(acctGone
+        ? "Account deleted — you're logged out. Sign up fresh to test onboarding again."
+        : "Logged out + wiped on this device. (The account couldn't be deleted server-side — add a self-delete rule to the PocketBase users collection, or use a new +cachetest email.)");
+    } catch (e) {}
+    setTimeout(() => location.reload(), 1100);
   });
 }
 async function cloudGenKey() {
