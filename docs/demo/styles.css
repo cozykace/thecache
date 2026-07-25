@@ -1962,6 +1962,30 @@ body.sidebar-open .sidebar { transform: none; }
   background: var(--accent); color: var(--paper); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
 }
 .reset-cheer-go:hover { filter: brightness(1.06); }
+/* recovery-file heads-up — calm one-shot after a web unlock issues your first recovery file */
+.reco-headsup {
+  position: fixed; inset: 0; margin: auto; z-index: 100061; width: min(420px, 92vw); height: fit-content; max-height: 86vh; overflow-y: auto;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px;
+  padding: 28px 26px 22px; background: var(--paper); color: var(--ink);
+  border: 1px solid var(--edge); border-radius: 20px; box-shadow: 0 24px 70px -18px rgba(0, 0, 0, 0.5);
+}
+.reco-ic { font-size: 46px; line-height: 1; }
+.reco-h { font-size: 19px; font-weight: 700; color: var(--ink); }
+.reco-p { font-size: 13px; line-height: 1.6; color: rgba(var(--ink-rgb), 0.68); margin: 2px 2px 4px; }
+.reco-go {
+  margin-top: 10px; width: 100%; min-height: 46px; padding: 12px 22px; border: none; border-radius: 12px;
+  background: var(--accent); color: var(--paper); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.reco-go:hover { filter: brightness(1.06); }
+.reco-skip {
+  min-height: 40px; padding: 8px 18px; border: none; border-radius: 10px; background: transparent;
+  color: rgba(var(--ink-rgb), 0.55); font-family: inherit; font-size: 12.5px; cursor: pointer;
+}
+.reco-skip:hover { color: var(--ink); }
+@media (max-width: 480px) {
+  .reco-headsup { inset: auto 0 0 0; margin: 0; width: 100%; max-width: none; border-radius: 20px 20px 0 0;
+    padding-bottom: calc(22px + env(safe-area-inset-bottom)); max-height: 90vh; }
+}
 /* settings tiers — Smooth Brain / Big Brain / Galaxy Brain */
 .set-tier { display: flex; gap: 6px; margin: 2px 0 2px; }
 .set-tier-opt { flex: 1; font-family: inherit; font-size: 11px; cursor: pointer; padding: 8px 6px; border-radius: 8px;

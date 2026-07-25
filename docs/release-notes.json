@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-25-web-recovery-file",
+    "date": "2026-07-25",
+    "title": "Your recovery file now lands in the browser too",
+    "body": "The safety net that hands you a recovery file used to only kick in on the desktop app — so if you live in the web app, you never got one. Now you do: the first time you open your cache in the browser, if you don't already have a recovery file, your cache makes one and offers it to you with a single tap. Keep it somewhere safe and a forgotten passphrase can never lock you out. It stays zero-knowledge the whole time — we still can't read your data — and it only ever appears once, never nagging you on later logins."
+  },
+  {
     "id": "2026-07-25-legacy-vault-recovery-net",
     "date": "2026-07-25",
     "title": "Old accounts get a recovery net — automatically",

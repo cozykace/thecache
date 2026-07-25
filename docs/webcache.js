@@ -19,6 +19,7 @@
 
   var CLOUD_DEFAULT = "https://thecache.pockethost.io";
   var FILES = {}, API = {}, READY = false, resolveGate;
+  var _pendingRecovery = null;   // set by pullVault when this account still needs a recovery FILE; runPendingRecovery issues it AFTER the app is revealed (never on the unlock's critical path)
   var gate = new Promise(function (r) { resolveGate = r; });
   var realFetch = window.fetch ? window.fetch.bind(window) : null;
 
@@ -442,6 +443,32 @@
     catch (e) { if ((e && e.message) === "ZK") throw e; throw new Error("wrong passphrase or corrupt vault"); }
     FILES = (obj && obj.files) || {};
     API = (obj && obj.api) || {};
+    // ── Recovery net (DECIDE here, ISSUE later) ─────────────────────────────────────────
+    // The vault just OPENED (passphrase/key proven correct). Issuing a recovery file used to
+    // only happen from the desktop "Restore from cloud" button, so web-first users had NO net —
+    // a forgotten passphrase meant total, permanent loss. We fix that on the web too, BUT the
+    // issuing (network PATCHes) must NEVER sit on the unlock's critical path: a cold/slow server
+    // would stall login for exactly the legacy accounts this protects. So here we only make a
+    // cheap, no-network DECISION and stash it; enter() runs runPendingRecovery() AFTER the app
+    // is revealed, so a hang can't block the unlock. One-shot: only when the account has no
+    // recovery file yet, so it never nags on later logins.
+    _pendingRecovery = null;
+    try {
+      var bvr = 1; try { bvr = JSON.parse(rec.blob).v || 1; } catch (e) {}
+      if (bvr < 2) {
+        // LEGACY v1 vault (the passphrase IS the key; no keybox; no recovery possible) →
+        // upgrade it to the keybox scheme + mint a recovery file (app.js's tested migration).
+        if (pass) _pendingRecovery = { kind: "v1", rec: rec, obj: obj, pass: pass };
+      } else if (rec.keybox && keyGet()) {
+        var wraps = []; try { wraps = keyboxWraps(rec.keybox); } catch (e) {}
+        var hasFile = wraps.some(function (w) { return w.t === "file"; });
+        var hasEsc = wraps.some(function (w) { return w.t === "esc"; });
+        // ZERO-KNOWLEDGE vaults only. An escrow vault already has a server-held way back in, so
+        // the recovery-FILE net (and its "only you can open this" heads-up) simply doesn't apply
+        // — issuing one there would also make the modal's copy untrue. Skip it.
+        if (!hasFile && !hasEsc) _pendingRecovery = { kind: "v2" };
+      }
+    } catch (e) { _pendingRecovery = null; }
     // restore the user's setup (deck, base, config) so it appears on this device too —
     // with the SAME per-key merge rules app.js uses, so nothing edited on the phone is
     // ever erased by a stale desktop push adopted on the next unlock:
@@ -570,6 +597,34 @@
       try { if (window.__cacheRehydrateStats) window.__cacheRehydrateStats(); } catch (e) {}
     }
     return { empty: false, count: Object.keys(FILES).length };
+  }
+
+  // Issue the pending recovery file AFTER the app is revealed — decidedly OFF the unlock's
+  // critical path (called fire-and-forget from enter(), never awaited before resolveGate).
+  // Reuses app.js's tested crypto (window globals; app.js is a classic deferred script, fully
+  // loaded by the time any unlock completes). Stashes the file secret for the calm one-shot
+  // modal (maybeRecoveryHeadsUp in app.js) and triggers it. NEVER blocks and never nags: a
+  // slow/failed issue just means no file THIS session — the next unlock retries (the account
+  // still has no file wrap), and Settings → Cache cloud → Recovery file is the manual fallback.
+  async function runPendingRecovery() {
+    var pend = _pendingRecovery; _pendingRecovery = null;
+    if (!pend) return;
+    try {
+      var recSecret = "";
+      if (pend.kind === "v1" && pend.pass && typeof window.cloudMigrateV1IfNeeded === "function") {
+        var mig = await window.cloudMigrateV1IfNeeded(pend.rec, pend.obj, pend.pass);
+        if (mig && mig.ok && mig.fileSecret) recSecret = mig.fileSecret;
+      } else if (pend.kind === "v2" && typeof window.cloudAddRecoveryFile === "function") {
+        var sec = await window.cloudAddRecoveryFile();   // adds only a file wrap — the blob is never touched
+        if (sec) recSecret = sec;
+      }
+      if (recSecret) {
+        // no worse an exposure than money.cloudKey (already in localStorage); the modal clears
+        // it the instant it hands the file over. Presence of the secret IS the "show me" signal.
+        try { sessionStorage.setItem("cache.recoverySecret", recSecret); } catch (e) {}
+        setTimeout(function () { try { if (window.__cacheRecoveryHeadsUp) window.__cacheRecoveryHeadsUp(); } catch (e) {} }, 420);
+      }
+    } catch (e) { /* issue failed — vault untouched, app usable; retry next unlock or via Settings */ }
   }
 
   // ── browser CSV-import bridge ────────────────────────────────────────────────
@@ -747,6 +802,13 @@
         return;
       }
       READY = true; resolveGate();
+      // Now that the app is REVEALED, issue any pending recovery file off the critical path
+      // (fire-and-forget — never awaited, so a slow server can't stall the unlock). It stashes
+      // the file secret and pops the calm one-shot modal. Also nudge the modal directly in case
+      // a secret is already stashed from a prior session (issued, then reloaded before shown);
+      // both paths are idempotent — the modal consumes the secret and guards on its own id.
+      try { runPendingRecovery(); } catch (e) {}
+      try { if (window.__cacheRecoveryHeadsUp) setTimeout(window.__cacheRecoveryHeadsUp, 480); } catch (e) {}
       if (res.empty) say("✓ Logged in. This account has no synced cache yet — it fills up as you use the app.", "ok");
       g.style.opacity = "0";
       setTimeout(function () { g.remove(); if (window.lucide && window.lucide.createIcons) try { window.lucide.createIcons(); } catch (e) {} }, 520);

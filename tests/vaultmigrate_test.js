@@ -31,7 +31,7 @@ const migCode = slice("app.js", /^async function cloudMigrateV1IfNeeded/, /^asyn
 const webCode = slice("webcache.js", /function _b64\(buf\)/, /function wMergeProfile/);
 
 // a pure crypto helper (no server) for building v1/v2 fixtures and re-opening keyboxes
-const C = Function("localStorage", cryptoCode + "\nreturn {encryptJSON,decryptJSON,keyboxOpen,keyboxBuild,keyboxWraps,keyboxHasEsc,keyboxMethods,keyboxMode,cloudGenKey,cloudSeal};")(makeLS());
+const C = Function("localStorage", cryptoCode + "\nreturn {encryptJSON,decryptJSON,keyboxOpen,keyboxBuild,keyboxWraps,keyboxHasEsc,keyboxMethods,keyboxMode,cloudGenKey,cloudSeal,keyboxAddWrap,_keyboxWrap,recoveryFileSecret};")(makeLS());
 
 // A fake PocketBase vault record + its REST surface, with switchable failure modes:
 //   keyboxFieldMissing — the collection lacks its 'keybox' text field (PocketBase 200s but
@@ -107,6 +107,12 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     const rec = { id: "v1", blob: v1blob, updated: "old" };
     const res = await sc.app.cloudMigrateV1IfNeeded(rec, OBJ, PASS);
     ok("migration reports ok + the recovery file was delivered", res.ok === true && res.fileDelivered === true);
+    // the returned fileSecret (what the WEB unlock stashes for its gesture-download modal)
+    // MUST be the exact secret that was handed to the user — else the web modal would download
+    // a file that can't open the vault. It equals the downloaded secret AND unwraps the file wrap.
+    ok("migration returns the fileSecret it issued (web stashes this for its download modal)", typeof res.fileSecret === "string" && res.fileSecret.length > 0);
+    ok("the returned fileSecret IS the secret that was delivered", res.fileSecret === server.downloaded[server.downloaded.length - 1]);
+    ok("the returned fileSecret opens the migrated vault via the file wrap", (await sc.app.keyboxOpen(server.record.keybox, { fileKey: res.fileSecret })) === (await sc.app.keyboxOpen(server.record.keybox, { passphrase: PASS })));
     const box = server.record.keybox, parsed = JSON.parse(box);
     ok("the migrated keybox is v2", parsed.v === 2);
     ok("keybox has exactly a pass wrap + a file wrap", eq(sc.app.keyboxMethods(box).sort(), ["file", "pass"]));
@@ -223,6 +229,35 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     await scC.app.cloudMigrateV1IfNeeded({ id: "vOTHER", blob: v1blob }, OBJ, PASS);
     const kC = await C.keyboxOpen(serverC.record.keybox, { passphrase: PASS });
     ok("a different vault id derives a different key (per-vault salt, no cross-vault reuse)", kC !== kA);
+  }
+
+  // ── 8. WEB recovery-net DECISION predicates + the v2 "add a file wrap" path ──────────
+  // The web unlock (webcache.js pullVault) decides whether to issue a recovery file from the
+  // vault's keybox WITHOUT any network: issue iff the box has NO "file" wrap AND NO "esc" wrap
+  // (a v1 blob is always issue-if-passphrase; an escrow box already has a server-held way in and
+  // is deliberately skipped so the "only you can open this" modal never lies). These assert that
+  // decision core + the crypto of the add-a-file-wrap path, on BOTH runtimes (no phone/desktop fork).
+  {
+    const kb = await C.cloudGenKey();
+    const needsFile = (boxStr) => { const w = C.keyboxWraps(boxStr); return !w.some((x) => x.t === "file") && !w.some((x) => x.t === "esc"); };
+    const boxPassOnly = await C.keyboxBuild(kb, { passphrase: PASS });
+    ok("ZK vault with only a passphrase wrap → web ISSUES a recovery file (no file, no esc)", needsFile(boxPassOnly) === true);
+    // add a file wrap exactly as cloudAddRecoveryFile does (keyboxAddWrap + _keyboxWrap("file"))
+    const secret = C.recoveryFileSecret();
+    const boxPassFile = C.keyboxAddWrap(boxPassOnly, await C._keyboxWrap("file", kb, secret));
+    ok("the issued file secret opens the vault key via the new file wrap", (await C.keyboxOpen(boxPassFile, { fileKey: secret })) === kb);
+    ok("the passphrase STILL opens it after adding the file wrap (nothing dropped)", (await C.keyboxOpen(boxPassFile, { passphrase: PASS })) === kb);
+    ok("adding a file wrap introduces NO escrow (zero-knowledge preserved)", C.keyboxHasEsc(boxPassFile) === false);
+    ok("once a file wrap exists, web SKIPS issuance (never nags on later logins)", needsFile(boxPassFile) === false);
+    // escrow vault (pass + esc, no file): web SKIPS — it already has a server-held way back in,
+    // and issuing the ZK-framed recovery file there would make the heads-up copy untrue (finding #4)
+    const boxEsc = await C.keyboxBuild(kb, { passphrase: PASS, escrow: true });
+    ok("escrow vault (no file wrap) → web SKIPS issuance (already recoverable; avoids a misleading modal)", needsFile(boxEsc) === false && C.keyboxHasEsc(boxEsc) === true);
+    // cross-runtime parity: the web reader agrees on the esc/file predicates → no phone/desktop fork
+    const scv = scenario(makeServer({ id: "z" }), true);
+    ok("web reader agrees the pass+file box is zero-knowledge (parity with app)", scv.web.keyboxHasEsc(boxPassFile) === false && scv.web.keyboxMode(boxPassFile) === "zk");
+    ok("web reader agrees the escrow box has an esc wrap (parity → same skip decision)", scv.web.keyboxHasEsc(boxEsc) === true);
+    ok("web reader sees the file wrap on the issued box (parity → same 'already has a file' skip)", scv.web.keyboxWraps(boxPassFile).some((x) => x.t === "file"));
   }
 
   console.log(`\n${p} passed, ${f} failed`); process.exit(f ? 1 : 0);

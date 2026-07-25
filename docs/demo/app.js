@@ -3704,6 +3704,44 @@ function celebratePasswordReset() {
   setTimeout(() => { if (fx.isConnected) fx.remove(); }, 4000);   // clear the confetti layer even if the card stays open
 }
 
+// ── Recovery-file heads-up (web) ─────────────────────────────────────────────────────
+// After a web unlock issues this account its first recovery file (a v1→keybox upgrade, or a
+// v2 vault that never had one), webcache stashes the file secret and calls this once the app
+// is revealed. Calm and one-shot: explain what the file is and hand it over on a real button
+// press — a gesture download always lands, even where the automatic one is blocked. The
+// stashed secret is read into a closure and cleared immediately, so this can only show once.
+function maybeRecoveryHeadsUp() {
+  let secret = "";
+  try { secret = sessionStorage.getItem("cache.recoverySecret") || ""; } catch (e) {}
+  if (!secret) return;
+  try { sessionStorage.removeItem("cache.recoverySecret"); } catch (e) {}
+  if (document.getElementById("recoveryHeadsUp")) return;
+  const back = document.createElement("div"); back.className = "reset-cheer-back"; back.id = "recoveryHeadsUpBack";
+  const modal = document.createElement("div"); modal.className = "reco-headsup"; modal.id = "recoveryHeadsUp";
+  modal.setAttribute("role", "dialog"); modal.setAttribute("aria-modal", "true"); modal.setAttribute("aria-label", "Your recovery file");
+  let got = false;
+  const close = () => { modal.remove(); back.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  modal.innerHTML =
+    '<div class="reco-ic">🔐</div>' +
+    '<div class="reco-h">Your cache now has a recovery file</div>' +
+    '<div class="reco-p">This is your safety net. If you ever forget your passphrase, this one file opens your cache — and no one else can, not even us. That’s what keeps your cache truly yours, so download it and keep it somewhere safe: a password manager, a cloud drive, or both.</div>' +
+    '<button class="reco-go" type="button" data-recodl>Download my recovery file</button>' +
+    '<button class="reco-skip" type="button" data-recoskip>I’ve saved it</button>';
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector("[data-recodl]").addEventListener("click", () => {
+    try { downloadRecoveryFile(secret); got = true; flash("Recovery file saved to your downloads 🔐"); }
+    catch (e) { flash("Couldn’t download — check your browser’s download settings"); }
+  });
+  modal.querySelector("[data-recoskip]").addEventListener("click", () => {
+    if (!got && !confirm("Have you actually downloaded and saved your recovery file? It’s the only way back into your cache if you forget your passphrase. Close anyway?")) return;
+    close();
+  });
+  const dl = modal.querySelector("[data-recodl]");
+  if (dl && dl.focus) try { dl.focus(); } catch (e) {}
+}
+try { window.__cacheRecoveryHeadsUp = maybeRecoveryHeadsUp; } catch (e) {}
+
 function openHealth() {
   const back = document.createElement("div"); back.className = "cat-backdrop";
   const modal = document.createElement("div"); modal.className = "cat-modal health-modal";
@@ -4146,6 +4184,8 @@ async function cloudSignup(url, email, password) {
 function cloudLogout() {
   const s = cloudState();
   cloudKeySet("");   // drop this device's vault data key (explicit logout is stricter than an expiry)
+  try { sessionStorage.removeItem("cache.recoverySecret"); } catch (e) {}   // never let a just-issued recovery secret outlive the account on this browser
+  try { if (document.getElementById("recoveryHeadsUp")) { document.getElementById("recoveryHeadsUp").remove(); const b = document.getElementById("recoveryHeadsUpBack"); if (b) b.remove(); } } catch (e) {}
   // PARK the account: silo its entire decrypted world (deck, tasks, journal, notes, @handle,
   // ECDH private key, message cache, __lmeta) under cacheprof.<userId> and CLEAR the live slot,
   // so the next person at a shared computer meets an empty cache — not this account's life.
@@ -4867,7 +4907,11 @@ async function cloudMigrateV1IfNeeded(rec, obj, passphrase) {
   // caller — success is NEVER claimed when the file didn't reach the user.
   let fileDelivered = false;
   try { fileDelivered = !!downloadRecoveryFile(secret); } catch (e) { fileDelivered = false; }
-  return { ok: true, fileDelivered };
+  // Return the file secret too (additive — desktop ignores it). The web unlock path stashes
+  // it so a calm post-unlock modal can re-hand the SAME file on a real user gesture, which
+  // lands reliably even where this automatic download is blocked. It's the identical secret,
+  // so both downloads open the vault — no stale second file.
+  return { ok: true, fileDelivered, fileSecret: secret };
 }
 // The v1→v2 migration key: PBKDF2(passphrase) over a per-vault salt derived from the vault
 // id. DETERMINISTIC on purpose — two devices upgrading the same v1 vault at the same moment
