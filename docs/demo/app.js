@@ -3652,6 +3652,10 @@ function cacheHealth() {
     { label: "Monthly need set", action: "Budget → build", ok: has("money.need") || has("money.guaranteedIncome") },
     { label: "Data verified", action: "auto — integrity check", ok: _integrityOk === true },
   ];
+  // Email verified — only for cloud accounts (a local-only cache has no email to verify). It's a
+  // gentle checkbox, NEVER a login gate: verification makes password-reset + recovery actually
+  // reach you. Signup already sends the email; this just tracks it in your cache health.
+  try { const cs = cloudState(); if (cs.token || cs.userId) items.push({ label: "Email verified", action: "Settings → Cache cloud → Verify your email", ok: cs.verified === true }); } catch (e) {}
   const done = items.filter((i) => i.ok).length;
   return { score: Math.round(done / items.length * 100), done, total: items.length, items };
 }
@@ -3686,6 +3690,17 @@ function openHealth() {
     "</div>";
   document.body.appendChild(back); document.body.appendChild(modal);
   modal.querySelector(".cat-close").addEventListener("click", close);
+  // if you're signed in but not-yet-verified, quietly re-check with the server on open — so an
+  // email you JUST verified checks off here without a reload. Only fires while unverified, so it
+  // can't loop (a verified refresh flips the flag and the guard stops).
+  try {
+    const cs = cloudState();
+    if (cs.token && cs.verified !== true) {
+      cloudAuthCheck().then(() => {
+        if (document.body.contains(modal) && cloudState().verified === true) { close(); openHealth(); }
+      }).catch(() => {});
+    }
+  } catch (e) {}
 }
 document.addEventListener("pointerdown", () => addExp(1), true);  // capture → counts every click
 // ── Anonymous, opt-in analytics (PostHog) — autocapture OFF so it can NEVER scoop

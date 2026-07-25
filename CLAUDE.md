@@ -11,6 +11,7 @@ A calm, private **life OS** built for people with executive function challenges 
 2. **Lightweight above all.** No build step, no framework, no bundler. Plain `.html`/`.css`/`.js` + Python stdlib. If a change wants a dependency, find another way first. (We deliberately abandoned React/Vite — it overloaded the machine.)
 3. **Beauty is non-negotiable.** Apple-clean but a little alien / early-internet. Never trade visual quality for utility.
 4. **Brick by brick.** Build on the real working base, one small piece at a time. No big speculative rewrites.
+5. **No user left behind — always plan the migration path.** Every change that touches stored data, account/auth, the vault, encryption, or any `money.*` key MUST answer "what happens to people who are already on the old version?" before it ships. Existing data keeps opening; existing accounts keep working; old formats migrate-on-read (never break, never destructively rewrite) and upgrade on the next deliberate write. This is not optional polish — a founder account was locked out of a v1 legacy vault (2026-07-25) precisely because an old scheme had no forward path to the recovery net. When in doubt, add a migration + a test that loads the OLD shape and proves it still works. The keybox's "legacy `m:esc`/`m:zk` open forever" and the deck's tombstone-synthesis migration are the models.
 
 ## Architecture
 

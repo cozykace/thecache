@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-25-verify-email-health",
+    "date": "2026-07-25",
+    "title": "Verify your email — a gentle checkbox, never a gate",
+    "body": "Confirming your email address is now a Cache Health item you can check off — it makes sure a password reset or recovery can actually reach you. It never blocks you from signing in or using your cache; it's just one more thing your cache nudges you to finish. A verification email goes out when you make an account (resend any time from Settings → Cache cloud), and the moment you click the link, it checks itself off."
+  },
+  {
     "id": "2026-07-25-zero-knowledge-default",
     "date": "2026-07-25",
     "title": "Your cache is yours — zero-knowledge by default",
