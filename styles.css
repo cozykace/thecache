@@ -1937,6 +1937,12 @@ body.sidebar-open .sidebar { transform: none; }
 .health-name { color: var(--ink); }
 .health-row.ok .health-name { color: rgba(var(--ink-rgb), 0.55); }
 .health-act { margin-left: auto; font-size: 10.5px; color: var(--accent); text-align: right; }
+/* the one health item with a real trigger (Send verification email) */
+.health-verify { margin-left: auto; min-height: 30px; padding: 4px 11px; border: 1px solid var(--accent);
+  border-radius: 8px; background: var(--panel); color: var(--accent); font-family: inherit; font-size: 11px;
+  cursor: pointer; white-space: nowrap; }
+.health-verify:hover { background: var(--accent); color: var(--paper); }
+.health-verify:disabled { opacity: 0.7; cursor: default; border-color: var(--edge); color: rgba(var(--ink-rgb), 0.55); background: var(--panel); }
 /* settings tiers — Smooth Brain / Big Brain / Galaxy Brain */
 .set-tier { display: flex; gap: 6px; margin: 2px 0 2px; }
 .set-tier-opt { flex: 1; font-family: inherit; font-size: 11px; cursor: pointer; padding: 8px 6px; border-radius: 8px;

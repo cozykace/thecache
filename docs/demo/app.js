@@ -3655,7 +3655,7 @@ function cacheHealth() {
   // Email verified — only for cloud accounts (a local-only cache has no email to verify). It's a
   // gentle checkbox, NEVER a login gate: verification makes password-reset + recovery actually
   // reach you. Signup already sends the email; this just tracks it in your cache health.
-  try { const cs = cloudState(); if (cs.token || cs.userId) items.push({ label: "Email verified", action: "Settings → Cache cloud → Verify your email", ok: cs.verified === true }); } catch (e) {}
+  try { const cs = cloudState(); if (cs.token || cs.userId) items.push({ id: "email", label: "Email verified", action: "Settings → Cache cloud → Verify your email", ok: cs.verified === true }); } catch (e) {}
   const done = items.filter((i) => i.ok).length;
   return { score: Math.round(done / items.length * 100), done, total: items.length, items };
 }
@@ -3675,10 +3675,17 @@ function openHealth() {
   const close = () => { back.remove(); modal.remove(); };
   back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
   const h = cacheHealth();
-  const rows = h.items.map((i) => '<div class="health-row ' + (i.ok ? "ok" : "todo") + '">' +
-    '<span class="health-mk">' + (i.ok ? "✓" : "○") + "</span>" +
-    '<span class="health-name">' + escapeHtml(i.label) + "</span>" +
-    (i.ok ? "" : '<span class="health-act">' + escapeHtml(i.action) + "</span>") + "</div>").join("");
+  const rows = h.items.map((i) => {
+    // the email item gets a REAL trigger button (works for anyone who never verified — existing
+    // users included); every other unfinished item shows its plain "where to do it" hint
+    const tail = i.ok ? ""
+      : (i.id === "email"
+        ? '<button type="button" class="health-verify" data-verifyemail>Send verification email</button>'
+        : '<span class="health-act">' + escapeHtml(i.action) + "</span>");
+    return '<div class="health-row ' + (i.ok ? "ok" : "todo") + '">' +
+      '<span class="health-mk">' + (i.ok ? "✓" : "○") + "</span>" +
+      '<span class="health-name">' + escapeHtml(i.label) + "</span>" + tail + "</div>";
+  }).join("");
   modal.innerHTML =
     '<div class="cat-head"><span>Cache health</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="health-body">' +
@@ -3690,6 +3697,19 @@ function openHealth() {
     "</div>";
   document.body.appendChild(back); document.body.appendChild(modal);
   modal.querySelector(".cat-close").addEventListener("click", close);
+  // the "Send verification email" trigger — sends for real (works whether or not one ever went
+  // out before). request-verification returns 204 even for an unknown email (enumeration-safe),
+  // so we confirm optimistically.
+  const vb = modal.querySelector("[data-verifyemail]");
+  if (vb) vb.addEventListener("click", async () => {
+    const email = (cloudState().email || "").trim();
+    if (!email) { vb.textContent = "log into your cloud account first"; return; }
+    vb.disabled = true; vb.textContent = "sending…";
+    try {
+      await fetch(cloudUrl() + "/api/collections/users/request-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+      vb.textContent = "✓ Sent — check your email (and spam)";
+    } catch (e) { vb.disabled = false; vb.textContent = "couldn’t send — try again"; }
+  });
   // if you're signed in but not-yet-verified, quietly re-check with the server on open — so an
   // email you JUST verified checks off here without a reload. Only fires while unverified, so it
   // can't loop (a verified refresh flips the flag and the guard stops).
