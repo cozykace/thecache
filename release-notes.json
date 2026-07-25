@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-25-legacy-vault-recovery-net",
+    "date": "2026-07-25",
+    "title": "Old accounts get a recovery net — automatically",
+    "body": "If you've had a cache since before recovery files existed, your vault used to have no safety net: forget your passphrase and it was gone for good. Not anymore. The next time you open your cache with your passphrase, we quietly upgrade it and hand you a recovery file to keep somewhere safe — so a forgotten passphrase can never lock you out again. It stays zero-knowledge the whole time (we still can't read your data), your passphrase keeps working exactly as before, and if anything goes wrong the upgrade simply doesn't happen — your cache is never left half-changed."
+  },
+  {
     "id": "2026-07-25-zero-knowledge-default",
     "date": "2026-07-25",
     "title": "Your cache is yours — zero-knowledge by default",

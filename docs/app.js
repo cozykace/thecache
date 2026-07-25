@@ -3802,8 +3802,11 @@ async function cloudGenKey() {
   return _b64(await crypto.subtle.exportKey("raw", k));
 }
 function _importK(b64) { return crypto.subtle.importKey("raw", _unb64(b64), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]); }
-async function cloudSeal(obj) {
-  const kb = cloudKeyGet();
+async function cloudSeal(obj, keyB64) {
+  // keyB64 lets a caller seal under a specific key (e.g. the v1→v2 migration, which must
+  // NOT plant that key in money.cloudKey until the upload is confirmed). Defaults to the
+  // device's held key for the normal push path — every existing caller passes one arg.
+  const kb = keyB64 || cloudKeyGet();
   if (!kb) throw new Error("no cloud key on this device yet");
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await _importK(kb), new TextEncoder().encode(JSON.stringify(obj)));
@@ -4713,6 +4716,101 @@ function cloudAgo(iso) {
   const h = Math.round(m / 60); if (h < 24) return h + (h === 1 ? " hour ago" : " hours ago");
   const d = Math.round(h / 24); return d + (d === 1 ? " day ago" : " days ago");
 }
+// ── v1 → v2 vault auto-migration (the recovery net for legacy passphrase-only vaults) ──
+// A v1 vault IS its passphrase: the data key lives NOWHERE — forget the passphrase and the
+// vault is gone forever, with no net (v1 working exactly as designed: max privacy, zero
+// recovery). This upgrades a v1 vault to the v2 keybox scheme AND hands the user a recovery
+// file the MOMENT they open it with the passphrase — proven correct, right there in hand —
+// so a forgotten passphrase can never again mean total loss. It only ever ADDS a net.
+//
+// Called from cloudPull AFTER a successful v1 open, so the passphrase is proven (a wrong
+// one throws in cloudOpen before we get here — the trigger can NEVER fire on a bad pass).
+//
+// Two hard promises, both enforced by construction:
+//   • ZERO-KNOWLEDGE STAYS ZERO-KNOWLEDGE. The migrated keybox wraps the key with the
+//     passphrase + the recovery file ONLY — NEVER an escrow (raw-key) wrap. The server
+//     still can't read the vault. (The recovery file's secret is the USER's; the server
+//     stores only the key wrapped under it.) Adding escrow here would be a privacy DOWNGRADE.
+//   • NEVER BRICK THE v1 VAULT. We write the keybox FIRST, onto the STILL-v1 blob — which
+//     opens with the passphrase (decryptJSON) regardless of any keybox, so that write is
+//     non-destructive. Only after the keybox is CONFIRMED persisted do we flip the blob to
+//     v2. If anything fails at any point, the original v1 blob is untouched and still opens
+//     with the passphrase. No half-written vault, ever.
+//
+// Idempotent: once the blob is v2 this returns {ok:false} and never fires again. Convergent
+// under a two-device race: the key is DERIVED from the passphrase + vault id (below), so two
+// devices migrating the same vault at once mint the SAME key — any keybox opens any re-sealed
+// blob, so no interleaving of the writes can ever fork a keybox and a blob that disagree.
+//
+// Returns {ok:true, fileDelivered} on a completed migration; {ok:false} when there was
+// nothing to migrate. Throws only on a real server failure (caller reports it, vault intact).
+async function cloudMigrateV1IfNeeded(rec, obj, passphrase) {
+  if (!passphrase || !rec || !rec.id || !rec.blob) return { ok: false };
+  let blobV1 = false;
+  try { blobV1 = (JSON.parse(rec.blob).v || 1) < 2; } catch (e) { return { ok: false }; }
+  if (!blobV1) return { ok: false };                 // already v2 → never re-migrate (idempotent)
+  const s = cloudState();
+  if (!s.token) return { ok: false };
+  // PROVE the passphrase against the v1 blob ourselves — never just trust the caller. A
+  // wrong passphrase must NEVER migrate (it would seal the vault under the wrong key and
+  // lock the user out). This is the same v1 open cloudPull just did; re-checking here makes
+  // the write self-safe no matter who calls it. A wrong passphrase → quiet {ok:false}.
+  try { await decryptJSON(rec.blob, passphrase); } catch (e) { return { ok: false }; }
+  const url = cloudUrl() + "/api/collections/vaults/records/" + rec.id;
+  const hdr = () => ({ Authorization: cloudState().token, "Content-Type": "application/json" });
+  // The vault key K — DETERMINISTIC (passphrase + vault id), so a concurrent migration on
+  // another device produces the identical K and the two can only converge, never fork.
+  const kb = await _migrationKey(passphrase, rec.id);
+  // ZERO-KNOWLEDGE keybox: passphrase + recovery-file wraps ONLY. keyboxBuild is given no
+  // `escrow`, so NO t:"esc" wrap is ever produced — the server never gets a readable key.
+  const secret = recoveryFileSecret();
+  const keybox = await keyboxBuild(kb, { passphrase, fileKey: secret });
+  // ── PHASE A ── write the keybox while the blob is STILL v1 (non-destructive: v1 opens by
+  // passphrase, ignoring the keybox). A vaults collection missing its 'keybox' text field
+  // silently drops the field and PATCH still 200s — so we CONFIRM the field came back equal.
+  // Any failure here throws with the v1 blob untouched → passphrase still opens it → no brick.
+  {
+    const r = await fetch(url, { method: "PATCH", headers: hdr(), body: JSON.stringify({ keybox }) });
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(cloudErr(d) || ("couldn't add a recovery key (HTTP " + r.status + ")"));
+    if (!d || d.keybox !== keybox) throw new Error("your cloud didn't save the recovery key — the 'vaults' collection is missing its 'keybox' text field. Nothing changed; your passphrase still opens your cache.");
+  }
+  // ── PHASE B ── only NOW flip the blob to v2 (sealed under K, via the explicit key so
+  // money.cloudKey isn't touched until this confirms). We write the blob AND the keybox in
+  // ONE PATCH so the final record is always a self-consistent pair from a single writer;
+  // Phase A already proved the keybox field persists, so re-including it here can't drop it.
+  // If THIS fails, the blob stays v1 (passphrase still opens it) and the next open re-runs
+  // the whole migration (deterministic K → the retry lands the identical keybox and blob).
+  const blob = await cloudSeal(Object.assign({}, obj), kb);
+  {
+    const r = await fetch(url, { method: "PATCH", headers: hdr(), body: JSON.stringify({ blob, keybox }) });
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(cloudErr(d) || ("couldn't finish the upgrade (HTTP " + r.status + ")"));
+    if (!d || d.blob !== blob) throw new Error("your cloud didn't save the upgrade — nothing was lost; your passphrase still opens your cache.");
+    // CONFIRMED v2 on the server → adopt the key, remember zero-knowledge mode (arms the
+    // downgrade guard), and keep the in-hand record current for the rest of the restore.
+    cloudKeySet(kb);
+    cloudSaveState(Object.assign(cloudState(), { mode: keyboxMode(keybox), lastSeenVault: d.updated || "" }));
+    rec.blob = blob; rec.keybox = keybox; if (d.updated) rec.updated = d.updated;
+  }
+  // Hand over the recovery file. A download that doesn't land is reported LOUDLY by the
+  // caller — success is NEVER claimed when the file didn't reach the user.
+  let fileDelivered = false;
+  try { fileDelivered = !!downloadRecoveryFile(secret); } catch (e) { fileDelivered = false; }
+  return { ok: true, fileDelivered };
+}
+// The v1→v2 migration key: PBKDF2(passphrase) over a per-vault salt derived from the vault
+// id. DETERMINISTIC on purpose — two devices upgrading the same v1 vault at the same moment
+// derive the identical key, so the keybox (which wraps K) and the re-sealed blob (encrypted
+// with K) can never end up disagreeing no matter how their writes interleave. This is exactly
+// v1's own key strength (a per-vault-salted PBKDF2 of the passphrase, 210k iterations) with
+// the recovery-file net added on top — never weaker, and the server still can't read a thing.
+async function _migrationKey(passphrase, recId) {
+  const salt = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("thecache/v1-migrate/" + recId)));
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 210000, hash: "SHA-256" }, base, 256);
+  return _b64(bits);
+}
 async function cloudPull(passphrase) {
   // gate the auto-push engine for the WHOLE restore, set BEFORE the first await:
   // a push armed before the user clicked Restore (the confirm() blocks JS while the
@@ -4738,6 +4836,13 @@ async function cloudPull(passphrase) {
     }
     let obj;
     try { obj = await cloudOpen(rec.blob, passphrase); } catch (e) { throw new Error(e.message === "this device doesn't hold the cloud key yet" ? "open this vault from a device that has it, or enter your passphrase" : "wrong passphrase or corrupt backup"); }
+    // A v1 vault just opened with its passphrase (proven correct — a wrong one threw above).
+    // Quietly upgrade it to the keybox scheme + hand over a recovery file, so a forgotten
+    // passphrase can never mean total loss. Never gates the restore: a failure leaves the
+    // v1 vault untouched (still opens with the passphrase), so we note it and carry on.
+    let _mig = null;
+    try { _mig = await cloudMigrateV1IfNeeded(rec, obj, passphrase); }
+    catch (e) { _mig = { ok: false, error: (e && e.message) || "upgrade failed" }; }
     // filesMeta rides along so the backend merges the four user-edit maps newest-per-key;
     // the localStorage layer rides along so the pre-restore snapshot covers it too
     const res = await (await fetch("/api/import-data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: (obj && obj.files) || {}, filesMeta: (obj && obj.filesMeta) || {}, local: snapshotLocal() }) })).json();
@@ -4747,6 +4852,7 @@ async function cloudPull(passphrase) {
     // authority so a pending debounce/pagehide flush can't write pre-restore SUBS back
     try { clearTimeout(_subsSaveTimer); _subsSaveTimer = null; _subsDirty = false; _subsLoaded = false; } catch (e) {}
     cloudSaveState(Object.assign(cloudState(), { recordId: rec.id, lastSeenVault: rec.updated || "" }));
+    if (_mig && (_mig.ok || _mig.error)) res.migration = _mig;   // caller surfaces the recovery-file heads-up
     return res;
   } finally { _restoreBusy = false; }
 }
@@ -6395,8 +6501,23 @@ function openSettings() {
       const res = await cloudPull(phrase());
       const mg = res.merged || {};
       const extra = (mg.checkins || mg.ledger) ? " (merged " + (mg.checkins || 0) + " check-ins, " + (mg.ledger || 0) + " ledger rows)" : "";
-      clSay("✓ Restored " + res.written + " files from cloud" + extra + ". Reloading…", "ok");
-      setTimeout(() => location.reload(), 1500);
+      const base = "✓ Restored " + res.written + " files from cloud" + extra + ".";
+      // A legacy vault that just got the recovery net gets a calm heads-up (never a scary
+      // modal). If the recovery file didn't download, say so LOUDLY and DON'T claim they're
+      // covered — the migration itself still succeeded and the passphrase still opens it.
+      const m = res.migration;
+      if (m && m.ok && m.fileDelivered) {
+        clSay(base + " Your cache just got a recovery file — keep it somewhere safe (a password manager, a USB stick). Now a forgotten passphrase can never lock you out. Reloading…", "ok");
+        setTimeout(() => location.reload(), 3600);
+      } else if (m && m.ok) {
+        clSay(base + " ⚠ Your cache was upgraded with a recovery net, but the recovery file didn’t download — open “Recovery file → Replace” below to get it. Until then, only your passphrase opens your cache. Reloading…", "err");
+        setTimeout(() => location.reload(), 6500);
+      } else {
+        // no migration (already v2), or a migration attempt that failed harmlessly (vault
+        // unchanged, passphrase still works) — nothing to alarm the user about.
+        clSay(base + " Reloading…", "ok");
+        setTimeout(() => location.reload(), 1500);
+      }
     }
     catch (e) { clSay("Cloud restore failed: " + (e.message || e), "err"); }
   });

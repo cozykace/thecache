@@ -34,7 +34,7 @@ run() { # run <cmd...>
 }
 
 echo "── JS (client merge engine) ──"
-for t in merge_test authored_test livelock_test profile_test profilecard_test timer_test deck_test things_test forms_test logderive_test crypto_interop_test keybox_test social_test routine_test cal_test deckday_test escape_test notifs_test bugcredit_test webmoney_test; do
+for t in merge_test authored_test livelock_test profile_test profilecard_test timer_test deck_test things_test forms_test logderive_test crypto_interop_test keybox_test vaultmigrate_test social_test routine_test cal_test deckday_test escape_test notifs_test bugcredit_test webmoney_test; do
   run "$t" node "tests/$t.js"
 done
 
