@@ -4482,14 +4482,16 @@ async function autoPushNow() {
   if (_restoreBusy) { autoPushSoon(); return; }   // a Restore is applying — never seal a half-restored state
   if (_apBusy) { autoPushSoon(); return; }   // single-flight; re-queue behind the current push
   _apBusy = true;
+  const prevErr = _cloudErr;   // read BEFORE cloudChip("syncing") wipes it
   cloudChip("syncing");
   try { await cloudPush(""); cloudChip("ok"); _apFails = 0; }
   catch (e) {
-    // Say it out loud ONCE per new problem. The chip is a silent light now, so a real
-    // failure needs a voice — but the retry backoff must not machine-gun toasts, hence
-    // the compare against the PREVIOUS error (cloudChip sets _cloudErr after this).
+    // Say it out loud ONCE per new problem. The chip is a silent light now, so a real failure
+    // needs a voice — but the retry backoff must not machine-gun toasts. Compare against the
+    // error we captured above: cloudChip("syncing") already cleared _cloudErr, so comparing
+    // against it here would ALWAYS differ and fire on every single retry.
     const em = (e && e.message) || "sync failed";
-    if (_cloudErr !== em) { try { flash("Cloud sync needs you — " + em); } catch (e2) {} }
+    if (prevErr !== em) { try { flash("Cloud sync needs you — " + em); } catch (e2) {} }
     cloudChip("err", em);
     // A CORRECTIVE push (armed because we hold authored data the vault lacks) must not
     // die on a transient blip: if the vault then goes quiet, cloudAutoPull early-returns
@@ -5223,7 +5225,7 @@ function openConnect() {
           '<button class="cn-csv">Import a bank CSV</button>' +
         '</div>' +
         '<div class="cn-or">— or, for automatic daily bank sync —</div>' +
-        '<div class="cn-intro">A live bank connection (SimpleFIN) is set up once in the <b>desktop app</b>; after that your cache syncs here automatically. A CSV import and a live sync live happily in the same cache.</div>' +
+        '<div class="cn-intro">Want it hands-off? A live bank connection (SimpleFIN) pulls your balances and transactions on its own. Today that’s a one-time setup in the <b>desktop app</b> — once it’s on, it syncs here. A CSV import and a live sync live happily in the same cache.</div>' +
         '<div class="cn-result"></div>' +
       '</div>';
     document.body.appendChild(back);
@@ -5268,19 +5270,13 @@ function openConnect() {
   const result = modal.querySelector(".cn-result");
   const statusEl = modal.querySelector(".cn-status");
   let connected = false;
+  // (Only the desktop body reaches here — the web branch above returns after wiring itself.)
   fetch("/api/connect-status").then((r) => r.json()).then((d) => {
     connected = !!(d && d.connected);
-    if (web) {
-      statusEl.innerHTML = connected
-        ? '<span class="cn-ok">✓ Your bank is already connected</span> — synced from your desktop. There’s nothing to do here.'
-        : '<span class="cn-no">No bank connected yet.</span> Set it up in the desktop app (below), then it’ll appear here.';
-    } else {
-      statusEl.innerHTML = connected
-        ? '<span class="cn-ok">✓ A bank is connected.</span> Paste a new token to reconnect, or just close this.'
-        : '<span class="cn-no">Not connected yet.</span> Follow the steps below.';
-    }
+    statusEl.innerHTML = connected
+      ? '<span class="cn-ok">✓ A bank is connected.</span> Paste a new token to reconnect, or just close this.'
+      : '<span class="cn-no">Not connected yet.</span> Follow the steps below.';
   }).catch(() => { statusEl.textContent = ""; });
-  if (web) return;   // web body has no token/demo/csv controls to wire
   const doConnect = (body, label) => {
     result.innerHTML = '<span class="cn-working">' + label + "…</span>";
     fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
@@ -5501,13 +5497,19 @@ function openSettings() {
       '<div class="set-sec">Profile</div>' +
       '<div class="set-hint">your name, pronouns, about — plus what (if anything) you share publicly</div>' +
       '<div class="set-bk-row"><button class="set-btn" id="setEditProfile">🪪 Edit profile</button></div>' +
+      // The token box only works where a local sync engine can claim it. On the hosted web
+      // it POSTed to /api/connect, which webcache answers with "coming soon" — so a tester
+      // pasted their one-time token, was told "it stays on this computer" (on a device that
+      // ISN'T one), and dead-ended. Same trap that was fixed in openConnect and missed here.
       '<div class="set-sec">Bank connection</div>' +
-      '<div class="set-bank-status" id="setBankStatus">checking…</div>' +
-      '<div class="set-token-wrap"><input id="setToken" class="set-bank-input" type="password" placeholder="paste your SimpleFIN setup token">' +
-        '<button class="set-token-eye" id="setTokenEye" type="button" aria-label="Show/hide token"><i data-lucide="eye"></i></button></div>' +
-      '<div class="set-bank-row"><button class="set-bank-btn" id="setConnect">Connect &amp; sync</button>' +
-        '<button class="set-bank-help" id="setConnectHelp">Help &amp; demo</button></div>' +
-      '<div class="set-hint">Get a token from your SimpleFIN account → “New app connection”. It stays on this computer, never shared. New here? Tap <b>Help &amp; demo</b> for steps + free sample data.</div>' +
+      (window.__CACHE_WEB__
+        ? '<div class="set-hint">Import a bank CSV from <b>⚡ Connect</b> and your cache works out the rest, right here. A live daily bank connection is a one-time setup in the desktop app today — doing it in the browser is being built.</div>'
+        : '<div class="set-bank-status" id="setBankStatus">checking…</div>' +
+          '<div class="set-token-wrap"><input id="setToken" class="set-bank-input" type="password" placeholder="paste your SimpleFIN setup token">' +
+            '<button class="set-token-eye" id="setTokenEye" type="button" aria-label="Show/hide token"><i data-lucide="eye"></i></button></div>' +
+          '<div class="set-bank-row"><button class="set-bank-btn" id="setConnect">Connect &amp; sync</button>' +
+            '<button class="set-bank-help" id="setConnectHelp">Help &amp; demo</button></div>' +
+          '<div class="set-hint">Get a token from your SimpleFIN account → “New app connection”. It stays on this computer, never shared. New here? Tap <b>Help &amp; demo</b> for steps + free sample data.</div>') +
       '<div class="set-sec">Safety buffer</div>' +
       '<label class="set-row"><span>Reserve (don’t-touch)</span><input id="setReserve" type="number" value="' + v("money.reserve") + '" placeholder="0"></label>' +
       '<label class="set-row"><span>Monthly need</span><input id="setNeed" type="number" value="' + v("money.need") + '" placeholder="auto from core"></label>' +
@@ -5860,15 +5862,19 @@ function openSettings() {
   paintTier();
   applyTier();  // also hides any tier-gated rows in this freshly-rendered panel
 
-  // Bank connection — paste a SimpleFIN setup token right here
+  // Bank connection — paste a SimpleFIN setup token right here. Every lookup below is
+  // null-guarded: on the hosted web the whole block is replaced by a hint, so these
+  // elements genuinely don't exist there.
   const bankStatus = modal.querySelector("#setBankStatus");
-  fetch("/api/connect-status").then((r) => r.json()).then((d) => {
+  if (bankStatus) fetch("/api/connect-status").then((r) => r.json()).then((d) => {
     bankStatus.innerHTML = d && d.connected
       ? '<span style="color:#3f8f4e">✓ Connected</span>'
       : '<span style="color:#c9542e">Not connected yet</span>';
   }).catch(() => { bankStatus.textContent = ""; });
-  modal.querySelector("#setConnect").addEventListener("click", () => {
-    const tok = modal.querySelector("#setToken").value.trim();
+  const connectBtn = modal.querySelector("#setConnect");
+  if (connectBtn) connectBtn.addEventListener("click", () => {
+    const tokEl = modal.querySelector("#setToken");
+    const tok = tokEl ? tokEl.value.trim() : "";
     if (!tok) { flash("Paste your SimpleFIN token first"); return; }
     flash("Connecting your bank…");
     fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: tok }) })
@@ -5879,10 +5885,11 @@ function openSettings() {
       })
       .catch(() => flash("Couldn’t reach the backend"));
   });
-  modal.querySelector("#setConnectHelp").addEventListener("click", () => openConnect());
+  const helpBtn = modal.querySelector("#setConnectHelp");
+  if (helpBtn) helpBtn.addEventListener("click", () => openConnect());
   const tokenInput = modal.querySelector("#setToken");
   const eyeBtn = modal.querySelector("#setTokenEye");
-  eyeBtn.addEventListener("click", () => {
+  if (eyeBtn && tokenInput) eyeBtn.addEventListener("click", () => {
     const show = tokenInput.type === "password";
     tokenInput.type = show ? "text" : "password";
     eyeBtn.innerHTML = '<i data-lucide="' + (show ? "eye-off" : "eye") + '"></i>';
@@ -7286,12 +7293,11 @@ renderSources();
 
 // ── Soundtrack (YouTube audio toggle) ──────────────────────
 const SND_KEY = "money.soundtrack";
-// TODO(Cozy): the built-in default soundtrack, so ♪ plays something the very first time —
-// no paste required. Put a YouTube LINK or a bare 11-char VIDEO ID here (parseYtId takes
-// either). Left "" it keeps the old ask-first behavior, so this is inert until you fill it.
-// It's a shipped constant: every device gets the SAME default and it never enters the vault —
-// only a user override writes money.soundtrack (a GENERIC key), which then syncs.
-const SND_DEFAULT = "";   // ← paste your default YouTube link/id between the quotes
+// The built-in default soundtrack, so ♪ plays something the very first time — no paste
+// required. A shipped constant: every device gets the SAME default and it never enters the
+// vault. Only a user override writes money.soundtrack (a GENERIC key), which then syncs.
+// (parseYtId takes a full link or a bare 11-char id; the ?si= share tag is ignored.)
+const SND_DEFAULT = "https://youtu.be/7XPGU7dmZXg";
 const sndBtn = document.getElementById("soundtrack");
 let ytPlayer = null, ytReady = false, ytRequested = false;
 
@@ -10912,9 +10918,10 @@ async function notifsFetch(force) {
     if (!r.ok) throw new Error("no notes");
     const d = await r.json();
     _relNotes = (Array.isArray(d) ? d : []).filter((e) => e && e.id);
-    // true ONLY when a never-seen entry just appeared (first-run seeding is silent) — the
-    // poll trigger reads this so a new deploy pops "What's changed" but a quiet poll doesn't
-    _relNotes._newUnseen = !!notifsSeed(_relNotes);
+    // Arm on a never-seen entry (first-run seeding is silent). STICKY on purpose: if the pop
+    // is deferred because the user was busy, a later fetch must not disarm it — otherwise the
+    // one poll that detected the news is the only one that ever tries to deliver it.
+    if (notifsSeed(_relNotes)) _wcPending = true;
     socialUpdateBadge();
     try { document.dispatchEvent(new CustomEvent("cache:notifs")); } catch (e) {}
   } catch (e) {}
@@ -10926,6 +10933,7 @@ async function notifsFetch(force) {
 //   of truth, so this can never re-nag about something you've already seen, and marking
 //   read still happens exactly once, through notifsMark.
 let _wcOpen = false;          // a What's-changed dialog is mounted right now
+let _wcPending = false;       // genuinely-new news is ARMED until a pop actually lands
 const _wcShown = new Set();   // ids surfaced this session but not yet dismissed (de-dups the poll)
 // the release entries currently UNREAD, newest-first (absent-from-map reads as READ)
 function notifsUnseen() {
@@ -10939,14 +10947,27 @@ function notifsUnseen() {
 function wcBusy() {
   if (_wcOpen || document.hidden) return true;
   if (isTypingTarget(document.activeElement)) return true;
-  if (document.querySelector(".cat-modal, .cat-backdrop, .daily-space")) return true;
+  // .wc-gate is webcache's hosted-web sign-in gate at z-index 2147483000. A .cat-modal is
+  // 100031, so without this the dialog mounts INVISIBLE underneath it: unseeable, focus
+  // yanked off the login form, and a stray Escape would run close() and mark every listed
+  // release read that nobody ever saw. (Inert on desktop — .wc-gate never exists there.)
+  if (document.querySelector(".cat-modal, .cat-backdrop, .daily-space, .wc-gate, .deck-coach")) return true;
   return false;
 }
 function maybeWhatsChanged() {
   if (wcBusy()) return false;
-  const items = notifsUnseen().filter((e) => !_wcShown.has(e.id));
-  if (!items.length) return false;
+  // Only auto-pop news the app DETECTED. The stamp already tells the two apart: a detect
+  // stamps the entry's release date, a human ⋯ "mark unread" stamps Date.now(). Someone who
+  // deliberately saved an item for later must not have it shoved back at them — and then
+  // silently re-marked read on dismiss.
+  const items = notifsUnseen().filter((e) => {
+    if (_wcShown.has(e.id)) return false;
+    const st = (notifsGet() || {})[e.id];
+    return st && st.at === notifDateMs(e);   // untouched by a human
+  });
+  if (!items.length) { _wcPending = false; return false; }   // nothing to deliver → disarm
   openWhatsChanged(items);
+  _wcPending = false;
   return true;
 }
 // A .cat-modal, so the observer gives it dialog semantics, a focus trap, Escape and
@@ -10955,8 +10976,13 @@ function maybeWhatsChanged() {
 function openWhatsChanged(items) {
   if (_wcOpen || !Array.isArray(items) || !items.length) return;
   _wcOpen = true;
-  const ids = items.map((e) => e.id);
-  ids.forEach((id) => _wcShown.add(id));
+  // Render a bounded list, but NEVER mark read what we didn't SHOW. notifsMark stamps
+  // Date.now(), which wins the money.notifs merge on every device — an unread we swallowed
+  // here would be gone for good. _wcShown is session-only, so the overflow can safely go in
+  // it (it just won't re-pop this session; the bell still has it).
+  const shown = items.slice(0, 12);
+  const ids = shown.map((e) => e.id);
+  items.forEach((e) => _wcShown.add(e.id));
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
   const niceDate = (d) => { const t = Date.parse(String(d || "") + "T00:00:00"); return isFinite(t) ? new Date(t).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : ""; };
   const back = document.createElement("div"); back.className = "cat-backdrop";
@@ -10969,16 +10995,16 @@ function openWhatsChanged(items) {
     back.remove(); modal.remove(); _wcOpen = false;
   };
   back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
-  const rows = items.slice(0, 12).map((e) =>
+  const rows = shown.map((e) =>
     '<div class="wcn-row">' +
       '<div class="wcn-row-title">' + esc(e.title) + "</div>" +
       (e.body ? '<div class="wcn-row-body">' + esc(e.body) + "</div>" : "") +
       '<div class="wcn-row-date">' + esc(niceDate(e.date)) + "</div>" +
     "</div>").join("");
   modal.innerHTML =
-    '<div class="cat-head"><span>🔔 ' + (items.length > 1 ? "What’s changed" : "What’s new") + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="cat-head"><span>🔔 ' + (shown.length > 1 ? "What’s changed" : "What’s new") + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
     '<div class="cat-list wcn-body">' +
-      '<div class="wcn-lead">' + (items.length > 1 ? "A few things changed since you were last here." : "Something new landed while you were away.") + "</div>" +
+      '<div class="wcn-lead">' + (shown.length > 1 ? "A few things changed since you were last here." : "Something new landed while you were away.") + "</div>" +
       rows +
       '<div class="wcn-actions"><button class="wcn-ok" type="button">Got it</button></div>' +
     "</div>";
@@ -11391,7 +11417,7 @@ function openWizard() {
       // browser, then seals it into the vault. (A hands-off DAILY bank sync is still a
       // one-time desktop setup.) Never imply a computer is required — it isn't anymore.
       b.innerHTML = '<div class="daily-q">Get your money in</div>' +
-        '<div class="daily-hint">Import a bank CSV right here — your cache reads it in your browser, works out your spending, safe-to-spend and income, then syncs to your other devices. Nothing leaves your device unencrypted. (Want a hands-off daily bank sync instead? That’s a one-time setup in the desktop app.)</div>' +
+        '<div class="daily-hint">Import a bank CSV right here — your cache reads it in your browser, works out your spending, safe-to-spend and income, then syncs to your other devices. Nothing leaves your device unencrypted. (Want it hands-off instead? A live daily bank sync is a one-time setup in the desktop app today.)</div>' +
         '<div class="daily-opts">' +
           '<button class="daily-btn" data-door="webcsv"><span class="e">📄</span><span>Import a bank CSV</span></button>' +
           '<button class="daily-btn" data-door="later"><span class="e">⏭️</span><span>Later — keep going</span></button></div>';
@@ -12200,9 +12226,17 @@ function openPeriodMenu(anchor) {
 const DOCK_ORDER_KEY = "money.dockOrder";
 const DOCK_HIDDEN_KEY = "money.dockHidden";
 // Roadmap is a dock OPTION, not a default — it's still one tap away in the dock ＋ menu.
-// Seeded only when no dock-hidden preference exists at all, so this can never override a
-// choice the user already made or one merged in from another device.
-try { if (localStorage.getItem(DOCK_HIDDEN_KEY) === null) localStorage.setItem(DOCK_HIDDEN_KEY, JSON.stringify(["roadmap"])); } catch (e) {}
+// ⚠️ NEVER PERSIST that default. money.dockHidden is a GENERIC vault key, and a written value
+// is NOT neutral: mergeRemoteLocal treats an ABSENT key as -1 (always defers to the vault) but
+// a present one enters the mtime tie-break, where a value written by shipping code can BEAT
+// this user's real preference arriving from another device — and then get re-sealed.
+// So "absent" MEANS "roadmap hidden", computed on read; only a real tap ever writes the key.
+const DOCK_HIDDEN_DEFAULT = ["roadmap"];
+function dockHiddenSet() {
+  let raw = null;
+  try { raw = localStorage.getItem(DOCK_HIDDEN_KEY); } catch (e) {}
+  return new Set(raw === null ? DOCK_HIDDEN_DEFAULT : dockList(DOCK_HIDDEN_KEY));
+}
 const DOCK_DEFS = [
   { id: "scale", label: "Scale" },
   { id: "datetime", label: "Date / time" },
@@ -12221,7 +12255,14 @@ const DOCK_DEFS = [
 ];
 function dockList(key) { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch (e) { return []; } }
 function applyDockConfig(dock) {
-  dockList(DOCK_ORDER_KEY).forEach((id) => {
+  // A dock order saved before the cloud chip became a dock item doesn't list "cloud", and the
+  // reflow below appends every SAVED id to the end — which would strand the unlisted cloud
+  // chip at the far LEFT. Append it here, at APPLY time, and never write it back: money.dockOrder
+  // is a GENERIC vault key, so persisting a shipping-code rewrite would claim a fresh mtime and
+  // steamroll a peer device's genuine reorder.
+  const order = dockList(DOCK_ORDER_KEY);
+  if (order.length && !order.includes("cloud")) order.push("cloud");
+  order.forEach((id) => {
     const el = dock.querySelector('[data-dock="' + id + '"]');
     if (el) dock.appendChild(el);  // reflow into saved order
   });
@@ -12231,10 +12272,17 @@ function applyDockConfig(dock) {
       .map((d) => dock.querySelector('[data-dock="' + d.id + '"]')).filter(Boolean);
     favEls.reverse().forEach((el) => dock.insertBefore(el, dock.firstChild));
   }
-  const hidden = new Set(dockList(DOCK_HIDDEN_KEY));
+  const hidden = dockHiddenSet();
   dock.querySelectorAll(".dock-item").forEach((el) => {
     el.style.display = hidden.has(el.dataset.dock) ? "none" : "";
   });
+  // No local backend here (hosted web / demo) → a "restart" pill is theater. The loop above
+  // rewrites display on EVERY apply, so the one-time hide at boot has to be re-asserted or
+  // the pill comes back — and with its ping loop skipped it would sit there dead at "…".
+  if (_noLocalBackend) {
+    const srv = dock.querySelector('[data-dock="server"]');
+    if (srv) srv.style.display = "none";
+  }
   // the deck is the PRIMARY CTA — always first, always visible, on every device.
   // External memory needs one findable anchor; a hideable, driftable button isn't one.
   const deck = dock.querySelector('[data-dock="daily"]');
@@ -12252,8 +12300,10 @@ function applyDockConfig(dock) {
 function renderDockMenu() {
   const host = document.getElementById("dockMenu");
   if (!host) return;
-  const hidden = new Set(dockList(DOCK_HIDDEN_KEY)), f = favs();
-  const defs = DOCK_DEFS.filter((d) => d.id !== "daily" && d.id !== "cal" && d.id !== "msg");   // the deck + calendar + messages can't be hidden — the day's three anchors
+  const hidden = dockHiddenSet(), f = favs();
+  // the deck + calendar + messages can't be hidden — the day's three anchors. Server is
+  // dropped where there's no local backend, so the menu can't offer a pill that never shows.
+  const defs = DOCK_DEFS.filter((d) => d.id !== "daily" && d.id !== "cal" && d.id !== "msg" && !(d.id === "server" && _noLocalBackend));
   if (autoPinOn()) defs.sort((a, b) => (f.has("dock:" + b.id) ? 1 : 0) - (f.has("dock:" + a.id) ? 1 : 0));
   host.innerHTML = defs.map((d) => {
     const on = !hidden.has(d.id), fav = f.has("dock:" + d.id);
@@ -12267,7 +12317,7 @@ function renderDockMenu() {
   }));
   host.querySelectorAll("[data-dt]").forEach((b) => b.addEventListener("click", () => {
     const id = b.dataset.dt;
-    const h = new Set(dockList(DOCK_HIDDEN_KEY));
+    const h = dockHiddenSet();   // materializes the default on the first real tap — that IS a user edit, so stamping it is correct
     if (h.has(id)) h.delete(id); else h.add(id);
     localStorage.setItem(DOCK_HIDDEN_KEY, JSON.stringify([...h]));
     applyDockConfig(document.getElementById("dock"));
@@ -12435,18 +12485,6 @@ function openClockSettings(anchor) {
   }
   const oldBar = document.querySelector(".status-bar");
   if (oldBar) oldBar.remove();
-
-  // One-time: a dock order saved before the cloud chip became a dock item doesn't list
-  // "cloud", and applyDockConfig re-appends every SAVED id to the end — which would leave
-  // the unlisted cloud chip stranded at the far LEFT. Append it once so it lands where the
-  // floating chip used to sit. Idempotent; a no-op for anyone who never reordered.
-  try {
-    const ord = dockList(DOCK_ORDER_KEY);
-    if (ord.length && !ord.includes("cloud")) {
-      ord.push("cloud");
-      localStorage.setItem(DOCK_ORDER_KEY, JSON.stringify(ord));
-    }
-  } catch (e) {}
 
   applyDockConfig(dock);
   updateViewToggle();  // set the toggle icon (grid = Widgets on load) + the dock view name
@@ -12742,13 +12780,21 @@ Promise.resolve(cloudAutoPull())
   .then(() => notifsFetch())
   .then(() => { try { maybeWhatsChanged(); } catch (e) {} })
   .catch(() => {});
+let _notesPolled = 0;
 setInterval(() => {
   if (document.hidden) return;
   cloudAutoPull();
-  // Re-read release-notes.json every poll. It's a static per-origin file, NOT vault content,
+  // Deliver a pop that was armed but DEFERRED (the web login gate was up at boot, or a surface
+  // was open, or the user was typing) as soon as the way is clear. _wcPending stays armed until
+  // maybeWhatsChanged actually shows it or finds nothing left to show, so this can't nag.
+  if (_wcPending) { try { maybeWhatsChanged(); } catch (e) {} }
+  // Re-read release-notes.json periodically. It's a static per-origin file, NOT vault content,
   // so a long-lived tab would otherwise never notice a new deploy until you opened the bell.
-  // notifsSeed marks any new id unread; we only pop when something genuinely new arrived.
-  notifsFetch(true).then(() => { try { if (_relNotes && _relNotes._newUnseen) maybeWhatsChanged(); } catch (e) {} }).catch(() => {});
+  // Throttled to ~4 min (same self-throttle as bugPoll) — news doesn't need 75s resolution.
+  if (Date.now() - _notesPolled > 240000) {
+    _notesPolled = Date.now();
+    notifsFetch(true).then(() => { try { if (_wcPending) maybeWhatsChanged(); } catch (e) {} }).catch(() => {});
+  }
 }, 75000);   // near-live: a tiny two-field check while you're looking
 document.addEventListener("cache:logged", autoPushSoon);   // a finished check-in is worth syncing
 socialUpdateBadge();       // show any unread count from the last session's cache immediately

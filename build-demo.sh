@@ -23,6 +23,11 @@ cp "$HERE/styles.css" "$DEST/styles.css"
 cp "$HERE/theme-preload.js" "$DEST/theme-preload.js"
 # the notification center's news feed (fetched relative, so the demo needs its own copy)
 cp "$HERE/release-notes.json" "$DEST/release-notes.json"
+# roadmap source — the in-app Roadmap modal fetches these RELATIVE, so the demo needs its own
+# copy or it 404s and falls back to a cross-origin raw.githubusercontent hit (same reason
+# build-app.sh copies them into the app's docs root).
+cp "$HERE/BACKLOG.md"  "$DEST/BACKLOG.md"
+cp "$HERE/FEATURES.md" "$DEST/FEATURES.md"
 
 # vendored libraries (pinned locally, not @latest CDNs — security eval T4)
 rm -rf "$DEST/assets/vendor"

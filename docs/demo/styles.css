@@ -2649,11 +2649,16 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
   width: 10px; height: 10px; box-sizing: border-box; border-radius: 50%;
   background: rgba(var(--ink-rgb), 0.55); border: 0;
 }
+/* Every state a DISTINCT SHAPE, so it reads without colour (the mono theme makes --accent ==
+   ink, and BEAST recolours everything): filled dot / haloed dot / square / solid ring / dashed
+   ring. No two share geometry. */
 #cloudHealth[data-cloud="ok"] .sync-dot { background: rgba(var(--ink-rgb), 0.55); }                    /* synced — calm filled dot */
-#cloudHealth[data-cloud="sync"] .sync-dot { background: var(--accent); animation: cloudbreathe 1.2s ease-in-out infinite; }
-#cloudHealth[data-cloud="err"] .sync-dot { background: var(--accent); border-radius: 2px; }            /* needs you — a SQUARE, readable without colour */
-#cloudHealth[data-cloud="warn"] .sync-dot { background: transparent; border: 2px solid var(--accent); } /* hollow ring — not done yet */
-#cloudHealth[data-cloud="off"] .sync-dot { background: transparent; border: 2px solid rgba(var(--ink-rgb), 0.34); }
+/* syncing — breathing; the halo ring keeps it distinct from ok even when reduce-motion kills
+   the animation (shape, not just colour or motion) */
+#cloudHealth[data-cloud="sync"] .sync-dot { background: var(--accent); box-shadow: 0 0 0 2px rgba(var(--ink-rgb), 0.22); animation: cloudbreathe 1.2s ease-in-out infinite; }
+#cloudHealth[data-cloud="err"] .sync-dot { background: var(--accent); border-radius: 2px; box-shadow: none; }   /* needs you — a SQUARE */
+#cloudHealth[data-cloud="warn"] .sync-dot { background: transparent; border: 2px solid var(--accent); box-shadow: none; }   /* not done yet — SOLID ring */
+#cloudHealth[data-cloud="off"] .sync-dot { background: transparent; border: 2px dashed rgba(var(--ink-rgb), 0.4); box-shadow: none; }   /* off by choice — DASHED ring (distinct from warn's solid) */
 @keyframes cloudbreathe { 50% { opacity: 0.28; transform: scale(0.82); } }
 
 /* ── The Dock (one cohesive bottom bar) ───────────────── */
