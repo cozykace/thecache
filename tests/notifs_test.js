@@ -28,7 +28,7 @@ const mergersCode = slice("app.js", /^function mergeProfileStrings/, /^let _pull
 const mkAppMerge = (ls) => Function("localStorage", mergersCode + "\nreturn mergeNotifsStr;")(ls);
 const notifsCode = slice("app.js", /^const NOTIFS_KEY = "money\.notifs"/, /^\/\/ ── The Messages surface/);
 const mkNotifs = (ls) => Function("localStorage", "socialUpdateBadge", "document",
-  notifsCode + "\nreturn {notifsGet,notifsSet,notifDateMs,notifsSeed,notifsUnread,notifsMark};")(ls, () => {}, { dispatchEvent: () => {} });
+  notifsCode + "\nreturn {notifsGet,notifsSet,notifDateMs,notifsSeed,notifsUnread,notifsMark,notifsUnseen,setNotes:(n)=>{_relNotes=n;}};")(ls, () => {}, { dispatchEvent: () => {} });
 
 // ── the real webcache.js pieces ──
 const wListsCode = slice("webcache.js", /^\s*var W_INTERNAL = /, /^\s*var W_DECK_LIVE_CAP/);
@@ -129,5 +129,27 @@ ok("empty release file: nothing written, nothing fabricated", (E.notifsSeed([]),
 // a user action outranks everything: mark-unread stamps NOW, which beats any release date
 N.notifsMark("r1", 0);
 ok("mark-unread works after seeding (reversible read state)", N.notifsUnread() === 2 && N.notifsGet().r1.read === 0 && N.notifsGet().r1.at > D);
+
+// ── 5. "What's changed" auto-open: notifsUnseen is the anti-nag guarantee ──
+// The dialog opens ITSELF, so the one thing that must never break is showing a person
+// something they already saw — or fabricating news for a brand-new account.
+const lsW = makeLS(); const W2 = mkNotifs(lsW);
+W2.setNotes(NOTES);
+ok("fresh install: nothing is UNSEEN, so a new account is never auto-popped",
+   (W2.notifsSeed(NOTES), W2.notifsUnseen().length === 0));
+W2.setNotes(NOTES2);
+W2.notifsSeed(NOTES2);
+ok("a genuinely new release becomes the ONE unseen item", W2.notifsUnseen().length === 1 && W2.notifsUnseen()[0].id === "r4");
+W2.notifsMark("r4", 1);   // what dismissing the dialog does
+ok("dismissing marks it read → never shown again", W2.notifsUnseen().length === 0);
+W2.notifsMark("r4", 0);   // the ⋯ "mark unread" row action
+ok("mark-unread brings it back (the dialog respects the same read state)", W2.notifsUnseen().length === 1);
+// an id the read-map has never heard of must read as READ, or a stale cache would
+// manufacture notifications for entries the seeder deliberately never wrote
+const lsX = makeLS(); const X = mkNotifs(lsX);
+X.setNotes(NOTES); X.notifsSeed(NOTES);
+X.setNotes([{ id: "ghost", date: "2026-07-23", title: "Ghost", body: "…" }].concat(NOTES));
+ok("an id absent from the read-map is treated as READ (never fabricated as news)",
+   X.notifsUnseen().every((e) => e.id !== "ghost"));
 
 console.log(`\n${p} passed, ${f} failed`); process.exit(f ? 1 : 0);

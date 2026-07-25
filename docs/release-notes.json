@@ -1,5 +1,17 @@
 [
   {
+    "id": "2026-07-24-whats-changed",
+    "date": "2026-07-24",
+    "title": "What changed finds you now",
+    "body": "When something new ships, your cache tells you — a short \"What's changed\" note opens when you sign in, or right when an update lands if you're already here. It waits if you're mid-sentence, never shows the same thing twice, and everything is still in the bell whenever you want it."
+  },
+  {
+    "id": "2026-07-24-calmer-dock",
+    "date": "2026-07-24",
+    "title": "A calmer dock, and a tidier profile",
+    "body": "The cloud button moved into the dock and stopped resizing itself every time it synced — no more dock sliding around under your cursor. Your profile folds its activity into one line you can open in its own window, and account switching works from there. The Roadmap button is now an option you can turn on rather than a default."
+  },
+  {
     "id": "2026-07-24-web-csv-import",
     "date": "2026-07-24",
     "title": "Get your money in — right in the browser",

@@ -17,11 +17,12 @@ const MIN_W = 90, MIN_H = 70;
 // magnet snap: round a widget's position + size to this grid when its snap is on
 const SNAP = 24;
 const snapTo = (v) => Math.round(v / SNAP) * SNAP;
-// positions land on the grid; snapped SIZES are inset by a gutter so that
-// grid-adjacent widgets get a little breathing room instead of touching
-// global gutter between widgets — a live slider sets this; drives the snap inset,
-// so widgets resize in place to open/close the gaps without moving.
-const gutterVal = () => { const g = parseInt(localStorage.getItem("money.gutter")); return isNaN(g) ? 10 : Math.max(4, Math.min(48, g)); };
+// positions land on the grid; snapped SIZES are inset by a fixed gutter so that
+// grid-adjacent widgets get a little breathing room instead of touching.
+// (The user-facing LESS/MORE spacing slider was removed 2026-07-24 — spacing is
+// controlled in the grid for now. 10 is what gutterVal() returned when unset, so
+// anyone who never dragged the slider sees no change. money.gutter is dead.)
+const gutterVal = () => 10;
 const snapSize = (v, min) => Math.max(min || MIN_W, Math.round(v / SNAP) * SNAP - gutterVal());
 
 const fmtUSD = (n) =>
@@ -3017,13 +3018,9 @@ function renderBrand() {
   const b = document.getElementById("brandName");
   if (!b) return;
   b.textContent = getCacheName();
-  b.style.cursor = "pointer";
-  b.title = "rename your cache";
-  b.onclick = () => {
-    const v = prompt("Name your cache (this is yours — call it whatever you want):", getCacheName());
-    if (v === null) return;
-    setCacheName(v); renderBrand(); if (typeof renderCharacter === "function") renderCharacter();
-  };
+  // Renaming lives ONLY in the profile pane now (openProfile → #profCacheName). A title
+  // that renames on a misclick is convenience that costs more than it gives, so the
+  // menu-header brand name is a plain label — no pointer, no dialog.
 }
 const CACHE_TITLES = ["Newcomer", "Tracker", "Saver", "Planner", "Strategist", "Steward", "Tactician", "Architect", "Sage", "Legend"];
 function cacheLevel(exp) {
@@ -3065,6 +3062,27 @@ function agoStr(ts) {
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 const CHAR_ICON = { level: "🎉", widget: "➕", sync: "🔌", feat: "⭐", note: "📌", bugfix: "🛠️" };
+// Your activity, in its OWN window. It used to render inline in the profile, so a long
+// history buried everything under it and you had to scroll past your whole life to reach
+// account settings. The profile now folds it to one button that opens this.
+function closeActivity() { ["actBackdrop", "actModal"].forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); }); }
+function openActivity() {
+  closeActivity();
+  const log = charLog().slice().reverse();   // newest first
+  const rows = log.length
+    ? log.map((ev) => '<div class="char-ev"><span class="char-ev-i">' + (CHAR_ICON[ev.k] || "•") + "</span>" +
+        '<span class="char-ev-d">' + escapeHtml(ev.d == null ? "" : String(ev.d)) + '</span>' +
+        '<span class="char-ev-t">' + agoStr(ev.t) + "</span></div>").join("")
+    : '<div class="char-empty">Your journey is just beginning — do the work and it fills in here.</div>';
+  const back = document.createElement("div"); back.className = "cat-backdrop"; back.id = "actBackdrop";
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) closeActivity(); });
+  const modal = document.createElement("div"); modal.className = "cat-modal act-modal"; modal.id = "actModal";
+  modal.innerHTML =
+    '<div class="cat-head"><span>🕘 Your activity</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="cat-list act-list">' + rows + "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);   // the .cat-modal observer adds dialog semantics + Escape
+  modal.querySelector(".cat-close").addEventListener("click", closeActivity);
+}
 const JOURNEY = [
   { arc: "Awakening", lvls: "1–2", feats: ["Connect a bank", "Name your cache", "Tag your income"] },
   { arc: "Foundation", lvls: "3–4", feats: ["Mark must-pays", "Build a budget", "Categorize a month"] },
@@ -3318,11 +3336,7 @@ function openProfile() {
   function render() {
     const prevBody = root.querySelector(".prof-body");
     const scrollAt = prevBody ? prevBody.scrollTop : 0;   // a background merge repaint must not yank the reader back to the top
-    const log = charLog().slice().reverse();
-    const rows = log.length
-      ? log.map((ev) => '<div class="char-ev"><span class="char-ev-i">' + (CHAR_ICON[ev.k] || "•") + "</span>" +
-          '<span class="char-ev-d">' + esc(ev.d) + '</span><span class="char-ev-t">' + agoStr(ev.t) + "</span></div>").join("")
-      : '<div class="char-empty">Your journey is just beginning — do the work and it fills in here.</div>';
+    const actN = charLog().length;   // folded to a count — the full list opens in its own window (openActivity)
     const L = cacheLevel(PROFILE_STATS.exp);
     const curArc = Math.min(JOURNEY.length - 1, Math.floor((L.lvl - 1) / 2));
     const arcs = JOURNEY.map((a, i) => {
@@ -3345,7 +3359,14 @@ function openProfile() {
         renderBadges() +
         '<div class="char-sec">Skills &amp; unlocks</div><div class="sk-pills">' + skills + "</div>" +
         '<div class="char-sec">Journey · tech tree</div><div class="tt-tree">' + arcs + "</div>" +
-        '<div class="char-sec">Your ledger</div>' + rows +
+        '<div class="char-sec">Your activity</div>' +
+        '<button class="prof-act" id="profActivity">' +
+          '<span class="prof-act-i">🕘</span>' +
+          '<span class="prof-act-txt">' +
+            (actN ? actN + (actN === 1 ? " thing" : " things") + " you've done" : "Nothing logged yet") +
+          "</span>" +
+          '<span class="prof-act-go">Open</span>' +
+        "</button>" +
         acctHtml() +
       "</div>";
     const nb = root.querySelector(".prof-body"); if (nb && scrollAt) nb.scrollTop = scrollAt;
@@ -3395,6 +3416,8 @@ function openProfile() {
     root.querySelectorAll(".badge").forEach((el) => el.addEventListener("click", () => {  // tap to reveal name + how it's earned
       if (cap) cap.textContent = el.dataset.bn + " — " + el.dataset.bd + (el.dataset.on === "1" ? " ✓ earned" : " · locked");
     }));
+    const act = root.querySelector("#profActivity");
+    if (act) act.addEventListener("click", () => { try { openActivity(); } catch (e) {} });
     const cs = root.querySelector("#profCloudSet"); if (cs) cs.addEventListener("click", () => { try { openSettings(); } catch (e) {} });
     const sw = root.querySelector("#profSwitch");
     if (sw) sw.addEventListener("click", () => {
@@ -3504,7 +3527,7 @@ function renderCharacter() {
   e.innerHTML =
     '<div class="cache-char">' +
       '<div class="cc-top"><span class="cc-emoji">' + L.emoji + "</span>" +
-        '<button class="cc-name" title="rename your cache">' + escapeHtml(getCacheName()) + "</button></div>" +
+        '<button class="cc-name" title="open your profile">' + escapeHtml(getCacheName()) + "</button></div>" +
       '<div class="cc-meta">Lvl <b class="cc-lvl">' + L.lvl + "</b> · " + escapeHtml(L.title) + "</div>" +
       '<div class="cc-bar"><span class="cc-fill" style="width:' + (L.pct * 100).toFixed(1) + '%"></span></div>' +
       '<div class="cc-xp"><b>' + PROFILE_STATS.exp.toLocaleString() + "</b> EXP · " + L.into.toLocaleString() + "/" + L.span.toLocaleString() + " to Lvl " + (L.lvl + 1) + "</div>" +
@@ -3513,10 +3536,8 @@ function renderCharacter() {
   if (card) { card.style.cursor = "pointer"; card.title = "your profile — view & edit"; card.addEventListener("click", openCharLog); }
   const nameBtn = e.querySelector(".cc-name");
   if (nameBtn) nameBtn.addEventListener("click", (ev) => {
-    ev.stopPropagation();  // don't open the ledger when renaming
-    const v = prompt("Name your cache (this is yours — call it whatever you want):", getCacheName());
-    if (v === null) return;
-    setCacheName(v); renderCharacter(); renderBrand();
+    ev.stopPropagation();   // one open, not two — the surrounding card also opens the profile
+    openProfile();          // the cache name opens your profile; renaming lives THERE (#profCacheName)
   });
 }
 function updateXp() {
@@ -4464,7 +4485,12 @@ async function autoPushNow() {
   cloudChip("syncing");
   try { await cloudPush(""); cloudChip("ok"); _apFails = 0; }
   catch (e) {
-    cloudChip("err", (e && e.message) || "sync failed");
+    // Say it out loud ONCE per new problem. The chip is a silent light now, so a real
+    // failure needs a voice — but the retry backoff must not machine-gun toasts, hence
+    // the compare against the PREVIOUS error (cloudChip sets _cloudErr after this).
+    const em = (e && e.message) || "sync failed";
+    if (_cloudErr !== em) { try { flash("Cloud sync needs you — " + em); } catch (e2) {} }
+    cloudChip("err", em);
     // A CORRECTIVE push (armed because we hold authored data the vault lacks) must not
     // die on a transient blip: if the vault then goes quiet, cloudAutoPull early-returns
     // on the unchanged stamp, so the ahead-check never re-runs and nothing would ever
@@ -4840,32 +4866,60 @@ async function cloudAutoPull() {
 }
 // The cloud chip — a status pill beside sync. Hidden until an account is connected;
 // after that it always tells the truth: synced ✓ / syncing / needs you.
+let _cloudErr = "";   // last sync error — the account menu surfaces it (the chip is a light, not a sentence)
 function cloudChip(state, msg) {
   const el = document.getElementById("cloudHealth");
   if (!el) return;
   const s = cloudState();
+  const dot = el.querySelector(".sync-dot"), txt = el.querySelector(".sync-text");
+  el.hidden = false;
   if (!s.token) {
-    // Not signed in → DON'T vanish. A logged-out desktop user otherwise has no way to
-    // discover cloud sign-in (it's buried in Settings → Cache cloud), so they run the app,
-    // connect a bank, and never link their phone — the exact wall a tester hit. Show a gentle,
-    // tappable nudge instead; clicking it opens Settings (Cache cloud sits at the top). The
-    // hosted web app's login gate guarantees a token, so this only ever surfaces on desktop.
-    el.hidden = false;
-    const d = el.querySelector(".sync-dot"), t = el.querySelector(".sync-text");
-    if (d) d.style.background = "#6b9bd6";
-    if (t) t.textContent = "sign in to sync";
+    // Not signed in → DON'T vanish, and DO keep the words. A logged-out desktop user otherwise
+    // has no way to discover cloud sign-in (it's buried in Settings → Cache cloud) — the exact
+    // wall a tester hit. This state is static (logging in reloads the page), so unlike the
+    // signed-in states it can't oscillate and shove the dock. The hosted web app's login gate
+    // guarantees a token, so this only ever surfaces on desktop.
+    el.classList.remove("cloud-light");
+    el.removeAttribute("data-cloud");
+    if (dot) dot.style.background = "#6b9bd6";
+    if (txt) txt.textContent = "sign in to sync";
     el.title = "sign in to sync your cache across your devices — tap to set up (Settings → Cache cloud)";
+    el.setAttribute("aria-label", el.title);
     return;
   }
-  el.hidden = false;
-  const dot = el.querySelector(".sync-dot"), txt = el.querySelector(".sync-text");
-  if (cloudPaused()) { dot.style.background = "#8a8a8a"; txt.textContent = "cloud: off"; el.title = "cloud sync is off by your choice — your data stays on this device (Settings → Cache cloud)"; return; }
-  if (state === "syncing") { dot.style.background = "#d6920f"; txt.textContent = "cloud: syncing…"; el.title = "encrypting + syncing to your cloud"; return; }
-  if (state === "err") { dot.style.background = "#c9542e"; txt.textContent = "cloud: needs you"; el.title = (msg || "cloud sync failed") + " — tap for cloud settings"; return; }
-  if (s.keyboxMissing) { dot.style.background = "#d6920f"; txt.textContent = "cloud: setup note"; el.title = "one-time server setup: add a 'keybox' text field to the vaults collection so your other devices can unlock"; return; }
-  dot.style.background = s.lastPush ? "#3f8f4e" : "#d6920f";
-  txt.textContent = s.lastPush ? "cloud ✓" : "cloud: not synced";
-  el.title = s.lastPush ? ("last sync " + cloudAgo(s.lastPush) + " — tap for your account & sync") : "connected — first backup pending (tap for your account & sync)";
+  // Signed in: a FIXED-FOOTPRINT status light. The label used to swing between "cloud ✓" and
+  // "cloud: not synced", and since the chip is a flex child of the centered dock, every sync
+  // resized it and shoved the whole dock sideways — twice per 75s poll. State now reads as
+  // colour + SHAPE (never colour alone), and the words live on for screen readers, the
+  // tooltip, and the account menu.
+  let key, label, tip;
+  if (cloudPaused()) {
+    key = "off"; label = "cloud sync: off";
+    tip = "cloud sync is off by your choice — your data stays on this device (Settings → Cache cloud)";
+  } else if (state === "syncing") {
+    key = "sync"; label = "cloud: syncing"; tip = "encrypting + syncing to your cloud";
+  } else if (state === "err") {
+    key = "err"; label = "cloud sync: needs you";
+    tip = (msg || "cloud sync failed") + " — tap for cloud settings";
+  } else if (s.keyboxMissing) {
+    key = "warn"; label = "cloud: setup note";
+    tip = "one-time server setup: add a 'keybox' text field to the vaults collection so your other devices can unlock";
+  } else if (s.lastPush) {
+    key = "ok"; label = "cloud: synced " + cloudAgo(s.lastPush);
+    tip = "last sync " + cloudAgo(s.lastPush) + " — tap for your account & sync";
+  } else {
+    key = "warn"; label = "cloud: not backed up yet";
+    tip = "connected — first backup pending (tap for your account & sync)";
+  }
+  _cloudErr = key === "err" ? (msg || "cloud sync failed") : "";
+  el.classList.add("cloud-light");
+  if (dot) dot.removeAttribute("style");   // heal chips painted by an older build (inline hex would beat the CSS)
+  if (el.dataset.cloud === key && el.__cloudTip === tip) return;   // unchanged → no DOM write at all
+  el.dataset.cloud = key;
+  el.__cloudTip = tip;
+  if (txt) txt.textContent = label;
+  el.title = tip;
+  el.setAttribute("aria-label", label + " — tap for your account & cloud settings");
 }
 // ── The account menu — tap the cloud chip while signed in and your account is right
 //    there: cloud settings, log out, or hand the machine to a different account. This is
@@ -4909,13 +4963,24 @@ function openAccountMenu(anchor) {
   menu.className = "acct-menu"; menu.id = "acctMenu";
   menu.innerHTML =
     '<div class="am-who">Signed in as <b>' + escapeHtml(s.email || "your account") + "</b></div>" +
+    // the sync detail the chip no longer spells out — one honest line, in words
+    '<div class="am-sync' + (_cloudErr ? " bad" : "") + '">' +
+      (_cloudErr ? "Sync needs you — " + escapeHtml(_cloudErr)
+       : cloudPaused() ? "Cloud sync is off — this device only."
+       : s.lastPush ? "Last sync " + escapeHtml(cloudAgo(s.lastPush))
+       : "First backup pending.") + "</div>" +
     '<button class="am-item" data-act="settings"><i data-lucide="settings-2"></i>Cloud settings</button>' +
     '<button class="am-item" data-act="switch"><i data-lucide="users"></i>Use a different account…</button>' +
     '<button class="am-item am-out" data-act="logout"><i data-lucide="log-out"></i>Log out</button>';
   document.body.appendChild(menu);
   const r = anchor.getBoundingClientRect();
   menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + "px";
-  menu.style.bottom = (window.innerHeight - r.top + 8) + "px";
+  // Open upward from the anchor (the dock chip sits at the bottom), but FLIP below when
+  // there isn't room above — this menu is also opened from the profile, where the button
+  // can sit anywhere in a scrolling panel and an always-upward menu lands off-screen.
+  const mh = menu.offsetHeight;
+  if (r.top - 8 >= mh) menu.style.bottom = (window.innerHeight - r.top + 8) + "px";
+  else menu.style.top = Math.min(r.bottom + 8, Math.max(8, window.innerHeight - mh - 8)) + "px";
   drawIcons();
   menu.addEventListener("click", (e) => {
     const b = e.target.closest("[data-act]"); if (!b) return;
@@ -7061,7 +7126,7 @@ function updateSyncHealth() {
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       if (!d || !d.updated) {
-        if (window.__CACHE_WEB__) { syncDot.style.background = "#8a8a8a"; syncText.textContent = "no money data yet"; syncHealth.title = "money joins from a computer you own — this device reads the synced result"; }
+        if (window.__CACHE_WEB__) { syncDot.style.background = "#8a8a8a"; syncText.textContent = "no money data yet"; syncHealth.title = "import a bank CSV to get started (⚡ Connect) — or set up a live bank sync once in the desktop app"; }
         else { syncDot.style.background = "#c9542e"; syncText.textContent = "no sync"; }
         return;
       }
@@ -7168,7 +7233,12 @@ function renderSources() {
         (orgs[o] = orgs[o] || []).push(a.name);
       });
       const banks = Object.keys(orgs);
-      sourcesBtn.querySelector(".src-count").textContent = banks.length + (tg ? 1 : 0);
+      // A MISSING data/toggl.json reads as an empty object {} on the hosted web (webcache's
+      // serve() answers absent data files with 200 {}), and {} is truthy — so gate on a REAL
+      // payload (the `updated` stamp toggl_sync.py always writes), never bare truthiness, or a
+      // fresh account shows a phantom "Toggl · 0 projects" it never connected.
+      const tgOn = !!(tg && tg.updated);
+      sourcesBtn.querySelector(".src-count").textContent = banks.length + (tgOn ? 1 : 0);
       const when = d && d.updated ? ageStr(Date.now() - new Date(d.updated).getTime()) : "—";
 
       let html = '<div class="src-title">Data sources</div>';
@@ -7177,11 +7247,11 @@ function renderSources() {
           '<div class="src-bankname">' + escapeHtml(o) + '</div>' +
           '<div class="src-accts">' + orgs[o].map(escapeHtml).join(" · ") + '</div></div></div>';
       });
-      if (tg) {
+      if (tgOn) {
         html += '<a class="src-bank src-link" href="https://track.toggl.com" target="_blank" rel="noopener">' +
           '<span class="src-bankdot" style="background:#e9408f"></span><div>' +
           '<div class="src-bankname">Toggl ↗</div>' +
-          '<div class="src-accts">' + (tg.projects || 0) + ' projects · time tracking</div></div></a>';
+          '<div class="src-accts">' + ((tg.projects_month || []).length) + ' projects · time tracking</div></div></a>';
       }
       if (cov && cov.accounts && cov.accounts.length) {
         html += '<div class="src-subtitle">Data coverage</div>';
@@ -7216,6 +7286,12 @@ renderSources();
 
 // ── Soundtrack (YouTube audio toggle) ──────────────────────
 const SND_KEY = "money.soundtrack";
+// TODO(Cozy): the built-in default soundtrack, so ♪ plays something the very first time —
+// no paste required. Put a YouTube LINK or a bare 11-char VIDEO ID here (parseYtId takes
+// either). Left "" it keeps the old ask-first behavior, so this is inert until you fill it.
+// It's a shipped constant: every device gets the SAME default and it never enters the vault —
+// only a user override writes money.soundtrack (a GENERIC key), which then syncs.
+const SND_DEFAULT = "";   // ← paste your default YouTube link/id between the quotes
 const sndBtn = document.getElementById("soundtrack");
 let ytPlayer = null, ytReady = false, ytRequested = false;
 
@@ -7263,22 +7339,36 @@ window.onYouTubeIframeAPIReady = function () {
 // A saved soundtrack means the user opted into YouTube already — restore it (this triggers
 // the lazy API load). Someone who never set a soundtrack never loads YouTube at all.
 if (sndBtn) {
+  // Only a REAL saved link auto-loads YouTube on page load. The default never loads here —
+  // YouTube is only ever fetched once the user actually presses play (T4 lazy-load/privacy).
   if (localStorage.getItem(SND_KEY)) ytEnsureApi(() => { const id = localStorage.getItem(SND_KEY); if (id) buildPlayer(id, false); });
+  // Override: paste your own link. Right-click / context-menu key (desktop) or long-press
+  // (touch) — never hover-only, so it stays reachable on a phone (mobile SOP #2).
+  function sndSetCustom() {
+    const u = prompt("Paste a YouTube link for your soundtrack:", localStorage.getItem(SND_KEY) || "");
+    if (u == null) return;                        // Cancel — keep whatever's playing
+    const id = parseYtId(u);
+    if (!id) { alert("Couldn't find a YouTube video ID in that link."); return; }
+    localStorage.setItem(SND_KEY, id);
+    ytEnsureApi(() => buildPlayer(id, true));     // buildPlayer() tears down the old player first
+  }
+  let sndSkipClick = false;
   sndBtn.addEventListener("click", () => {
-    let id = localStorage.getItem(SND_KEY);
-    if (!id) {
-      const u = prompt("Paste a YouTube link for your soundtrack:");
-      if (!u) return;
-      id = parseYtId(u);
-      if (!id) { alert("Couldn't find a YouTube video ID in that link."); return; }
-      localStorage.setItem(SND_KEY, id);
-      ytEnsureApi(() => buildPlayer(id, true));
-      return;
-    }
+    if (sndSkipClick) { sndSkipClick = false; return; }   // a long-press already opened the editor
+    // Nothing saved → fall back to the built-in default so the button just works out of the box.
+    const id = localStorage.getItem(SND_KEY) || parseYtId(SND_DEFAULT);
+    if (!id) { sndSetCustom(); return; }          // no default configured either → ask once
     if (!ytPlayer || !ytPlayer.getPlayerState) { ytEnsureApi(() => buildPlayer(id, true)); return; }
     if (ytPlayer.getPlayerState() === 1) { ytPlayer.pauseVideo(); sndBtn.classList.remove("playing"); }
     else { ytPlayer.playVideo(); sndBtn.classList.add("playing"); }
   });
+  sndBtn.addEventListener("contextmenu", (e) => { e.preventDefault(); sndSetCustom(); });
+  let sndLp = 0, sndLx = 0, sndLy = 0;            // long-press (touch) — a bonus path, never the only one
+  const sndCancelLp = () => { if (sndLp) { clearTimeout(sndLp); sndLp = 0; } };
+  sndBtn.addEventListener("pointerdown", (e) => { if (e.pointerType !== "touch") return; sndLx = e.clientX; sndLy = e.clientY; sndCancelLp(); sndLp = setTimeout(() => { sndLp = 0; sndSkipClick = true; sndSetCustom(); }, 500); });
+  sndBtn.addEventListener("pointermove", (e) => { if (sndLp && (Math.abs(e.clientX - sndLx) > 8 || Math.abs(e.clientY - sndLy) > 8)) sndCancelLp(); });   // a scroll is not a hold
+  sndBtn.addEventListener("pointerup", sndCancelLp);
+  sndBtn.addEventListener("pointercancel", sndCancelLp);
 }
 
 // ── Menu: reset ────────────────────────────────────────────
@@ -7427,41 +7517,6 @@ function tidyLayout(animate) {
   if (animate) setTimeout(() => Object.values(nodes).forEach((n) => n.classList.remove("tidying")), 480);
 }
 document.getElementById("tidyLayout").addEventListener("click", () => { tidyLayout(); setSidebar(false); });
-(function () {
-  const gs = document.getElementById("gutterSlider");
-  if (!gs) return;
-  gs.value = gutterVal();
-  // Resize widgets IN PLACE: each keeps its grid cell + position, only its size
-  // changes to open/close the gutter. Nothing moves around.
-  let spans = null;
-  const snapshot = () => {
-    spans = {};
-    const g = gutterVal();
-    Object.keys(layout).forEach((id) => {
-      const n = nodes[id];
-      if (!n || layout[id].type === "sticker") return;
-      spans[id] = { cw: Math.round((n.offsetWidth + g) / SNAP) * SNAP, ch: Math.round((n.offsetHeight + g) / SNAP) * SNAP };
-    });
-  };
-  const DETENTS = [6, 18, 30, 42];                       // 4 Apple-style detents
-  const softSnap = (v) => { for (const d of DETENTS) if (Math.abs(v - d) <= 3) return d; return v; };  // magnetic, but free between
-  gs.addEventListener("pointerdown", snapshot);
-  gs.addEventListener("input", () => {
-    if (!spans) snapshot();
-    const v = softSnap(parseInt(gs.value, 10) || 18);
-    gs.value = v;                                         // pull the thumb to the detent when close
-    localStorage.setItem("money.gutter", v);
-    const g = v;
-    Object.keys(spans).forEach((id) => {
-      const n = nodes[id];
-      if (!n) return;
-      const w = Math.max(MIN_W, spans[id].cw - g), h = Math.max(MIN_H, spans[id].ch - g);
-      n.style.width = w + "px"; n.style.height = h + "px";
-      layout[id].w = w; layout[id].h = h;
-    });
-  });
-  gs.addEventListener("change", () => { saveLayout(); spans = null; });
-})();
 document.getElementById("saveView").addEventListener("click", () => {
   const name = prompt("Name this view (e.g. ‘daily’, ‘work mode’):");
   if (name && name.trim()) { saveView(name.trim()); flash("saved “" + name.trim() + "”"); }
@@ -7944,7 +7999,7 @@ function openLedger() {
     const grab = (u) => fetch(u + "?t=" + Date.now()).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     Promise.all([grab("data/balances.json"), grab("data/toggl.json")]).then(([d, tg]) => {
       const orgs = {}; ((d && d.accounts) || []).forEach((a) => { orgs[a.org || "Bank"] = 1; });
-      const count = Object.keys(orgs).length + (tg ? 1 : 0);
+      const count = Object.keys(orgs).length + ((tg && tg.updated) ? 1 : 0);   // {} for a missing file is truthy — see renderSources
       const el = root.querySelector("#lgBubSources"); if (el) el.textContent = count || "0";
     });
   };
@@ -9247,9 +9302,28 @@ function showDeckCoach() {
   document.body.appendChild(card);
   const pill = document.getElementById("dailyBtn");
   if (pill && !reduceMotion()) pill.classList.add("coaching");
+  // Aim the card + its tail at the REAL deck button. The dock is ONE centered bar of
+  // pills, so the + sits LEFT of screen-center on desktop — the old fixed left:50%
+  // parked the tail over a neighbour pill (VISIT) instead of the deck. Measure the
+  // button, center the card on it (clamped on-screen), and offset the tail to match.
+  const anchorCoach = () => {
+    if (!pill) return;
+    const r = pill.getBoundingClientRect();
+    if (!r.width || !r.height) return;   // hidden/not laid out yet — keep the CSS default
+    const cx = r.left + r.width / 2, margin = 8;
+    card.style.bottom = Math.max(12, window.innerHeight - r.top + 12) + "px";
+    const cw = card.getBoundingClientRect().width;
+    const leftPx = Math.max(margin, Math.min(cx - cw / 2, window.innerWidth - cw - margin));
+    card.style.left = leftPx + "px";
+    card.style.transform = "none";
+    card.style.setProperty("--tail-x", Math.max(12, Math.min(cx - leftPx, cw - 12)) + "px");
+  };
+  anchorCoach();
+  window.addEventListener("resize", anchorCoach);
   const done = () => {
     try { localStorage.setItem(DECKCOACH_KEY, String(Date.now())); } catch (e) {}
     if (pill) pill.classList.remove("coaching");
+    window.removeEventListener("resize", anchorCoach);
     card.remove();
   };
   card.querySelector(".dc-open").addEventListener("click", () => { done(); openDeck(); });
@@ -10165,7 +10239,10 @@ function actionButtonRun() {
   }, 1800);
   ckSync();   // converge with the cache on boot…
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) { ckSync(); cloudAutoPull(); }   // …and every return to the tab (log on your phone, walk to the desk, it's there)
+    // …and every return to the tab (log on your phone, walk to the desk, it's there).
+    // maybeWhatsChanged retries here so a pop deferred because the tab was hidden (or you
+    // were typing when the poll fired) still lands, without needing its own queue.
+    if (!document.hidden) { ckSync(); cloudAutoPull(); try { maybeWhatsChanged(); } catch (e) {} }
     else if (_apT) autoPushNow();   // leaving the tab with a push pending → flush it now
   });
 })();
@@ -10835,11 +10912,79 @@ async function notifsFetch(force) {
     if (!r.ok) throw new Error("no notes");
     const d = await r.json();
     _relNotes = (Array.isArray(d) ? d : []).filter((e) => e && e.id);
-    notifsSeed(_relNotes);
+    // true ONLY when a never-seen entry just appeared (first-run seeding is silent) — the
+    // poll trigger reads this so a new deploy pops "What's changed" but a quiet poll doesn't
+    _relNotes._newUnseen = !!notifsSeed(_relNotes);
     socialUpdateBadge();
     try { document.dispatchEvent(new CustomEvent("cache:notifs")); } catch (e) {}
   } catch (e) {}
   return _relNotes || [];
+}
+
+// ── "What's changed" ────────────────────────────────────────────────────────────
+//   The news finds YOU. Same read-state as the bell (money.notifs) is the single source
+//   of truth, so this can never re-nag about something you've already seen, and marking
+//   read still happens exactly once, through notifsMark.
+let _wcOpen = false;          // a What's-changed dialog is mounted right now
+const _wcShown = new Set();   // ids surfaced this session but not yet dismissed (de-dups the poll)
+// the release entries currently UNREAD, newest-first (absent-from-map reads as READ)
+function notifsUnseen() {
+  if (!Array.isArray(_relNotes)) return [];
+  const map = notifsGet() || {};
+  return _relNotes.filter((e) => { const st = e && e.id ? map[e.id] : null; return st && typeof st === "object" && !st.read; });
+}
+// Never yank focus mid-task: no double-pop, not while typing, not over another surface or
+// dialog, not in a backgrounded tab. Returning true just defers — the poll and the
+// return-to-tab handler retry, and the item stays unseen until it's actually shown.
+function wcBusy() {
+  if (_wcOpen || document.hidden) return true;
+  if (isTypingTarget(document.activeElement)) return true;
+  if (document.querySelector(".cat-modal, .cat-backdrop, .daily-space")) return true;
+  return false;
+}
+function maybeWhatsChanged() {
+  if (wcBusy()) return false;
+  const items = notifsUnseen().filter((e) => !_wcShown.has(e.id));
+  if (!items.length) return false;
+  openWhatsChanged(items);
+  return true;
+}
+// A .cat-modal, so the observer gives it dialog semantics, a focus trap, Escape and
+// focus-restore for free. Marks read on DISMISS, never on open — auto-popping and
+// instantly clearing the badge would erase the news before it was actually read.
+function openWhatsChanged(items) {
+  if (_wcOpen || !Array.isArray(items) || !items.length) return;
+  _wcOpen = true;
+  const ids = items.map((e) => e.id);
+  ids.forEach((id) => _wcShown.add(id));
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const niceDate = (d) => { const t = Date.parse(String(d || "") + "T00:00:00"); return isFinite(t) ? new Date(t).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : ""; };
+  const back = document.createElement("div"); back.className = "cat-backdrop";
+  const modal = document.createElement("div"); modal.className = "cat-modal wcn-modal";
+  let dismissed = false;
+  const close = () => {
+    // seen + dismissed == read. A real user action, so notifsMark stamps Date.now(), which
+    // correctly outranks the release-date seed on every device (see the money.notifs contract).
+    if (!dismissed) { dismissed = true; ids.forEach((id) => { try { notifsMark(id, 1); } catch (e) {} }); }
+    back.remove(); modal.remove(); _wcOpen = false;
+  };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  const rows = items.slice(0, 12).map((e) =>
+    '<div class="wcn-row">' +
+      '<div class="wcn-row-title">' + esc(e.title) + "</div>" +
+      (e.body ? '<div class="wcn-row-body">' + esc(e.body) + "</div>" : "") +
+      '<div class="wcn-row-date">' + esc(niceDate(e.date)) + "</div>" +
+    "</div>").join("");
+  modal.innerHTML =
+    '<div class="cat-head"><span>🔔 ' + (items.length > 1 ? "What’s changed" : "What’s new") + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="cat-list wcn-body">' +
+      '<div class="wcn-lead">' + (items.length > 1 ? "A few things changed since you were last here." : "Something new landed while you were away.") + "</div>" +
+      rows +
+      '<div class="wcn-actions"><button class="wcn-ok" type="button">Got it</button></div>' +
+    "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", close);
+  modal.querySelector(".wcn-ok").addEventListener("click", close);
 }
 
 // ── The Messages surface — a full-screen lens, cloned from openCalendar (daily-space shell).
@@ -10884,17 +11029,11 @@ function openMessages() {
     "</div>";
   };
 
-  // the account strip — "signed in as X · Use a different account · Log out" — shown on
-  // every logged-in Messages view so you can always leave or swap accounts from here.
-  const acctFooter = () => {
-    if (!socialLoggedIn()) return "";
-    const em = cloudState().email || "your account";
-    return '<div class="msg-account"><span class="msg-acct-who">signed in as <b>' + esc(em) + "</b></span>" +
-      '<span class="msg-acct-acts">' +
-      '<button class="msg-acct-btn" id="msgSwitch">Use a different account</button>' +
-      '<button class="msg-acct-btn msg-acct-out" id="msgLogout">Log out</button>' +
-      "</span></div>";
-  };
+  // Account controls (switch account / log out) intentionally DON'T live here anymore —
+  // they belong in ONE place: your profile ("Switch account") and Cloud settings ("Log out").
+  // Scattering them across surfaces made it unclear where account state actually changes.
+  // Kept as a no-op so the views that reference it don't need touching.
+  const acctFooter = () => "";
   function renderOnboard() {
     if (!socialLoggedIn())
       return header("Messages", false) + '<div class="msg-body"><div class="msg-onboard">' +
@@ -11089,24 +11228,8 @@ function openMessages() {
     const c = root.querySelector("#msgClose"); if (c) c.addEventListener("click", close);
     const bk = root.querySelector("#msgBack"); if (bk) bk.addEventListener("click", () => { view = "list"; activeUid = null; results = null; findErr = ""; render(); });
     const toS = root.querySelector("#msgToSettings"); if (toS) toS.addEventListener("click", () => { try { openSettings(); } catch (e) {} });
-    // account strip — log out (stay here, drop to the logged-out onboard) or switch
-    // (log out + jump to the cloud sign-in so a different account can take over)
-    const lo = root.querySelector("#msgLogout");
-    if (lo) lo.addEventListener("click", () => {
-      const hadAcct = !!cloudState().userId;
-      const parked = cloudLogout(); view = "list"; activeUid = null; results = null; findErr = ""; claimErr = "";
-      try { cloudChip(); } catch (e) {} socialUpdateBadge();
-      // parked → the data left the live slot but the board still renders it from memory: reload
-      // to a clean cache. A failed stash (storage full) keeps the data live — say so plainly,
-      // same warning as the Settings logout, because on a shared machine "logged out" must not
-      // silently mean "everything still visible".
-      if (parked) { flash("Logged out."); setTimeout(() => location.reload(), 500); }
-      else if (hadAcct) { render(); flash("Logged out — but storage is full, so your data couldn't be cleared from this device."); }
-      else { render(); flash("Logged out."); }
-    });
-    // "Use a different account" = the shared switch flow (park + reload into a blank sign-in)
-    const sw = root.querySelector("#msgSwitch");
-    if (sw) sw.addEventListener("click", () => accountLogout(true));
+    // (Account switch / log out used to live here as a strip; they now live only in the
+    //  profile and Cloud settings — acctFooter() is a no-op, so there's nothing to wire.)
     const claimGo = root.querySelector("#msgClaimGo"), claimIn = root.querySelector("#msgClaimIn");
     if (claimGo && claimIn) {
       const go = async () => { claimErr = ""; try { await socialClaimUsername(claimIn.value); flash("You're on — @" + socialState().username); } catch (e) { claimErr = e.message || "couldn't claim that"; render(); } };
@@ -11264,17 +11387,15 @@ function openWizard() {
   }
   function wMoney(b) {
     if (window.__CACHE_WEB__) {
-      // the money engine lives on a computer you own — on the phone, every bank
-      // door would be a dead end. Say so plainly instead of promising a payoff.
-      b.innerHTML = '<div class="daily-q">Money joins from a computer</div>' +
-        '<div class="daily-hint">Bank connections run on a computer you own — your phone reads the synced result, always sealed. Nothing to do here today; everything else works right now.</div>' +
+      // Money joins RIGHT HERE now: webmoney.js parses a bank CSV and computes it in the
+      // browser, then seals it into the vault. (A hands-off DAILY bank sync is still a
+      // one-time desktop setup.) Never imply a computer is required — it isn't anymore.
+      b.innerHTML = '<div class="daily-q">Get your money in</div>' +
+        '<div class="daily-hint">Import a bank CSV right here — your cache reads it in your browser, works out your spending, safe-to-spend and income, then syncs to your other devices. Nothing leaves your device unencrypted. (Want a hands-off daily bank sync instead? That’s a one-time setup in the desktop app.)</div>' +
         '<div class="daily-opts">' +
-          '<button class="daily-btn" data-door="later"><span class="e">👍</span><span>Got it — keep going</span></button>' +
-          '<button class="daily-btn" data-door="webdemo"><span class="e">🎮</span><span>Peek at the demo (new tab)</span></button></div>';
-      b.querySelectorAll("[data-door]").forEach((d) => d.addEventListener("click", () => {
-        if (d.dataset.door === "webdemo") { try { window.open("/demo/", "_blank"); } catch (e) {} door = "later"; return; }
-        door = "later"; next();
-      }));
+          '<button class="daily-btn" data-door="webcsv"><span class="e">📄</span><span>Import a bank CSV</span></button>' +
+          '<button class="daily-btn" data-door="later"><span class="e">⏭️</span><span>Later — keep going</span></button></div>';
+      b.querySelectorAll("[data-door]").forEach((d) => d.addEventListener("click", () => { door = d.dataset.door; next(); }));
       return;
     }
     b.innerHTML = '<div class="daily-q">Boss battle: connect your money</div>' +
@@ -11326,6 +11447,7 @@ function openWizard() {
     if (picks.length) bits.push(picks.length + (picks.length === 1 ? " life area" : " life areas") + " picked");
     if (energyLogged) bits.push("energy day 1 logged");
     if (!window.__CACHE_WEB__) bits.push(door === "later" ? "money connection saved for later (⚡ in the menu)" : "opening the connection panel next");
+    else bits.push(door === "webcsv" ? "opening CSV import next" : "import a CSV any time (⚡ in the menu)");
     b.innerHTML = '<div id="wizDone" class="daily-emoji">✨</div><div class="daily-big">Your cache is ready</div>' +
       '<div class="daily-exp">+10 EXP</div><div class="daily-funny">' + escapeHtml(bits.join(" · ")) + "</div>" +
       '<div class="daily-hint">One thing to remember: <b>🃏 the deck!</b> button at the bottom. When you open your cache, tap the deck — one minute keeps it fed.</div>' +
@@ -11334,7 +11456,9 @@ function openWizard() {
     const pop = b.querySelector("#wizDone"); if (!reduceMotion() && pop.animate) pop.animate([{ transform: "scale(.4) rotate(-12deg)" }, { transform: "scale(1.15) rotate(6deg)" }, { transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.2,1.3,.4,1)" });
     b.querySelector("#wizEnter").addEventListener("click", () => {
       close();
-      if (!window.__CACHE_WEB__ && door !== "later") { try { openConnect(); } catch (e) {} }
+      // web picked "Import a bank CSV" → open the same connect panel (its web branch leads
+      // with CSV import), exactly mirroring the desktop end-of-wizard behavior
+      if ((!window.__CACHE_WEB__ && door !== "later") || (window.__CACHE_WEB__ && door === "webcsv")) { try { openConnect(); } catch (e) {} }
       else setTimeout(showDeckCoach, 700);   // land the ritual: point at the deck
     });
   }
@@ -11535,8 +11659,15 @@ function openRoadmap() {
     // cached → swap instantly; otherwise keep the current content visible while
     // the (tiny, local) file loads, so the modal never collapses and flickers
     if (rmCache[src] !== undefined) { listEl.innerHTML = rmCache[src]; return; }
-    fetch(src + "?t=" + Date.now())
-      .then((r) => { if (!r.ok) throw new Error("no file"); return r.text(); })
+    // Same-origin first — desktop's server.py serves the repo root, and build-app.sh copies
+    // BACKLOG.md/FEATURES.md into docs/ for the hosted app. Fall back to the public repo so
+    // the modal still fills if a deploy predates that copy (raw.githubusercontent is already
+    // in the CSP allowlist; it's how docs/roadmap/index.html loads the same two files).
+    const rmBust = (u) => u + (u.indexOf("?") < 0 ? "?" : "&") + "t=" + Date.now();
+    fetch(rmBust(src))
+      .then((r) => { if (!r.ok) throw new Error("local " + r.status); return r.text(); })
+      .catch(() => fetch(rmBust("https://raw.githubusercontent.com/cozykace/thecache/main/" + src))
+        .then((r) => { if (!r.ok) throw new Error("raw " + r.status); return r.text(); }))
       .then((md) => { rmCache[src] = rmParse(md) || '<div class="cat-empty">empty</div>'; listEl.innerHTML = rmCache[src]; })
       .catch(() => { listEl.innerHTML = '<div class="cat-empty">couldn’t load ' + src + "</div>"; });
   }
@@ -11818,7 +11949,10 @@ board.addEventListener("pointercancel", endPan);
 
 // ── Backend heartbeat (HUD light) ──────────────────────────
 const serverBtn = document.getElementById("serverBtn");
-if (serverBtn && window.__CACHE_WEB__) serverBtn.style.display = "none";   // no local backend here — a "restart" pill would be theater
+// hosted web (webcache.js sets __CACHE_WEB__) OR the public demo (demo-data.js sets
+// __CACHE_DEMO__ and fakes /api/ping + /api/restart) — neither has a server.py to restart.
+const _noLocalBackend = !!(window.__CACHE_WEB__ || window.__CACHE_DEMO__);
+if (serverBtn && _noLocalBackend) serverBtn.style.display = "none";   // no local backend here — a "restart" pill would be theater
 const serverText = serverBtn ? serverBtn.querySelector(".server-text") : null;
 let _srvWasDown = false;
 function setServer(state) {
@@ -11881,7 +12015,10 @@ function pingServer() {
     })
     .catch(() => setServer("down"));
 }
-if (serverBtn) {
+// Skipped entirely without a local backend: otherwise the hidden pill still polls /api/ping
+// every 8s forever, and webcache/demo's faked 200 paints a green "backend running" brand dot
+// for a backend that doesn't exist.
+if (serverBtn && !_noLocalBackend) {
   serverBtn.addEventListener("click", () => {
     if (serverBtn.dataset.state === "down") {
       flash("Server's off — double-click start.command (or run python3 server.py)");
@@ -12062,6 +12199,10 @@ function openPeriodMenu(anchor) {
 // ── The Dock (one cohesive bottom bar: drag to reorder, toggle in the menu) ──
 const DOCK_ORDER_KEY = "money.dockOrder";
 const DOCK_HIDDEN_KEY = "money.dockHidden";
+// Roadmap is a dock OPTION, not a default — it's still one tap away in the dock ＋ menu.
+// Seeded only when no dock-hidden preference exists at all, so this can never override a
+// choice the user already made or one merged in from another device.
+try { if (localStorage.getItem(DOCK_HIDDEN_KEY) === null) localStorage.setItem(DOCK_HIDDEN_KEY, JSON.stringify(["roadmap"])); } catch (e) {}
 const DOCK_DEFS = [
   { id: "scale", label: "Scale" },
   { id: "datetime", label: "Date / time" },
@@ -12076,6 +12217,7 @@ const DOCK_DEFS = [
   { id: "roadmap", label: "Roadmap" },
   { id: "sources", label: "Sources" },
   { id: "server", label: "Server" },
+  { id: "cloud", label: "Cloud" },
 ];
 function dockList(key) { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch (e) { return []; } }
 function applyDockConfig(dock) {
@@ -12255,6 +12397,7 @@ function openClockSettings(anchor) {
     roadmap: document.getElementById("roadmapBtn"),
     sources: document.getElementById("sourcesBtn"),
     server: document.getElementById("serverBtn"),
+    cloud: document.getElementById("cloudHealth"),
   };
   DOCK_DEFS.forEach((d) => {
     const el = els[d.id];
@@ -12264,12 +12407,13 @@ function openClockSettings(anchor) {
     el.setAttribute("draggable", "true");
     dock.appendChild(el);  // re-home it (keeps its event listeners)
   });
-  // sync lives OUTSIDE the dock, to its right — the cloud chip rides beside it
+  // sync (the LOCAL-backend one) stays OUTSIDE the dock, pinned bottom-right
   const sync = document.getElementById("syncHealth");
   if (sync) bar.appendChild(sync);
+  // The cloud chip now lives INSIDE the dock (homed by the DOCK_DEFS loop above) instead of
+  // floating beside it — it's a normal draggable/hideable dock item. Only its click stays here.
   const cloud = document.getElementById("cloudHealth");
   if (cloud) {
-    bar.appendChild(cloud);
     cloud.addEventListener("click", () => {
       // signed in → the account menu (cloud settings / log out / different account);
       // signed out → straight to Settings, where the sign-in stepper lives
@@ -12291,6 +12435,18 @@ function openClockSettings(anchor) {
   }
   const oldBar = document.querySelector(".status-bar");
   if (oldBar) oldBar.remove();
+
+  // One-time: a dock order saved before the cloud chip became a dock item doesn't list
+  // "cloud", and applyDockConfig re-appends every SAVED id to the end — which would leave
+  // the unlisted cloud chip stranded at the far LEFT. Append it once so it lands where the
+  // floating chip used to sit. Idempotent; a no-op for anyone who never reordered.
+  try {
+    const ord = dockList(DOCK_ORDER_KEY);
+    if (ord.length && !ord.includes("cloud")) {
+      ord.push("cloud");
+      localStorage.setItem(DOCK_ORDER_KEY, JSON.stringify(ord));
+    }
+  } catch (e) {}
 
   applyDockConfig(dock);
   updateViewToggle();  // set the toggle icon (grid = Widgets on load) + the dock view name
@@ -12577,11 +12733,25 @@ initAnalytics();  // no-op unless the user opted in (Settings → Share anonymou
 window.addEventListener("error", (e) => track("client_error", { msg: String(e.message || "").slice(0, 140), src: (e.filename || "").split("/").pop() }));
 requestAnimationFrame(reflowBelowStats);  // once the stats bar has measured, clear the top band
 cloudChip();               // the chip tells the truth from the first paint
-cloudAutoPull();           // adopt whatever another device left in the cloud
-setInterval(() => { if (!document.hidden) cloudAutoPull(); }, 75000);   // near-live: a tiny two-field check while you're looking
+// Adopt another device's read-state FIRST, then fetch the news, THEN — if anything is
+// genuinely unseen and you're not mid-task — open "What's changed" so you don't have to go
+// hunting for the bell. The order matters: pulling first means we never nag about a note you
+// already read on your phone. (An account switch / restore reloads the page, so this same
+// boot path is what runs when you log back in.)
+Promise.resolve(cloudAutoPull())
+  .then(() => notifsFetch())
+  .then(() => { try { maybeWhatsChanged(); } catch (e) {} })
+  .catch(() => {});
+setInterval(() => {
+  if (document.hidden) return;
+  cloudAutoPull();
+  // Re-read release-notes.json every poll. It's a static per-origin file, NOT vault content,
+  // so a long-lived tab would otherwise never notice a new deploy until you opened the bell.
+  // notifsSeed marks any new id unread; we only pop when something genuinely new arrived.
+  notifsFetch(true).then(() => { try { if (_relNotes && _relNotes._newUnseen) maybeWhatsChanged(); } catch (e) {} }).catch(() => {});
+}, 75000);   // near-live: a tiny two-field check while you're looking
 document.addEventListener("cache:logged", autoPushSoon);   // a finished check-in is worth syncing
 socialUpdateBadge();       // show any unread count from the last session's cache immediately
-notifsFetch();             // the Cache's own news — seeds first-run read state, arms the news corner (never throws)
 if (socialReady()) socialPoll().catch(() => {});   // pull new messages + friend requests on load
 setInterval(() => { if (!document.hidden && socialReady()) socialPoll().catch(() => {}); }, 75000);   // near-live message check (the open surface polls faster)
 bugPoll().catch(() => {});   // did something you reported get fixed while you were away?

@@ -1217,7 +1217,9 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18); text-align: center;
 }
 .deck-coach::after {
-  content: ""; position: absolute; left: 50%; bottom: -8px; margin-left: -8px;
+  /* --tail-x is set by showDeckCoach() to the deck button's center, relative to the
+     card's left edge; the 50% fallback keeps the old behavior if anchoring bails. */
+  content: ""; position: absolute; left: var(--tail-x, 50%); bottom: -8px; margin-left: -8px;
   width: 14px; height: 14px; transform: rotate(45deg);
   background: var(--panel); border-right: 1.5px solid var(--accent); border-bottom: 1.5px solid var(--accent);
 }
@@ -1809,12 +1811,6 @@ body.sidebar-open .sidebar { transform: none; }
   color: rgba(var(--ink-rgb), 0.3); transition: color 0.15s, transform 0.1s; }
 .lib-star:hover { color: var(--accent); transform: scale(1.2); }
 .lib-item.fav .lib-star { color: var(--accent); }
-.gutter-ctrl { display: flex; align-items: center; gap: 9px; padding: 10px 2px 2px; }
-.gutter-end { font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(var(--ink-rgb), 0.4); flex-shrink: 0; }
-.gutter-track-wrap { position: relative; flex: 1; display: flex; align-items: center; height: 16px; }
-.gutter-slider { flex: 1; accent-color: var(--accent); cursor: pointer; height: 4px; margin: 0; position: relative; z-index: 1; background: transparent; }
-.gt-tick { position: absolute; top: 50%; width: 2px; height: 9px; margin: -4.5px 0 0 -1px; background: rgba(var(--ink-rgb), 0.25); border-radius: 1px; pointer-events: none; }
-.gutter-ctrl + .section-hint { margin-bottom: 14px; }   /* breathing room before the widget list */
 /* Minimalist = luxurious: roomy padding, airy letter-spacing, big calm targets */
 :root[data-menutier="1"] .menu-item { font-size: 15px; padding: 14px 16px; border-radius: 13px; letter-spacing: 0.04em; line-height: 1.3; }
 :root[data-menutier="1"] .lib-item { font-size: 14.5px; padding: 13px 14px; border-radius: 13px; letter-spacing: 0.02em; }
@@ -1924,6 +1920,19 @@ body.sidebar-open .sidebar { transform: none; }
 .char-ev-d { flex: 1; color: var(--ink); }
 .char-ev-t { color: rgba(var(--ink-rgb), 0.45); font-size: 10.5px; white-space: nowrap; }
 .char-empty { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.55); line-height: 1.6; padding: 8px 0; }
+/* "Your activity" — folded to one row in the profile; the full log opens in .act-modal */
+.prof-act {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px;
+  padding: 11px 13px; border-radius: 12px; font-family: inherit; font-size: 12.5px;
+  border: 1px solid var(--edge); background: var(--panel); color: var(--ink); cursor: pointer;
+  text-align: left;
+}
+.prof-act:hover { border-color: var(--accent); }
+.prof-act-i { flex-shrink: 0; }
+.prof-act-txt { flex: 1; min-width: 0; }
+.prof-act-go { flex-shrink: 0; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); }
+.prof-act:hover .prof-act-go { color: var(--accent); }
+.act-list { gap: 0; }
 /* Skills & unlocks — unleashable pills */
 .sk-pills { display: flex; flex-wrap: wrap; gap: 7px; }
 .sk-pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 6px 12px; font-size: 11.5px;
@@ -2618,6 +2627,34 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #3f8f4e; flex-shrink: 0; }
 .status-pill.syncing .sync-dot { animation: syncblink 1s steps(1) infinite; }
 @keyframes syncblink { 50% { opacity: 0.2; } }
+/* ── The cloud chip is a fixed-footprint status LIGHT, not a label ──────────────
+   Its box is identical in every signed-in state, so a sync can never resize it and
+   shove the dock sideways. State reads as colour + SHAPE (never colour alone — the
+   BEAST theme recolours everything, and colour-blind users get nothing from hue);
+   the words live on for screen readers, the tooltip and the account menu. */
+#cloudHealth.cloud-light {
+  position: relative;
+  width: 34px; min-width: 34px; max-width: 34px;
+  padding: 0; gap: 0; justify-content: center; flex: 0 0 auto;
+}
+/* readable by assistive tech, zero layout width (never display:none — that drops it
+   out of the accessibility tree entirely) */
+#cloudHealth.cloud-light .sync-text {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+/* ≥44px hit target without growing the visible pill (mobile SOP #1) */
+#cloudHealth.cloud-light::before { content: ""; position: absolute; inset: -6px; border-radius: 999px; }
+#cloudHealth.cloud-light .sync-dot {
+  width: 10px; height: 10px; box-sizing: border-box; border-radius: 50%;
+  background: rgba(var(--ink-rgb), 0.55); border: 0;
+}
+#cloudHealth[data-cloud="ok"] .sync-dot { background: rgba(var(--ink-rgb), 0.55); }                    /* synced — calm filled dot */
+#cloudHealth[data-cloud="sync"] .sync-dot { background: var(--accent); animation: cloudbreathe 1.2s ease-in-out infinite; }
+#cloudHealth[data-cloud="err"] .sync-dot { background: var(--accent); border-radius: 2px; }            /* needs you — a SQUARE, readable without colour */
+#cloudHealth[data-cloud="warn"] .sync-dot { background: transparent; border: 2px solid var(--accent); } /* hollow ring — not done yet */
+#cloudHealth[data-cloud="off"] .sync-dot { background: transparent; border: 2px solid rgba(var(--ink-rgb), 0.34); }
+@keyframes cloudbreathe { 50% { opacity: 0.28; transform: scale(0.82); } }
 
 /* ── The Dock (one cohesive bottom bar) ───────────────── */
 .dock-bar {
@@ -2713,7 +2750,9 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 /* period selector popover (opens above the dock) */
 /* ── the account menu — the cloud chip's tap menu while signed in ── */
 .acct-menu {
-  position: fixed; z-index: 80; min-width: 232px; max-width: min(320px, calc(100vw - 16px));
+  /* Above the full-screen profile/settings surfaces (.daily-space is 100001) so
+     "Switch account" opens IN FRONT of the profile, not hidden behind it. */
+  position: fixed; z-index: 100050; min-width: 232px; max-width: min(320px, calc(100vw - 16px));
   background: var(--paper); border: 1px solid var(--edge); border-radius: 14px;
   box-shadow: 0 10px 34px rgba(0, 0, 0, 0.22); padding: 8px;
   display: flex; flex-direction: column; gap: 2px;
@@ -2723,6 +2762,14 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
   border-bottom: 1px solid var(--edge-soft); margin-bottom: 5px; overflow-wrap: anywhere;
 }
 .am-who b { color: var(--ink); font-weight: 600; }
+/* the sync detail, in words, since the dock chip is a silent light now */
+.am-who:has(+ .am-sync) { border-bottom: none; margin-bottom: 0; padding-bottom: 3px; }
+.am-sync {
+  font-size: 11px; color: rgba(var(--ink-rgb), 0.6); padding: 0 10px 9px;
+  border-bottom: 1px solid var(--edge-soft); margin-bottom: 5px;
+  line-height: 1.35; overflow-wrap: anywhere;
+}
+.am-sync.bad { color: var(--accent); }
 .am-item {
   display: flex; align-items: center; gap: 9px;
   width: 100%; min-height: 44px; text-align: left; padding: 7px 10px;
@@ -2924,6 +2971,21 @@ a.src-link:hover .src-bankname { color: var(--accent); }
 .bugfix-note { font-size: 12px; color: rgba(var(--ink-rgb), 0.6); line-height: 1.5; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--edge-soft); word-break: break-word; }
 .bugfix-exp { font-size: 12px; color: var(--accent); font-weight: 600; line-height: 1.5; }
 
+/* "What's changed" — the news that opens itself on login / when an update lands */
+.wcn-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; max-height: 70vh; }
+.wcn-lead { font-size: 13.5px; color: var(--ink); line-height: 1.5; }
+.wcn-row { border: 1px solid var(--edge-soft); border-radius: 10px; padding: 10px 12px; background: rgba(var(--ink-rgb), 0.03); }
+.wcn-row-title { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.45; word-break: break-word; }
+.wcn-row-body { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.72); line-height: 1.55; margin-top: 5px; word-break: break-word; }
+.wcn-row-date { font-size: 10.5px; letter-spacing: 0.04em; color: rgba(var(--ink-rgb), 0.45); margin-top: 7px; }
+.wcn-actions { display: flex; justify-content: flex-end; padding-top: 2px; }
+.wcn-ok {
+  font-family: inherit; font-size: 12.5px; min-height: 44px; padding: 8px 20px;
+  border-radius: 10px; cursor: pointer; border: 1px solid var(--edge);
+  background: var(--ink); color: var(--paper);
+}
+.wcn-ok:hover { border-color: var(--accent); }
+
 /* subscription name as a clickable button */
 button.cf-cat { font-family: inherit; border: none; background: none; cursor: pointer; padding: 0; text-align: left; }
 button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
@@ -3055,7 +3117,9 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
   html:not([data-dockmobile]) .dock { background: none; border: none; backdrop-filter: none; -webkit-backdrop-filter: none; padding: 0; overflow: visible; }
   .dock-label { display: none; }
   .dock-bar { justify-content: center; }
-  html:not([data-dockmobile]) .dock-bar > #syncHealth, html:not([data-dockmobile]) .dock-bar > #cloudHealth { display: none !important; }
+  /* #cloudHealth is a normal dock item now, so the generic non-pinned rule above already
+     hides it on phones unless dockMobile is opted in — only sync is still a .dock-bar child */
+  html:not([data-dockmobile]) .dock-bar > #syncHealth { display: none !important; }
   /* the ＋ action button: big, and center-bottom (the dock-bar already centers it on mobile) */
   .ledger-pill.deck-cta { width: 64px; height: 64px; min-height: 64px; }
   .ledger-pill.deck-cta .deck-plus { font-size: 42px; }

@@ -61,5 +61,10 @@ echo "   cache-bust version: $VER"
 # visibility. Both files are already written to be safe for anyone to read.
 cp "$HERE/BACKLOG.md"  "$DEST/roadmap/BACKLOG.md"
 cp "$HERE/FEATURES.md" "$DEST/roadmap/FEATURES.md"
+# ...and into the docs ROOT too, so the IN-APP Roadmap modal can fetch them same-origin on
+# the hosted web app. Without this it 404s and shows "couldn't load BACKLOG.md" — desktop
+# never hit it because server.py serves the repo root.
+cp "$HERE/BACKLOG.md"  "$DEST/BACKLOG.md"
+cp "$HERE/FEATURES.md" "$DEST/FEATURES.md"
 
 echo "web app built → $DEST"
