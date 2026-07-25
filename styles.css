@@ -1164,6 +1164,34 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .cloud-chk { flex: 0 0 auto; font-size: 14px; font-weight: 700; color: #2ec16b; min-width: 16px; text-align: right; }
 .cloud-btn-sub { flex: 0 0 auto; opacity: 0.7; }
 .cloud-opt { font-size: 8.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(var(--ink-rgb), 0.4); border: 1px solid var(--edge-soft); border-radius: 999px; padding: 1px 7px; margin-left: 7px; vertical-align: 2px; }
+/* ── Unlock & recovery (multi-wrap keybox) ─────────────────────────────────────── */
+/* the two-way key choice: ZK ("Just me") vs escrow ("Keep a spare"). Big tap targets. */
+.key-choice { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; margin: 7px 0;
+  border: 1px solid var(--edge-soft); border-radius: 12px; cursor: pointer; min-height: 44px;
+  background: rgba(var(--ink-rgb), 0.015); transition: border-color 0.12s ease, background 0.12s ease; }
+.key-choice:hover { border-color: rgba(var(--ink-rgb), 0.28); }
+.key-choice.on { border-color: var(--accent); background: rgba(var(--accent-rgb, var(--ink-rgb)), 0.06); }
+.key-radio { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%;
+  border: 2px solid rgba(var(--ink-rgb), 0.35); position: relative; }
+.key-choice.on .key-radio { border-color: var(--accent); }
+.key-choice.on .key-radio::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); }
+.key-choice-t { flex: 1 1 auto; min-width: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink); }
+.key-rec { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+  color: #2ec16b; border: 1px solid rgba(46, 193, 107, 0.5); border-radius: 999px; padding: 1px 6px; margin-left: 4px; white-space: nowrap; }
+.key-pass { margin: 2px 0 8px; }
+.key-code-opt { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.4;
+  color: var(--ink); margin: 8px 2px 6px; cursor: pointer; }
+.key-code-opt input { flex: 0 0 auto; width: 17px; height: 17px; margin-top: 1px; accent-color: var(--accent); }
+.key-file-note { margin-top: 4px; }
+.key-recover { margin-top: 10px; }
+/* the unlock-methods manager (after first backup) */
+.key-method { display: flex; gap: 10px; align-items: center; justify-content: space-between;
+  padding: 9px 11px; margin: 6px 0; border: 1px solid var(--edge-soft); border-radius: 11px; min-height: 44px; }
+.key-method.on { border-color: rgba(46, 193, 107, 0.4); }
+.key-method.key-esc.on { border-color: rgba(214, 141, 46, 0.5); }
+.key-method-t { flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
+.key-sub { font-size: 10.5px; font-weight: 400; color: rgba(var(--ink-rgb), 0.55); line-height: 1.35; }
+.key-method-acts { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; }
 .status-pill[hidden] { display: none !important; }   /* the hidden attribute must win over the pill's display:inline-flex */
 /* sync lives in the hamburger menu on phones only — desktop keeps its pill */
 .menu-sync-row { display: none; }

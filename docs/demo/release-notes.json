@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-25-zero-knowledge-default",
+    "date": "2026-07-25",
+    "title": "Your cache is yours — zero-knowledge by default",
+    "body": "New accounts are now sealed so only you can open them — we can't read your data, by math, not policy. So you can't get locked out, every account gets a recovery file to save at setup (add a recovery code too if you like), and any one of them opens your cache. Prefer we keep a spare key to help you back in? That's now a clear opt-in checkbox, off by default. Manage all your unlock methods any time in Settings → Cache cloud. Existing accounts keep working exactly as before."
+  },
+  {
     "id": "2026-07-24-browser-bank-connect",
     "date": "2026-07-24",
     "title": "Connect your bank right from your phone",
