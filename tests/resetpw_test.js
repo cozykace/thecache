@@ -30,12 +30,14 @@ function mkFetch() {
   return async (url, opts) => {
     LAST = { url, opts, body: JSON.parse((opts && opts.body) || "null"), ct: opts && opts.headers && opts.headers["Content-Type"], method: opts && opts.method };
     if (NEXT === "throw") throw new Error("network down");
-    return { status: NEXT.status, ok: NEXT.status >= 200 && NEXT.status < 300, async json() { return {}; } };
+    return { status: NEXT.status, ok: NEXT.status >= 200 && NEXT.status < 300, async json() { return (NEXT && NEXT.jsonBody) || {}; } };
   };
 }
 const fetch = mkFetch();       // app.js cloudRequestReset uses fetch
-const realFetch = fetch;       // webcache requestReset uses realFetch
+const realFetch = fetch;       // webcache requestReset / confirm* use realFetch
 const cloudUrl = () => "https://cloud.example";
+// mirror of webcache's errMsg (confirmVerification/confirmPasswordReset call it on the error path)
+const errMsg = (d) => { if (!d) return ""; try { const f = Object.values(d.data || {})[0]; if (f && f.message) return f.message; } catch (e) {} return d.message || ""; };
 
 // function declarations leak out of a direct eval into this scope — so after eval we can
 // call cloudRequestReset / resetRouteForMethods / requestReset directly (no re-declaration).
@@ -95,6 +97,56 @@ async function grab(fn) { try { return { ret: await fn() }; } catch (e) { return
   ok("route: no keybox methods ([]) → open (login path catches v1 separately)", resetRouteForMethods([]) === "open");
   ok("route: null/garbage → open (never crashes the login handler)", resetRouteForMethods(null) === "open" && resetRouteForMethods(undefined) === "open");
   ok("route: order-independent", resetRouteForMethods(["pass", "esc"]) === "open" && resetRouteForMethods(["code", "file", "pass"]) === "recover");
+
+  // ── 5b. post-login recovery nudge (regression: a failed/empty keybox read must NOT nag escrow) ──
+  ok("nudge: zk vault, locked out → recover", resetLoginNeedsRecovery(true, false, ["pass"]) === true);
+  ok("nudge: zk vault (file+code), locked out → recover", resetLoginNeedsRecovery(true, false, ["file", "code"]) === true);
+  ok("nudge: escrow vault, locked out → NO nag", resetLoginNeedsRecovery(true, false, ["esc"]) === false);
+  ok("nudge: escrow+pass, locked out → NO nag (a spare exists)", resetLoginNeedsRecovery(true, false, ["esc", "pass"]) === false);
+  ok("nudge: ⚠ FAILED/EMPTY read ([]) → NO nag (the escrow-blip bug — must stay false)", resetLoginNeedsRecovery(true, false, []) === false);
+  ok("nudge: device already holds the key → NO nag", resetLoginNeedsRecovery(true, true, ["pass"]) === false);
+  ok("nudge: no vault yet → NO nag", resetLoginNeedsRecovery(false, false, ["pass"]) === false);
+  ok("nudge: null/garbage methods → NO nag (never crashes)", resetLoginNeedsRecovery(true, false, null) === false && resetLoginNeedsRecovery(true, false, undefined) === false);
+
+  // ── 6. on-brand confirm landing (webcache) — hash parser ──
+  const pr = parseConfirmHashStr("#confirm-password-reset/eyJhbG.payload.sig");
+  ok("hash: parses a reset link → kind + token", pr && pr.kind === "confirm-password-reset" && pr.token === "eyJhbG.payload.sig");
+  const pv = parseConfirmHashStr("#confirm-verification/tok123");
+  ok("hash: parses a verification link", pv && pv.kind === "confirm-verification" && pv.token === "tok123");
+  ok("hash: tolerates a leading slash (#/confirm-...)", (parseConfirmHashStr("#/confirm-verification/tok") || {}).token === "tok");
+  ok("hash: unsupported kind (email-change) → null, falls through to the gate", parseConfirmHashStr("#confirm-email-change/tok") === null);
+  ok("hash: unknown hash → null", parseConfirmHashStr("#board") === null && parseConfirmHashStr("#") === null && parseConfirmHashStr("") === null);
+  ok("hash: missing token → null (never a confirm gate with an empty token)", parseConfirmHashStr("#confirm-password-reset/") === null);
+  ok("hash: no slash → null", parseConfirmHashStr("#confirm-password-reset") === null);
+  ok("hash: a token can't smuggle a second kind — everything after the 1st slash is the token",
+    parseConfirmHashStr("#confirm-verification/a/b").token === "a/b");
+
+  // ── 7. confirm endpoint payloads (webcache) ──
+  NEXT = { status: 204 }; LAST = null;
+  ok("verify: 204 → true", (await grab(() => confirmVerification("tokV"))).ret === true);
+  ok("verify: POSTs confirm-verification with exactly { token }",
+    LAST.url === "https://cloud.example/api/collections/users/confirm-verification" &&
+    LAST.method === "POST" && LAST.body.token === "tokV" && Object.keys(LAST.body).length === 1);
+  NEXT = { status: 400, jsonBody: { data: { token: { message: "Invalid or expired token." } } } };
+  ok("verify: 400 → throws the server's message", (await grab(() => confirmVerification("bad"))).err === "Invalid or expired token.");
+  NEXT = { status: 400, jsonBody: {} };
+  ok("verify: 400 with no body → friendly fallback", (await grab(() => confirmVerification("bad"))).err === "this link is invalid or has expired");
+
+  NEXT = { status: 204 }; LAST = null;
+  ok("reset-confirm: 204 → true", (await grab(() => confirmPasswordReset("tokR", "newpass12", "newpass12"))).ret === true);
+  ok("reset-confirm: POSTs confirm-password-reset with { token, password, passwordConfirm }",
+    LAST.url === "https://cloud.example/api/collections/users/confirm-password-reset" &&
+    LAST.body.token === "tokR" && LAST.body.password === "newpass12" && LAST.body.passwordConfirm === "newpass12" &&
+    Object.keys(LAST.body).length === 3);
+  ok("reset-confirm: the new password rides the BODY, never the URL",
+    LAST.url.indexOf("newpass12") < 0 && LAST.url.indexOf("tokR") < 0);
+  NEXT = { status: 400, jsonBody: { data: { password: { message: "Must be at least 8 characters." } } } };
+  ok("reset-confirm: 400 → surfaces the server's message", (await grab(() => confirmPasswordReset("t", "x", "x"))).err === "Must be at least 8 characters.");
+
+  // ── 8. confirmTokenEmail (prefill only) ──
+  const mkJwt = (obj) => "h." + Buffer.from(JSON.stringify(obj)).toString("base64").replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_") + ".s";
+  ok("token-email: pulls the email from a reset JWT (prefill)", confirmTokenEmail(mkJwt({ email: "jane@doe.test" })) === "jane@doe.test");
+  ok("token-email: junk token → '' (never throws)", confirmTokenEmail("not-a-jwt") === "" && confirmTokenEmail("") === "" && confirmTokenEmail(null) === "");
 
   console.log(pass + " passed, " + fail + " failed");
   process.exit(fail ? 1 : 0);

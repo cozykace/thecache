@@ -4113,6 +4113,18 @@ function resetRouteForMethods(methods) {
   if (!Array.isArray(methods) || methods.length === 0) return "open";
   return methods.indexOf("esc") >= 0 ? "open" : "recover";
 }
+// Should a just-completed login nudge the user toward the "I can't get in" recovery flow?
+// YES only when a vault exists, this device doesn't already hold the key, AND the keybox
+// DEFINITIVELY shows a passphrase-sealed (zero-knowledge) vault. The definitiveness is the
+// whole point: cloudListMethods swallows its own errors and returns [] (it never throws or
+// returns null), so a transient read blip — or an escrow account whose device just dropped the
+// key (logout / expiry / fresh device / right after a reset) — yields []. resetRouteForMethods([])
+// is "open", so this returns false and the scary "sealed by your passphrase" line is never shown
+// to an escrow user (escrow has no passphrase; it opens silently on the next pull). Only a real
+// non-esc method list ("pass"/"file"/"code") routes to "recover". holdsKey = !!cloudKeyGet().
+function resetLoginNeedsRecovery(hasVault, holdsKey, methods) {
+  return !!hasVault && !holdsKey && resetRouteForMethods(methods) === "recover";
+}
 function cloudLogout() {
   const s = cloudState();
   cloudKeySet("");   // drop this device's vault data key (explicit logout is stricter than an expiry)
@@ -6450,17 +6462,19 @@ function openSettings() {
       // data. If this account's vault is passphrase-sealed (zero-knowledge / v1) and this
       // device doesn't already hold the key, say so plainly and point at the recovery flow —
       // never let a fresh login (e.g. right after a password reset) imply the data is back.
-      let methods = null;
-      try { methods = await cloudListMethods(); } catch (e) { methods = null; }
+      let methods = [];
+      try { methods = await cloudListMethods(); } catch (e) {}
       const st = cloudState();
       const hasVault = !!(st.lastPush || st.mode || st.recordId);
-      // Only claim "still sealed by your passphrase" on a DEFINITIVE read: an escrow account
-      // routes to "open" (never nagged), a zk read routes to "recover", and an empty read
-      // while a vault exists = a v1 legacy passphrase vault. If the read itself FAILED
-      // (methods === null), don't guess — the generic message + the recover button that
-      // refreshCloud shows whenever this device holds no key still cover the user.
-      const needsKey = hasVault && !cloudKeyGet() && Array.isArray(methods) &&
-        (resetRouteForMethods(methods) === "recover" || methods.length === 0);   // [] = v1 legacy passphrase vault
+      // Only nudge toward recovery when the read DEFINITIVELY shows a passphrase-sealed
+      // (zero-knowledge, non-escrow) vault. resetRouteForMethods returns "recover" ONLY when
+      // real non-esc methods are present — so an escrow read ("esc"), an EMPTY read, and a
+      // FAILED read (cloudListMethods swallows its own errors and returns [] — it never throws
+      // or returns null) all route to "open" and never show the scary message. That's the whole
+      // point: a transient blip must never tell an escrow user their data is "sealed by your
+      // passphrase" (escrow has none; it opens silently). v1-legacy vaults (no keybox → []) don't
+      // get this extra line, but refreshCloud still shows them the recover button via !holdsKey.
+      const needsKey = resetLoginNeedsRecovery(hasVault, !!cloudKeyGet(), methods);
       if (needsKey) {
         clSay("✓ Logged in as " + st.email + ". Your cache is still sealed by your passphrase — unlock it below with your recovery file or code.", "ok");
         refreshCloud();   // reveal the "I can’t get in — use my recovery file or code" button
