@@ -3669,6 +3669,41 @@ function renderHealth() {
     '<span class="health-ring"></span><span class="health-lbl">cache health</span><span class="health-pct">' + h.score + "%</span></button>";
   el.querySelector(".health-chip").addEventListener("click", openHealth);
 }
+// Nobody enjoys resetting a password. So when someone logs in right after doing it, throw them a
+// tiny party. Triggered by a flag the reset flow sets (money.justReset) + a ?reset=done return
+// param, consumed ONCE on the next login (surviving a login-triggered reload — the flag persists,
+// and both the boot check and the inline login check are gated on being signed in).
+const RESET_CHEER_KEY = "money.justReset";
+function maybeCelebrateReset() {
+  try {
+    if (localStorage.getItem(RESET_CHEER_KEY) && cloudState().token) {
+      localStorage.removeItem(RESET_CHEER_KEY);
+      celebratePasswordReset();
+    }
+  } catch (e) {}
+}
+function celebratePasswordReset() {
+  if (document.getElementById("resetCheer")) return;
+  const back = document.createElement("div"); back.className = "reset-cheer-back"; back.id = "resetCheerBack";
+  const modal = document.createElement("div"); modal.className = "reset-cheer"; modal.id = "resetCheer";
+  modal.setAttribute("role", "dialog"); modal.setAttribute("aria-label", "Password reset — congratulations");
+  const fx = document.createElement("div"); fx.className = "reset-cheer-fx";   // fixed layer so confetti is viewport-relative
+  const close = () => { modal.remove(); back.remove(); fx.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  modal.innerHTML =
+    '<div class="reset-cheer-face">😄</div>' +
+    '<div class="reset-cheer-big">CONGRATULATIONS!</div>' +
+    '<div class="reset-cheer-sub">on resetting your password 🎉</div>' +
+    '<div class="reset-cheer-note">Truly nobody enjoys that. You did it — welcome back to your cache.</div>' +
+    '<button class="reset-cheer-go" type="button">Onward</button>';
+  document.body.appendChild(back); document.body.appendChild(fx); document.body.appendChild(modal);
+  modal.querySelector(".reset-cheer-go").addEventListener("click", close);
+  try { dailyBurst(fx, window.innerWidth / 2, window.innerHeight * 0.38); } catch (e) {}
+  const face = modal.querySelector(".reset-cheer-face");
+  if (face && !reduceMotion() && face.animate) face.animate([{ transform: "scale(.3) rotate(-15deg)" }, { transform: "scale(1.2) rotate(8deg)" }, { transform: "scale(1)" }], { duration: 650, easing: "cubic-bezier(.2,1.3,.4,1)" });
+  setTimeout(() => { if (fx.isConnected) fx.remove(); }, 4000);   // clear the confetti layer even if the card stays open
+}
+
 function openHealth() {
   const back = document.createElement("div"); back.className = "cat-backdrop";
   const modal = document.createElement("div"); modal.className = "cat-modal health-modal";
@@ -6375,7 +6410,7 @@ function openSettings() {
   clLogin.addEventListener("click", async () => {
     clSay("Logging in…", "work");
     const before = cloudState().userId;
-    try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); if (reloadIfSwitched(before)) return; refreshCloud(); cloudChip(); cloudAutoPull(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); }
+    try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); if (reloadIfSwitched(before)) return; refreshCloud(); cloudChip(); cloudAutoPull(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); maybeCelebrateReset(); }
     catch (e) { clSay("Login failed: " + (e.message || e), "err"); reloadIfAborted(); }
   });
   clLogout.addEventListener("click", () => {
@@ -13444,6 +13479,15 @@ Promise.resolve(cloudAutoPull())
   .then(() => notifsFetch())
   .then(() => { try { maybeWhatsChanged(); } catch (e) {} })
   .catch(() => {});
+// A password reset that returns to the app via ?reset=done arms the login celebration; then
+// maybeCelebrateReset fires it once we're signed in (covers a login that reloaded the page).
+try {
+  if (/[?&#]reset=done\b/.test(location.href)) {
+    localStorage.setItem(RESET_CHEER_KEY, "1");
+    try { history.replaceState(null, "", location.pathname + location.hash.replace(/[?&]?reset=done\b/, "")); } catch (e) {}
+  }
+} catch (e) {}
+try { maybeCelebrateReset(); } catch (e) {}
 let _notesPolled = 0;
 setInterval(() => {
   if (document.hidden) return;
