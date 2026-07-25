@@ -402,6 +402,22 @@
     if (!r.ok) throw new Error(errMsg(d) || "couldn't create account");
     return login(email, pass);
   }
+  // Forgot the ACCOUNT password — PocketBase mails a reset link (public endpoint).
+  // Mirror of app.js cloudRequestReset: ⚠️ ENUMERATION-SAFE — never branches on whether
+  // the account exists (PocketBase 204s either way, and we fold every 4xx into the same
+  // success). Only TRANSPORT problems (offline / rate-limited / server error) differ,
+  // and none of those reveal existence. Never touches or stores a reset token — the
+  // link opens PocketBase's own reset page.
+  async function requestReset(email) {
+    var base = cloudUrl(), r;
+    try {
+      r = await realFetch(base + "/api/collections/users/request-password-reset",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email }) });
+    } catch (e) { throw new Error("offline"); }
+    if (r.status === 429) throw new Error("rate");
+    if (r.status >= 500) throw new Error("server");
+    return true;   // 204 OR any 4xx → same calm answer
+  }
   async function pullVault(pass) {
     var s = cloudState();
     if (!s.token) throw new Error("not logged in");
@@ -683,6 +699,10 @@
       ".wc-paths a{font-size:11.5px;color:rgba(var(--ink-rgb,17,17,17),.55);text-decoration:none;padding:10px 6px}" +
       ".wc-paths a:hover{color:var(--accent,#FFD409);text-decoration:underline}" +
       ".wc-paths span{color:rgba(var(--ink-rgb,17,17,17),.3)}" +
+      ".wc-forgot{text-align:center;margin-top:2px}" +
+      ".wc-forgot-panel{display:flex;flex-direction:column;gap:8px;margin-top:8px;text-align:left;padding-top:10px;border-top:1px solid var(--edge,#ddd)}" +
+      ".wc-forgot-panel .wc-sub{text-align:left;margin:0}" +
+      "#wcForgotSend:disabled{opacity:.55;cursor:default}" +
       ".wc-hidden{display:none !important}";
     document.head.appendChild(st);
 
@@ -719,6 +739,18 @@
         '<button class="wc-btn wc-acct" id="wcSignup"' + (returning ? ' style="display:none"' : '') + '>Create account</button>' +
       '</div>' +
       '<div class="wc-msg" id="wcMsg"></div>' +
+      // Forgot your ACCOUNT password? Rides with the .wc-acct group (hidden on the returning
+      // gate until "Use a different account" reveals the sign-in fields). Honest about the
+      // two secrets: a reset gets you into the account, not into a passphrase-sealed vault.
+      '<div class="wc-forgot wc-acct"' + (returning ? ' style="display:none"' : '') + '>' +
+        '<div class="wc-link" id="wcForgot">Forgot password?</div>' +
+        '<div class="wc-forgot-panel wc-hidden" id="wcForgotPanel">' +
+          '<div class="wc-sub">We’ll email you a link to set a new password. A reset gets you back into your <b>account</b> — if you sealed your cache with a <b>passphrase</b> (zero-knowledge), you’ll still need your <b>recovery file or code</b> to open your data.</div>' +
+          '<div class="wc-field"><label>Email</label><input id="wcForgotEmail" type="email" autocomplete="off" placeholder="you@email.com"></div>' +
+          '<button class="wc-btn" id="wcForgotSend">Send reset link</button>' +
+          '<div class="wc-msg" id="wcForgotMsg"></div>' +
+        '</div>' +
+      '</div>' +
       (returning ? '<div class="wc-link" id="wcSwitch">Use a different account</div>' : '') +
       // paths for the curious — the front door welcomes strangers too
       '<div class="wc-paths">' +
@@ -803,6 +835,46 @@
       if (!email || !pass) { say("Pick an email and a password to create your account.", "err"); return; }
       say("Creating your account…");
       try { await signup(email, pass); await enter(val("#wcPhrase")); } catch (e) { fail(e); }
+    });
+
+    // ── Forgot the account password ──────────────────────────────────────────
+    var forgot = g.querySelector("#wcForgot"), forgotPanel = g.querySelector("#wcForgotPanel"),
+        forgotEmail = g.querySelector("#wcForgotEmail"), forgotSend = g.querySelector("#wcForgotSend"),
+        forgotMsg = g.querySelector("#wcForgotMsg");
+    function fSay(t, kind) { if (!forgotMsg) return; forgotMsg.textContent = t; forgotMsg.className = "wc-msg" + (kind ? " " + kind : ""); }
+    var _fLeft = 0, _fTimer = null;
+    function fCooldown(secs) {
+      _fLeft = secs; if (_fTimer) clearInterval(_fTimer);
+      function tick() {
+        if (!forgotSend) return;
+        if (_fLeft <= 0) { clearInterval(_fTimer); _fTimer = null; forgotSend.disabled = false; forgotSend.textContent = "Send reset link"; return; }
+        forgotSend.disabled = true; forgotSend.textContent = "Resend in " + _fLeft + "s"; _fLeft--;
+      }
+      tick(); _fTimer = setInterval(tick, 1000);
+    }
+    if (forgot) forgot.addEventListener("click", function () {
+      if (!forgotPanel) return;
+      var open = !forgotPanel.classList.contains("wc-hidden");
+      forgotPanel.classList.toggle("wc-hidden", open);
+      if (!open && forgotEmail) { forgotEmail.value = val("#wcEmail"); fSay(""); try { forgotEmail.focus(); } catch (e) {} }
+    });
+    if (forgotSend) forgotSend.addEventListener("click", async function () {
+      if (forgotSend.disabled) return;   // mid-cooldown — debounced
+      var em = forgotEmail ? forgotEmail.value.trim() : "";
+      if (!em || em.indexOf("@") < 0) { fSay("Enter the email for your account.", "err"); return; }
+      forgotSend.disabled = true;   // in-flight: block a double-click firing a second request (and the user's own 429)
+      fSay("Sending…");
+      try {
+        await requestReset(em);
+        fSay("If that email has an account, a reset link is on its way. Open it, set a new password, then come back and log in.", "ok");
+        fCooldown(45);   // keeps it disabled + counts down a resend cooldown
+      } catch (e) {
+        forgotSend.disabled = false;   // a transport error — let them retry
+        var m = e && e.message;
+        if (m === "rate") fSay("Hold on a moment before requesting another reset link.", "err");
+        else if (m === "offline") fSay("Couldn’t reach the cloud — check your connection and try again.", "err");
+        else fSay("The cloud had a hiccup — try again in a moment.", "err");
+      }
     });
 
     if (_expiredMsg) { say(_expiredMsg, "err"); _expiredMsg = ""; }

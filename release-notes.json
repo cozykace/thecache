@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-25-forgot-password-reset",
+    "date": "2026-07-25",
+    "title": "Forgot your password? Reset it yourself",
+    "body": "A quiet \"Forgot password?\" link now sits under the sign-in fields — on the web and in Settings → Cache cloud. Confirm your email and we send a reset link. It always says the same calm thing whether or not that email has an account, so it can't be used to find out who's registered. And it's honest about what a reset does: getting back into your account isn't the same as unlocking your data. If your cache is sealed just for you (zero-knowledge), the link gets you in, but your data still opens only with your recovery file or code — so the app says exactly that and points you there, instead of pretending your data is back. Accounts that keep a spare key with us just open as normal."
+  },
+  {
     "id": "2026-07-25-zero-knowledge-default",
     "date": "2026-07-25",
     "title": "Your cache is yours — zero-knowledge by default",
