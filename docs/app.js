@@ -3779,13 +3779,118 @@ async function keyboxMake(kb64, pass) {
   }
   return JSON.stringify({ m: "esc", k: kb64 });   // escrow: the account is the key
 }
-async function keyboxOpen(boxStr, pass) {
-  const box = JSON.parse(boxStr);
-  if (box.m === "esc") return box.k;
-  if (!pass) throw new Error("zero-knowledge vault — enter your passphrase once on this device");
-  const kek = await _deriveKey(pass, _unb64(box.salt));
-  const raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(box.iv) }, kek, _unb64(box.ct));
+// ── Multi-wrap keybox (v2): ONE vault key K, several independent WRAPPINGS ───────
+// The v1 keybox held exactly one wrapping — escrow ({m:"esc"}) OR passphrase
+// ({m:"zk"}). v2 holds a LIST, side by side: {v:2, wraps:[…]}. Each wrap seals the
+// SAME K under a different secret, so ANY one opens the vault and NONE weakens the
+// others: adding a wrap never touches the rest, and removing escrow drops only the
+// raw key. Both v1 shapes still open FOREVER (migrate-on-read) — a v1 box is never
+// rewritten destructively; it becomes v2 only on the next deliberate keybox edit.
+//   wrap types:  t:"pass" (passphrase) · t:"file" (recovery file) · t:"code"
+//   (recovery code) — all PBKDF2-wrapped {kdf,iter,salt,iv,ct};  t:"esc" — the raw
+//   key {k}, the escrow spare, the ONLY shape the SERVER can read.
+const KEYBOX_ITER = 210000;
+async function _keyboxWrap(t, kb64, secret) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const kek = await _deriveKey(secret, salt);
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, kek, _unb64(kb64));
+  return { t, kdf: "PBKDF2-SHA256", iter: KEYBOX_ITER, salt: _b64(salt), iv: _b64(iv), ct: _b64(ct) };
+}
+async function _keyboxUnwrap(wrap, secret) {
+  const kek = await _deriveKey(secret, _unb64(wrap.salt));
+  const raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(wrap.iv) }, kek, _unb64(wrap.ct));
   return _b64(raw);
+}
+// Normalize ANY keybox shape (v1 esc, v1 zk, v2) to the v2 wrap list, so every
+// helper below reads one shape. A v1 box is read, never rewritten, by this.
+function _keyboxParse(box) { return typeof box === "string" ? JSON.parse(box) : box; }
+function keyboxWraps(box) {
+  box = _keyboxParse(box);
+  if (Array.isArray(box.wraps)) return box.wraps;
+  if (box.m === "esc") return [{ t: "esc", k: box.k }];
+  if (box.m === "zk") return [{ t: "pass", kdf: box.kdf, iter: box.iter, salt: box.salt, iv: box.iv, ct: box.ct }];
+  return [];
+}
+function keyboxHasEsc(box) { return keyboxWraps(box).some((w) => w.t === "esc"); }
+function keyboxEscKey(box) { const w = keyboxWraps(box).find((x) => x.t === "esc"); return w ? w.k : null; }
+// "esc" ⟺ an escrow wrap is present ⟺ the server holds a raw key it could open with.
+// The downgrade guard keys off this: a zk-mode device must never accept an esc box.
+function keyboxMode(box) { return keyboxHasEsc(box) ? "esc" : "zk"; }
+function keyboxMethods(box) { return keyboxWraps(box).map((w) => w.t); }
+// Build a v2 keybox from whatever secrets are in hand. opts: {passphrase, fileKey,
+// code, escrow}. Only the methods present are wrapped; escrow adds the raw key.
+async function keyboxBuild(kb64, opts) {
+  opts = opts || {};
+  const wraps = [];
+  if (opts.passphrase) wraps.push(await _keyboxWrap("pass", kb64, opts.passphrase));
+  if (opts.fileKey) wraps.push(await _keyboxWrap("file", kb64, opts.fileKey));
+  if (opts.code) wraps.push(await _keyboxWrap("code", kb64, opts.code));
+  if (opts.escrow) wraps.push({ t: "esc", k: kb64 });
+  return JSON.stringify({ v: 2, wraps });
+}
+// Return a NEW keybox string with `wrap` added (always v2). Migrates a v1 box to v2
+// first, PRESERVING its existing wrap — so adding a method never drops the one you
+// already had. A same-type wrap is REPLACED (re-issuing a recovery file/code, or
+// changing the passphrase, retires the old one) while every other wrap stays intact.
+function keyboxAddWrap(boxStr, wrap) {
+  const wraps = keyboxWraps(boxStr).filter((w) => w.t !== wrap.t);
+  wraps.push(wrap);
+  return JSON.stringify({ v: 2, wraps });
+}
+// Return a NEW keybox string with every wrap of type `t` removed. Removing "esc"
+// takes the raw key off the server; the surviving wraps still seal the SAME K, so
+// nobody is locked out of the methods they kept.
+function keyboxRemoveType(boxStr, t) {
+  return JSON.stringify({ v: 2, wraps: keyboxWraps(boxStr).filter((w) => w.t !== t) });
+}
+// Open ANY keybox → the raw vault key. `opts` is a bare passphrase string
+// (back-compat) OR {passphrase, fileKey, code}. Explicit recovery secrets win, then
+// the passphrase, then a silent escrow unlock (the account is the key). A v2 box
+// with a "pass" wrap but no secret in hand asks for the passphrase, exactly like v1.
+async function keyboxOpen(boxStr, opts) {
+  const box = JSON.parse(boxStr);
+  const o = (opts && typeof opts === "object") ? opts : { passphrase: opts || "" };
+  const wraps = keyboxWraps(box);
+  const find = (t) => wraps.find((w) => w.t === t);
+  if (o.code && find("code")) return _keyboxUnwrap(find("code"), o.code);
+  if (o.fileKey && find("file")) return _keyboxUnwrap(find("file"), o.fileKey);
+  if (o.passphrase && find("pass")) return _keyboxUnwrap(find("pass"), o.passphrase);
+  const esc = find("esc"); if (esc) return esc.k;
+  if (find("pass")) throw new Error("zero-knowledge vault — enter your passphrase once on this device");
+  throw new Error("no unlock method for this vault on this device — use your recovery file or code");
+}
+// ── Recovery secrets (the nets that keep a forgotten passphrase from meaning "gone") ──
+// Both are high-entropy secrets that wrap the SAME vault key K, side by side in the
+// keybox. The FILE holds its secret in a downloaded .cachekey (nothing to memorize);
+// the CODE is shown once for paper / a password manager. Neither is stored by the app
+// after it is wrapped — the user holds it — so re-issuing mints a fresh one.
+function _b64url(buf) { return _b64(buf).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+// Crockford base32 — no I L O U, so it can't be misread on paper or turn into a word.
+const RECOVERY_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+function recoveryFileSecret() { return _b64url(crypto.getRandomValues(new Uint8Array(32))); }   // 256-bit file secret
+function recoveryCode() {
+  // 20 chars × 5 bits = 100 bits. 256 % 32 === 0, so byte % 32 is perfectly uniform (no modulo bias).
+  const b = crypto.getRandomValues(new Uint8Array(20));
+  let s = ""; for (let i = 0; i < b.length; i++) { if (i && i % 5 === 0) s += "-"; s += RECOVERY_ALPHABET[b[i] % 32]; }
+  return s;   // XXXXX-XXXXX-XXXXX-XXXXX
+}
+// Forgiving normalize: uppercase, map the classic look-alikes (O→0, I/L→1), then keep
+// only alphabet chars (drops the dashes and any stray spaces). Idempotent on a real code.
+function recoveryCodeNormalize(s) {
+  s = String(s || "").toUpperCase().replace(/O/g, "0").replace(/[IL]/g, "1");
+  let out = ""; for (const c of s) if (RECOVERY_ALPHABET.indexOf(c) >= 0) out += c;
+  return out;
+}
+function recoveryFilePayload(secret) {
+  return { app: "thecache", kind: "recovery-file", v: 1, secret: secret,
+    note: "This is a recovery key for your Cache. Anyone who has this file can open your cache, so keep it somewhere safe and private (a password manager, a USB stick, a printout in a drawer). If you ever get locked out, open the app, choose “I can’t get in”, and load this file." };
+}
+// Pull the secret back out of an uploaded .cachekey. Returns null on anything that
+// isn't one of our recovery files, so the caller can say so plainly.
+function parseRecoveryFile(text) {
+  let o; try { o = JSON.parse(text); } catch (e) { return null; }
+  if (!o || o.kind !== "recovery-file" || typeof o.secret !== "string" || !o.secret) return null;
+  return o.secret;
 }
 async function downloadEncryptedBackup(pass) {
   const d = await (await fetch("/api/export-data")).json();
@@ -3796,6 +3901,17 @@ async function downloadEncryptedBackup(pass) {
   a.download = "cache-backup-" + new Date().toISOString().slice(0, 10) + ".cache";
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
   return d.count || Object.keys(d.files || {}).length;
+}
+// Download the recovery key as a small .cachekey file. Returns true on a real click —
+// callers MUST treat a thrown error / falsy as "the net did NOT land" and say so
+// loudly, never proceed as if the user is protected.
+function downloadRecoveryFile(secret) {
+  const payload = JSON.stringify(recoveryFilePayload(secret), null, 2);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+  a.download = "cache-recovery-" + new Date().toISOString().slice(0, 10) + ".cachekey";
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+  return true;
 }
 async function restoreEncryptedBackup(file, pass) {
   let obj;
@@ -4208,7 +4324,14 @@ function restoreLocal(local, meta) {
   if (!local || typeof local !== "object") return 0;
   return mergeRemoteLocal(local, meta || {}) ? 1 : 0;
 }
-async function cloudPush(passphrase) {
+// opts (all optional, only the signup/settings flows pass them):
+//   escrow  — the user explicitly chose to keep a spare key with The Cache. Decides
+//             the FIRST keybox's shape; never inferred from an empty passphrase.
+// Existing/auto pushes pass no opts and behave exactly as before. Recovery FILE/CODE
+// wraps are added AFTER the first push via cloudUpdateKeybox, never folded in here —
+// so background pushes can never accidentally rewrite or drop a recovery wrap.
+async function cloudPush(passphrase, opts) {
+  opts = opts || {};
   if (!cloudState().token) throw new Error("log in first");
   if (cloudPaused()) throw new Error("cloud sync is off — flip “Sync to cloud” on first (nothing leaves this device while it's off)");
   if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again in Step 1 (your data is safe)");
@@ -4223,11 +4346,12 @@ async function cloudPush(passphrase) {
   if (id && (!rec || !rec.id)) throw new Error("cloud hiccup — couldn't read your vault, try again");
   const wantZk = !!(passphrase && passphrase.length >= 6);
   const curBox = rec && rec.keybox ? JSON.parse(rec.keybox) : null;
-  const curMode = curBox ? (curBox.m || "esc") : null;
+  const curMode = curBox ? keyboxMode(curBox) : null;   // "esc" ⟺ an escrow wrap is present (v1 or v2)
   if (curBox) keyboxGuard(curBox);   // BEFORE any adoption — never touch a downgraded keybox
   // make sure this device holds the data key: adopt from the keybox, or mint one
   let kb = cloudKeyGet(), mintedKey = false;
-  if (kb && curBox && curBox.m === "esc" && curBox.k && curBox.k !== kb) { kb = curBox.k; cloudKeySet(kb); }  // server keybox is the authority — heal key divergence
+  const escK = curBox ? keyboxEscKey(curBox) : null;   // the raw escrow key, from either shape (null if no escrow wrap)
+  if (kb && escK && escK !== kb) { kb = escK; cloudKeySet(kb); }  // server keybox is the authority — heal key divergence (escrow only)
   if (!kb && curBox) { kb = await keyboxOpen(rec.keybox, passphrase || ""); cloudKeySet(kb); }
   if (!kb) {
     // a zero-knowledge account whose keybox vanished must ask BEFORE minting —
@@ -4331,10 +4455,13 @@ async function cloudPush(passphrase) {
     else writeKeybox = true;   // zk keybox restored, passphrase in hand
   } else if (!curBox) {
     writeKeybox = true;   // first keybox for this vault
-  } else if (wantZk && curMode === "esc") {
-    // escrow → zero-knowledge upgrade: ROTATE the key. The old key sat on the
-    // server in plaintext — wrapping that same key would be zero-knowledge in
-    // name only. Fresh key, blob re-sealed below, other devices re-ask once.
+  } else if (wantZk && curMode === "esc" && !Array.isArray(curBox.wraps)) {
+    // LEGACY escrow → zero-knowledge upgrade: ROTATE the key. The old key sat on the
+    // server in plaintext — wrapping that same key would be zero-knowledge in name
+    // only. Fresh key, blob re-sealed below, other devices re-ask once. Restricted to
+    // LEGACY boxes: a v2 box carries recovery wraps (file/code) that only their held
+    // secrets could re-wrap, so a v2 escrow account changes methods through Settings
+    // (cloudUpdateKeybox, additive, no rotation) — the push never rewrites its keybox.
     kb = await cloudGenKey(); cloudKeySet(kb); mintedKey = true;
     writeKeybox = true;
   }
@@ -4357,7 +4484,7 @@ async function cloudPush(passphrase) {
     return { count, bytes: s.bytes || 0, unchanged: true };
   }
   const body = { blob: await cloudSeal(Object.assign(JSON.parse(payloadCore), { exported })) };
-  if (writeKeybox) body.keybox = await keyboxMake(kb, wantZk ? passphrase : "");
+  if (writeKeybox) body.keybox = await _keyboxForPush(kb, passphrase, wantZk, opts);
   let r;
   if (id) r = await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "PATCH", headers: hdr, body: JSON.stringify(body) });
   else r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify(Object.assign({ owner: s.userId }, body)) });
@@ -4367,7 +4494,7 @@ async function cloudPush(passphrase) {
     id = null;
     if (!body.keybox) {
       if (zkIntent && !wantZk) throw new Error("your vault was recreated and its zero-knowledge key needs re-sealing — enter your passphrase (Step 2)");
-      body.keybox = await keyboxMake(kb, wantZk ? passphrase : "");
+      body.keybox = await _keyboxForPush(kb, passphrase, wantZk, opts);
     }
     r = await fetch(cloudUrl() + "/api/collections/vaults/records", { method: "POST", headers: hdr, body: JSON.stringify(Object.assign({ owner: s.userId }, body)) });
   }
@@ -4376,7 +4503,7 @@ async function cloudPush(passphrase) {
   cloudSaveState(Object.assign(cloudState(), {
     recordId: d.id || id, lastPush: new Date().toISOString(), lastPushCount: count,
     bytes: (body.blob || "").length, lastHash: hash, lastSeenVault: d.updated || "",
-    mode: body.keybox ? (wantZk ? "zk" : "esc") : (curMode || s.mode || null),   // remember the seal mode — the downgrade guard reads it
+    mode: body.keybox ? keyboxMode(body.keybox) : (curMode || s.mode || null),   // remember the seal mode from the box actually written — the downgrade guard reads it
     // schema lacks the keybox field → sync works on THIS device, but other devices
     // can't adopt the key until the field exists (self-clears once it does)
     keyboxMissing: body.keybox ? (d && d.keybox === undefined) : (d && d.keybox !== undefined ? false : !!s.keyboxMissing),
@@ -4386,11 +4513,130 @@ async function cloudPush(passphrase) {
   if (_foldedMoney && window.__cacheMoneyConfirmSealed) { try { window.__cacheMoneyConfirmSealed(_foldedMoney); } catch (e) {} }
   return { count, bytes: (body.blob || "").length };
 }
-// a zero-knowledge account must never silently accept an escrow keybox — that
-// shape change is exactly what a tampering or compromised server would send
+// a zero-knowledge account must never silently accept a keybox whose escrow-ness
+// INCREASED — an escrow wrap appearing (in EITHER the v1 {m:"esc"} shape or a v2
+// box that now carries a t:"esc" wrap) is exactly what a tampering or compromised
+// server would send to gain the ability to read a vault it previously could not.
+// keyboxHasEsc sees through both shapes, so this is strictly stronger than the old
+// box.m === "esc" check (which a v2 escrow box would have slipped straight past).
 function keyboxGuard(box) {
-  if (cloudState().mode === "zk" && box && box.m === "esc")
+  if (cloudState().mode === "zk" && box && keyboxHasEsc(box))
     throw new Error("your vault's key seal changed unexpectedly — re-enter your passphrase in Settings to re-seal it");
+}
+// Decide the FIRST keybox's shape from the signup choice. escrow+passphrase is the one
+// combo the legacy shapes can't express, so it goes straight to v2; everything else
+// stays a legacy shape (recovery FILE/CODE wraps are ADDED afterwards, migrating it to
+// v2). The no-choice fallback (no passphrase, no escrow) is today's escrow default —
+// only the old flow / a bare manual push hits it; the new signup UI always steers a choice.
+async function _keyboxForPush(kb, passphrase, wantZk, opts) {
+  const escrow = !!(opts && opts.escrow);
+  if (escrow && wantZk) return keyboxBuild(kb, { escrow: true, passphrase });
+  if (escrow) return keyboxMake(kb, "");                     // {m:"esc"} — spare key only
+  return keyboxMake(kb, wantZk ? passphrase : "");           // {m:"zk"} with a passphrase, else {m:"esc"}
+}
+// ── Manage the keybox WITHOUT touching the blob ─────────────────────────────────
+// Every method change (add a passphrase / recovery file / recovery code, turn escrow
+// on or off) is an atomic PATCH of ONLY the keybox field. Read-before-write (never act
+// blind), guard-checked, and — critically — the held key is proven to open the CURRENT
+// vault before we wrap it, so a stale key can't mint a recovery method that opens the
+// wrong data. A failed PATCH leaves the OLD keybox exactly in place (no half-written
+// box — the "brick everyone" failure). `mutate(boxStr, kb)` returns the new keybox.
+async function cloudUpdateKeybox(mutate) {
+  const s = cloudState();
+  if (!s.token) throw new Error("log in first");
+  if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again (your data is safe)");
+  const kb = cloudKeyGet();
+  if (!kb) throw new Error("this device doesn't hold your vault key yet — back up or unlock once first");
+  const tok = cloudState().token;
+  const id = await cloudFindVaultId(cloudState());
+  if (!id) throw new Error("no cloud vault yet — back up to cloud once first");
+  const rec = await (await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { headers: { Authorization: tok } })).json();
+  if (!rec || !rec.id || !rec.keybox) throw new Error("cloud hiccup — couldn't read your vault, try again");
+  keyboxGuard(JSON.parse(rec.keybox));   // never mutate a box the guard would refuse
+  // prove the held key opens the CURRENT blob — else we'd wrap a stale key into a
+  // recovery method that silently opens the wrong (old) vault
+  if (rec.blob) {
+    let v2 = false; try { v2 = (JSON.parse(rec.blob).v || 1) >= 2; } catch (e) {}
+    if (v2) { try { await cloudOpen(rec.blob, ""); } catch (e) { throw new Error("this vault was re-sealed on another device — open it here once (enter your passphrase) before changing unlock methods"); } }
+  }
+  const newBox = await mutate(rec.keybox, kb);
+  if (!newBox || newBox === rec.keybox) throw new Error("nothing to change");
+  const r = await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "PATCH", headers: { Authorization: tok, "Content-Type": "application/json" }, body: JSON.stringify({ keybox: newBox }) });
+  const d = await r.json();
+  if (!r.ok) throw new Error(cloudErr(d) || ("couldn't update your unlock methods (HTTP " + r.status + ")"));
+  // the field must have actually PERSISTED — if the vaults collection is missing its
+  // 'keybox' text field, PocketBase silently drops it and returns d.keybox === undefined.
+  // Never let a user believe they added a recovery method that wasn't stored.
+  if (d.keybox !== newBox) throw new Error("your cloud didn't save the change — the 'vaults' collection is missing its 'keybox' text field. Add it, then try again. Nothing on your account changed.");
+  cloudSaveState(Object.assign(cloudState(), { mode: keyboxMode(newBox), keyboxMissing: false }));
+  return { methods: keyboxMethods(newBox), mode: keyboxMode(newBox) };
+}
+// Issue (or re-issue) the recovery FILE: fresh secret, wrap the SAME key, return the
+// secret so the caller downloads the .cachekey. A prior file wrap is retired.
+async function cloudAddRecoveryFile() {
+  const secret = recoveryFileSecret();
+  await cloudUpdateKeybox(async (boxStr, kb) => keyboxAddWrap(boxStr, await _keyboxWrap("file", kb, secret)));
+  return secret;
+}
+// Issue (or re-issue) the recovery CODE: return the pretty grouped form to show once;
+// the wrap is keyed on the NORMALIZED code so a messily-typed recovery still opens it.
+async function cloudAddRecoveryCode() {
+  const code = recoveryCode();
+  await cloudUpdateKeybox(async (boxStr, kb) => keyboxAddWrap(boxStr, await _keyboxWrap("code", kb, recoveryCodeNormalize(code))));
+  return code;
+}
+async function cloudAddPassphrase(passphrase) {
+  if (!passphrase || passphrase.length < 6) throw new Error("choose a passphrase of at least 6 characters");
+  await cloudUpdateKeybox(async (boxStr, kb) => keyboxAddWrap(boxStr, await _keyboxWrap("pass", kb, passphrase)));
+}
+// Turn escrow ON (add the raw-key wrap) or OFF (remove it — the raw key leaves the
+// server; the other wraps still open the SAME vault, so nobody is locked out). Turning
+// it OFF is REFUSED when the spare is the only wrap left — that would empty the keybox
+// and brick the vault (the exact "no working wrap" failure).
+async function cloudSetEscrow(on) {
+  return cloudUpdateKeybox(async (boxStr, kb) => {
+    if (on) return keyboxAddWrap(boxStr, { t: "esc", k: kb });
+    if (!keyboxWraps(boxStr).some((w) => w.t !== "esc")) throw new Error("the spare key is your only way in right now — add a passphrase or recovery file first, then turn it off");
+    return keyboxRemoveType(boxStr, "esc");
+  });
+}
+// Remove one unlock method. Refuses to leave the vault with NO way in — the last wrap
+// can never be removed (the UI warns before the last NON-escrow one; this enforces the
+// absolute floor).
+async function cloudRemoveMethod(t) {
+  return cloudUpdateKeybox(async (boxStr) => {
+    const left = keyboxWraps(boxStr).filter((w) => w.t !== t);
+    if (!left.length) throw new Error("that's your only way in — add another method before removing this one");
+    return keyboxRemoveType(boxStr, t);
+  });
+}
+// List the unlock methods currently on the server's keybox (for the Settings list).
+// Returns [] if we can't read it — the caller shows a calm "couldn't check" state.
+async function cloudListMethods() {
+  try {
+    const s = cloudState(); if (!s.token) return [];
+    const id = await cloudFindVaultId(s); if (!id) return [];
+    const rec = await (await fetch(cloudUrl() + "/api/collections/vaults/records/" + id + "?fields=keybox", { headers: { Authorization: s.token } })).json();
+    return (rec && rec.keybox) ? keyboxMethods(rec.keybox) : [];
+  } catch (e) { return []; }
+}
+// "I can't get in" — open the vault key with a recovery FILE secret / recovery CODE /
+// passphrase, then cache it locally so the normal read + sync path takes over. Recovery
+// is a READ: it never rewrites the keybox (no downgrade). opts: {fileKey|code|passphrase}.
+async function cloudRecoverUnlock(opts) {
+  const s = cloudState();
+  if (!s.token) throw new Error("log in first");
+  if (!(await cloudAuthCheck())) throw new Error("your login expired — log in again (your data is safe)");
+  const id = await cloudFindVaultId(cloudState());
+  if (!id) throw new Error("no cloud vault to recover — this account hasn't backed up yet");
+  const rec = await (await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { headers: { Authorization: cloudState().token } })).json();
+  if (!rec || !rec.keybox) throw new Error("no keybox on your vault yet — nothing to recover with");
+  const box = JSON.parse(rec.keybox);
+  keyboxGuard(box);
+  let kb; try { kb = await keyboxOpen(rec.keybox, opts); } catch (e) { throw new Error("that recovery key didn't open your vault — double-check the file or code and try again"); }
+  cloudKeySet(kb);
+  cloudSaveState(Object.assign(cloudState(), { mode: keyboxMode(box) }));
+  return { mode: keyboxMode(box) };
 }
 // "3 minutes ago" style relative time for the cloud status line
 function cloudAgo(iso) {
@@ -4423,7 +4669,7 @@ async function cloudPull(passphrase) {
       const box = JSON.parse(rec.keybox);
       keyboxGuard(box);
       if (!cloudKeyGet()) { try { cloudKeySet(await keyboxOpen(rec.keybox, passphrase || "")); } catch (e) { throw new Error(e.message || "couldn't unlock the vault key"); } }
-      cloudSaveState(Object.assign(cloudState(), { mode: box.m === "zk" ? "zk" : "esc" }));   // remember the seal mode
+      cloudSaveState(Object.assign(cloudState(), { mode: keyboxMode(box) }));   // remember the seal mode (escrow-ness of the box)
     }
     let obj;
     try { obj = await cloudOpen(rec.blob, passphrase); } catch (e) { throw new Error(e.message === "this device doesn't hold the cloud key yet" ? "open this vault from a device that has it, or enter your passphrase" : "wrong passphrase or corrupt backup"); }
@@ -4800,8 +5046,8 @@ async function cloudAutoPull() {
         if (rec.keybox) {
           const box = JSON.parse(rec.keybox);
           keyboxGuard(box);
-          if (!cloudKeyGet() && box.m === "esc") cloudKeySet(box.k);
-          cloudSaveState(Object.assign(cloudState(), { mode: box.m === "zk" ? "zk" : "esc" }));   // mode memory — the guard reads it
+          if (!cloudKeyGet() && keyboxHasEsc(box)) cloudKeySet(keyboxEscKey(box));   // silent adopt: escrow only
+          cloudSaveState(Object.assign(cloudState(), { mode: keyboxMode(box) }));   // mode memory — the guard reads it
         }
         const obj = await cloudOpen(rec.blob, "");
         if (obj && obj.local && mergeRemoteLocal(obj.local, obj.localMeta)) {
@@ -5482,9 +5728,27 @@ function openSettings() {
         '<div class="set-hint cloud-verify" id="setCloudVerify" style="display:none"></div>' +
       '</div>' +
       '<div class="cloud-step" id="cloudStep2">' +
-        '<div class="cloud-step-h"><span class="cloud-num">2</span><span class="cloud-step-t">Zero-knowledge mode <span class="cloud-opt">optional</span></span><span class="cloud-chk" id="cloudChk2"></span></div>' +
-        '<label class="set-row"><span>Passphrase</span><input id="setCloudPhrase" type="password" autocomplete="off" placeholder="leave empty for the simple default"></label>' +
-        '<div class="set-hint">Your cache is always <b>encrypted on your device</b> before it leaves. By default your account keeps a spare key, so a forgotten password never loses your data. Set a passphrase here for <b>zero-knowledge mode</b>: only you hold the key — <b>write it down</b>, because then not even we can recover it.</div>' +
+        '<div class="cloud-step-h"><span class="cloud-num">2</span><span class="cloud-step-t">How we open your cache</span><span class="cloud-chk" id="cloudChk2"></span></div>' +
+        // FIRST-TIME setup: the key choice (ZK default) + passphrase + recovery-code opt-in.
+        '<div id="cloudKeySetup">' +
+          '<div class="set-hint">Your cache is always <b>encrypted on this device</b> before it leaves. Choose who can open it:</div>' +
+          '<div class="key-choice" id="keyChoiceZk" data-keychoice="zk">' +
+            '<span class="key-radio"></span>' +
+            '<span class="key-choice-t"><b>Just me</b> — only you can open your cache. We physically can’t. <span class="key-rec">recommended</span></span>' +
+          '</div>' +
+          '<label class="set-row key-pass" id="keyPassRow"><span>Passphrase</span><input id="setCloudPhrase" type="password" autocomplete="off" placeholder="choose a passphrase (6+ characters)"></label>' +
+          '<div class="key-choice" id="keyChoiceEsc" data-keychoice="esc">' +
+            '<span class="key-radio"></span>' +
+            '<span class="key-choice-t"><b>Keep a spare with The Cache</b> — we can help you get back in if you’re locked out. It means we <b>could technically read your data</b>.</span>' +
+          '</div>' +
+          '<label class="key-code-opt"><input type="checkbox" id="setCloudWantCode"> <span>Also give me a one-time <b>recovery code</b> (for paper or a password manager)</span></label>' +
+          '<div class="set-hint key-file-note">However you choose, a <b>recovery file</b> downloads when you back up — keep it somewhere safe. If you lose <b>both</b> your way in and your recovery file, your cache is <b>gone for good</b> — we can’t recover it. That’s the price of real privacy.</div>' +
+        '</div>' +
+        // AFTER first backup: the unlock-methods manager (rendered by renderKeyMethods()).
+        '<div id="cloudMethods" style="display:none"></div>' +
+        // Always-available recovery ("I can't get in") — for when this device forgot the passphrase.
+        '<div class="key-recover" id="cloudRecoverWrap" style="display:none"><button class="cloud-url-edit" id="cloudRecoverBtn" type="button">I can’t get in — use my recovery file or code</button></div>' +
+        '<input id="setRecoverFile" type="file" accept=".cachekey,application/json" style="display:none">' +
       '</div>' +
       '<div class="cloud-step" id="cloudStep3">' +
         '<div class="cloud-step-h"><span class="cloud-num">3</span><span class="cloud-step-t">Sync</span><span class="cloud-chk" id="cloudChk3"></span></div>' +
@@ -5675,24 +5939,152 @@ function openSettings() {
   clPhrase.addEventListener("input", () => { bkPass.value = clPhrase.value; refreshCloud(); });
   if (bkPass) bkPass.addEventListener("input", () => { clPhrase.value = bkPass.value; refreshCloud(); });
   const phrase = () => (clPhrase.value || "").trim();
+  // ── Unlock & recovery (multi-wrap keybox) ──────────────────────────────────────
+  // Before the first backup: the key CHOICE (zero-knowledge default vs a spare with us)
+  // + passphrase + recovery-code opt-in. After it: the unlock-METHODS manager. Recovery
+  // ("I can't get in") is always one tap away once a vault exists.
+  const keySetup = modal.querySelector("#cloudKeySetup"),
+        keyMethods = modal.querySelector("#cloudMethods"),
+        keyPassRow = modal.querySelector("#keyPassRow"),
+        keyChoiceZk = modal.querySelector("#keyChoiceZk"),
+        keyChoiceEsc = modal.querySelector("#keyChoiceEsc"),
+        wantCode = modal.querySelector("#setCloudWantCode"),
+        recoverWrap = modal.querySelector("#cloudRecoverWrap"),
+        recoverBtn = modal.querySelector("#cloudRecoverBtn"),
+        recoverFile = modal.querySelector("#setRecoverFile");
+  const keyChoice = () => (keyChoiceEsc && keyChoiceEsc.classList.contains("on")) ? "esc" : "zk";
+  function paintKeyChoice() {
+    const esc = keyChoice() === "esc";
+    if (keyChoiceZk) keyChoiceZk.classList.toggle("on", !esc);
+    if (keyChoiceEsc) keyChoiceEsc.classList.toggle("on", esc);
+    if (keyPassRow) keyPassRow.style.display = esc ? "none" : "";   // "Just me" needs a passphrase; a spare doesn't
+  }
+  if (keyChoiceZk) keyChoiceZk.addEventListener("click", () => { keyChoiceZk.classList.add("on"); keyChoiceEsc.classList.remove("on"); paintKeyChoice(); refreshCloud(); });
+  if (keyChoiceEsc) keyChoiceEsc.addEventListener("click", () => { keyChoiceEsc.classList.add("on"); keyChoiceZk.classList.remove("on"); paintKeyChoice(); refreshCloud(); });
+  paintKeyChoice();
+  // The after-backup methods manager. Re-pulls the live keybox so it always tells the
+  // truth about what actually opens the vault (not a local guess).
+  async function renderKeyMethods() {
+    if (!keyMethods) return;
+    let methods = [];
+    try { methods = await cloudListMethods(); } catch (e) {}
+    const has = (t) => methods.indexOf(t) >= 0;
+    const nonEsc = methods.filter((m) => m !== "esc").length, hasEsc = has("esc");
+    const label = { pass: "Passphrase", file: "Recovery file", code: "Recovery code" };
+    const sub = { pass: "type it to open your cache anywhere", file: "a small file you keep safe", code: "a one-time code for paper / a password manager" };
+    let rows = "";
+    ["pass", "file", "code"].forEach((t) => {
+      const on = has(t);
+      // Remove only offers when this ISN'T the last personal method (keyDel still guards).
+      const canDel = on && nonEsc > 1;
+      rows += '<div class="key-method' + (on ? " on" : "") + '">' +
+        '<span class="key-method-t">' + (on ? "✓ " : "") + label[t] + '<span class="key-sub">' + sub[t] + '</span></span>' +
+        '<span class="key-method-acts">' +
+          '<button class="cloud-url-edit" data-key-add="' + t + '">' + (on ? (t === "pass" ? "Change" : "Replace") : "Add") + '</button>' +
+          (canDel ? ' <button class="cloud-url-edit" data-key-del="' + t + '">Remove</button>' : '') +
+        '</span></div>';
+    });
+    rows += '<div class="key-method key-esc' + (hasEsc ? " on" : "") + '">' +
+      '<span class="key-method-t">' + (hasEsc ? "✓ " : "") + 'Spare key with The Cache<span class="key-sub">' + (hasEsc ? "we hold a key — we could technically read your data" : "off — only your own methods can open your cache") + '</span></span>' +
+      '<span class="key-method-acts"><button class="cloud-url-edit" data-key-esc="' + (hasEsc ? "off" : "on") + '">' + (hasEsc ? "Turn off" : "Turn on") + '</button></span></div>';
+    keyMethods.innerHTML = '<div class="set-hint">Your <b>unlock methods</b> — <b>any one</b> opens your cache. Keep at least one you control.</div>' +
+      (methods.length ? rows : '<div class="set-hint">Couldn’t read your unlock methods just now — check your connection and reopen Settings.</div>');
+    keyMethods.querySelectorAll("[data-key-add]").forEach((b) => b.addEventListener("click", () => keyAdd(b.dataset.keyAdd)));
+    keyMethods.querySelectorAll("[data-key-del]").forEach((b) => b.addEventListener("click", () => keyDel(b.dataset.keyDel, nonEsc, hasEsc)));
+    keyMethods.querySelectorAll("[data-key-esc]").forEach((b) => b.addEventListener("click", () => keyEsc(b.dataset.keyEsc === "on")));
+  }
+  async function keyAdd(t) {
+    try {
+      if (t === "pass") {
+        const pw = prompt("Choose a passphrase (at least 6 characters). You’ll type this to open your cache on a new device.");
+        if (pw == null) return;
+        if (pw.trim().length < 6) { clSay("A passphrase needs at least 6 characters.", "err"); return; }
+        clSay("Adding your passphrase…", "work");
+        await cloudAddPassphrase(pw.trim());
+        clSay("✓ Passphrase added — it opens your cache on any device.", "ok");
+      } else if (t === "file") {
+        clSay("Making a fresh recovery file…", "work");
+        const secret = await cloudAddRecoveryFile();
+        let dl = false; try { dl = downloadRecoveryFile(secret); } catch (e) {}
+        clSay(dl
+          ? "✓ New recovery file downloaded — keep it somewhere safe. Your previous file no longer works."
+          : "⚠ Your recovery file was created but the download didn’t start — check your browser’s download settings, then tap Replace again to get the file.", dl ? "ok" : "err");
+      } else if (t === "code") {
+        clSay("Making a recovery code…", "work");
+        const code = await cloudAddRecoveryCode();
+        clSay("✓ Recovery code created (see the box) — store it now, it won’t be shown again.", "ok");
+        alert("Your one-time recovery code — write it down now, it won’t be shown again:\n\n    " + code + "\n\nAnyone with this code can open your cache, so keep it private.");
+      }
+      renderKeyMethods();
+    } catch (e) { clSay((e.message || e), "err"); }
+  }
+  async function keyDel(t, nonEsc, hasEsc) {
+    const human = { pass: "passphrase", file: "recovery file", code: "recovery code" }[t] || t;
+    if (nonEsc <= 1) {   // this is the last method the USER controls
+      if (!hasEsc) { clSay("That’s your only way in — add another method before removing this one.", "err"); return; }
+      if (!confirm("Remove your " + human + "?\n\nThis is your only PERSONAL way in. After this, ONLY The Cache’s spare key can open your cache — if we ever can’t help, your data is gone. Continue?")) return;
+    } else if (!confirm("Remove your " + human + "? You’ll no longer open your cache with it. Make sure you still have another way in.")) return;
+    clSay("Removing your " + human + "…", "work");
+    try { await cloudRemoveMethod(t); clSay("✓ Removed your " + human + ".", "ok"); renderKeyMethods(); refreshCloud(); }
+    catch (e) { clSay((e.message || e), "err"); }
+  }
+  async function keyEsc(on) {
+    if (on && !confirm("Keep a spare key with The Cache?\n\nWe’ll hold a key so we can help you back in if you’re locked out — but it means we could technically read your data. Your other unlock methods keep working.")) return;
+    if (!on && !confirm("Turn off the spare key?\n\nWe’ll delete our copy of your key. Only your own methods (passphrase / recovery file / code) will open your cache. If you lose all of those, we can’t help. Continue?")) return;
+    clSay(on ? "Turning on the spare key…" : "Removing our spare key…", "work");
+    try { await cloudSetEscrow(on); clSay(on ? "✓ Spare key on — we can help you recover." : "✓ Spare key off — your cache is zero-knowledge now.", "ok"); renderKeyMethods(); refreshCloud(); }
+    catch (e) { clSay((e.message || e), "err"); }
+  }
+  // Recovery ("I can't get in"): unlock the vault key with a file or code, cache it, reload.
+  async function doRecover(opts, label) {
+    clSay("Opening your cache with your " + label + "…", "work");
+    try {
+      await cloudRecoverUnlock(opts);
+      clSay("✓ Unlocked with your " + label + " — loading your cache…", "ok");
+      try { await cloudAutoPull(); } catch (e) {}
+      setTimeout(() => location.reload(), 900);
+    } catch (e) { clSay((e.message || e), "err"); }
+  }
+  if (recoverBtn) recoverBtn.addEventListener("click", () => {
+    const c = prompt("Get back in.\n\n• Type  FILE  to load your recovery file (.cachekey), or\n• paste your recovery CODE here:");
+    if (c == null) return;
+    const t = c.trim();
+    if (/^file$/i.test(t)) { if (recoverFile) recoverFile.click(); return; }
+    if (t) doRecover({ code: recoveryCodeNormalize(t) }, "recovery code");
+  });
+  if (recoverFile) recoverFile.addEventListener("change", async () => {
+    const fl = recoverFile.files && recoverFile.files[0]; if (!fl) { return; }
+    let secret = null; try { secret = parseRecoveryFile(await fl.text()); } catch (e) {}
+    recoverFile.value = "";
+    if (!secret) { clSay("That doesn’t look like a Cache recovery file (.cachekey).", "err"); return; }
+    doRecover({ fileKey: secret }, "recovery file");
+  });
   // Repaint the whole stepper: checkmarks, which step is active, the next-step banner, button enabling.
   function refreshCloud() {
     const s = cloudState();
     // the "key" step is satisfied by a typed passphrase (zero-knowledge), OR by the
     // device already holding the cloud data key, OR simply by being logged in —
     // escrow mode needs nothing from the user (that's the point)
-    const inAccount = !!s.token, hasPhrase = phrase().length >= 6, hasBackup = !!s.lastPush;
-    // the zero-knowledge check means zero-knowledge is actually ON — an escrow
-    // account showing ✓ there would be claiming a protection it doesn't have
-    const zkOn = s.mode === "zk" || hasPhrase;
+    const inAccount = !!s.token, hasBackup = !!s.lastPush;
+    // a keybox exists on the server ⟺ your unlock is actually set up (survives across
+    // devices: mode/recordId are learned on pull, lastPush on this device's own push)
+    const hasVault = hasBackup || !!s.mode || !!s.recordId;
+    const holdsKey = !!cloudKeyGet();
     // step checkmarks + active highlight
-    [[1, inAccount], [2, zkOn], [3, hasBackup]].forEach(([n, done]) => {
+    [[1, inAccount], [2, hasVault], [3, hasBackup]].forEach(([n, done]) => {
       clChk[n].textContent = done ? "✓" : "";
       clChk[n].className = "cloud-chk" + (done ? " on" : "");
       clStep[n].classList.toggle("done", done);
     });
-    const active = !inAccount ? 1 : 3;   // step 2 is optional — never the blocker
+    const active = !inAccount ? 1 : (!hasVault ? 2 : 3);   // step 2 = choose how we open your cache
     clStep.forEach((el, n) => el && el.classList.toggle("active", n === active));
+    // key panels: the setup CHOICE before the first backup, the methods MANAGER after
+    // it (only where this device holds the key), and RECOVER when this device is locked out
+    if (keySetup) keySetup.style.display = (inAccount && !hasVault) ? "" : "none";
+    if (keyMethods) keyMethods.style.display = (inAccount && hasVault && holdsKey) ? "" : "none";
+    if (recoverWrap) recoverWrap.style.display = (inAccount && hasVault && !holdsKey) ? "" : "none";
+    if (inAccount && hasVault && holdsKey && keyMethods && !keyMethods.dataset.rendered) { keyMethods.dataset.rendered = "1"; renderKeyMethods(); }
+    if (!(inAccount && hasVault && holdsKey) && keyMethods) keyMethods.dataset.rendered = "";   // re-render when it next becomes visible
     // account buttons
     clSignup.style.display = inAccount ? "none" : "";
     clLogin.style.display = inAccount ? "none" : "";
@@ -5780,9 +6172,34 @@ function openSettings() {
   });
   clPush.addEventListener("click", async () => {
     if (!cloudState().token) { clSay("Do Step 1 first — create or log into your account.", "err"); return; }
-    if (phrase() && phrase().length < 6) { clSay("A zero-knowledge passphrase needs 6+ characters (or clear the field for the simple default).", "err"); return; }
+    const st = cloudState();
+    const isFirstSetup = !(st.lastPush || st.mode || st.recordId);   // no keybox on the server yet
+    const escrow = keyChoice() === "esc";
+    if (phrase() && phrase().length < 6) { clSay("A passphrase needs at least 6 characters (or leave it empty and choose “Keep a spare”).", "err"); return; }
+    // "Just me" (zero-knowledge) needs a passphrase — it's what you type to open the vault
+    // on a new device. Without it (and no spare) a new device would have no way in at all.
+    if (isFirstSetup && !escrow && phrase().length < 6) { clSay("Choose a passphrase (6+ characters) so you can open your cache on your other devices — or pick “Keep a spare with The Cache” below.", "err"); return; }
     clSay("Encrypting + syncing to cloud…", "work");
-    try { const res = await cloudPush(phrase()); refreshCloud(); cloudChip("ok"); clSay("✓ Backed up to the cloud — " + res.count + " files sealed & encrypted. From here it syncs itself.", "ok"); }
+    try {
+      const res = await cloudPush(phrase(), { escrow });
+      if (isFirstSetup) {
+        // Auto-issue the recovery FILE to EVERYONE (+ a code if opted). If the download
+        // doesn't land, say so LOUDLY — never let the user believe they're covered.
+        let fileOk = false, fileErr = "";
+        try { const secret = await cloudAddRecoveryFile(); try { fileOk = downloadRecoveryFile(secret); } catch (e) { fileErr = "the download didn’t start"; } }
+        catch (e) { fileErr = (e && e.message) || "couldn’t create it"; }
+        let codeMsg = "";
+        if (wantCode && wantCode.checked) {
+          try { const code = await cloudAddRecoveryCode(); alert("Your one-time recovery code — write it down now, it won’t be shown again:\n\n    " + code + "\n\nAnyone with this code can open your cache, so keep it private."); codeMsg = " Your recovery code is in the pop-up — store it now."; }
+          catch (e) { codeMsg = " (Couldn’t create a recovery code — you can add one later in Settings.)"; }
+        }
+        refreshCloud(); cloudChip("ok");
+        if (fileOk) clSay("✓ Backed up — " + res.count + " files sealed. Your recovery file just downloaded — keep it somewhere safe." + codeMsg, "ok");
+        else clSay("✓ Backed up — " + res.count + " files sealed. ⚠ But your recovery file " + fileErr + " — use “Recovery file → Replace” below to get it. Without it, a forgotten " + (escrow ? "login" : "passphrase") + " could lock you out.", "err");
+        return;
+      }
+      refreshCloud(); cloudChip("ok"); clSay("✓ Backed up to the cloud — " + res.count + " files sealed & encrypted. From here it syncs itself.", "ok");
+    }
     catch (e) { clSay("Cloud backup failed: " + (e.message || e), "err"); }
   });
   clPull.addEventListener("click", async () => {

@@ -39,13 +39,38 @@
   function keyGet() { try { return localStorage.getItem("money.cloudKey") || ""; } catch (e) { return ""; } }
   function keySet(b64) { try { if (b64) localStorage.setItem("money.cloudKey", b64); else localStorage.removeItem("money.cloudKey"); } catch (e) {} }
   function _importK(b64) { return crypto.subtle.importKey("raw", _unb64(b64), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]); }
-  async function keyboxOpen(boxStr, pass) {
-    var box = JSON.parse(boxStr);
-    if (box.m === "esc") return box.k;                       // escrow: the account is the key
-    if (!pass) throw new Error("ZK");                        // zero-knowledge: passphrase needed once on this device
-    var kek = await _deriveKey(pass, _unb64(box.salt));
-    var raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(box.iv) }, kek, _unb64(box.ct));
+  // ── Multi-wrap keybox (v2) — the READER side. Must stay byte-identical to app.js's
+  // keyboxWraps/keyboxHasEsc/keyboxMode/keyboxOpen or the phone and desktop pick
+  // different unlock methods (or the guard fires on one runtime and not the other).
+  // Both v1 shapes ({m:"esc"}, {m:"zk"}) still open FOREVER via keyboxWraps' migrate.
+  async function _keyboxUnwrap(wrap, secret) {
+    var kek = await _deriveKey(secret, _unb64(wrap.salt));
+    var raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(wrap.iv) }, kek, _unb64(wrap.ct));
     return _b64(raw);
+  }
+  function _keyboxParse(box) { return typeof box === "string" ? JSON.parse(box) : box; }
+  function keyboxWraps(box) {
+    box = _keyboxParse(box);
+    if (Array.isArray(box.wraps)) return box.wraps;
+    if (box.m === "esc") return [{ t: "esc", k: box.k }];
+    if (box.m === "zk") return [{ t: "pass", kdf: box.kdf, iter: box.iter, salt: box.salt, iv: box.iv, ct: box.ct }];
+    return [];
+  }
+  function keyboxHasEsc(box) { return keyboxWraps(box).some(function (w) { return w.t === "esc"; }); }
+  function keyboxMode(box) { return keyboxHasEsc(box) ? "esc" : "zk"; }
+  // Open ANY keybox → the raw vault key. `opts` is a bare passphrase string
+  // (back-compat) OR {passphrase, fileKey, code}. Escrow unlocks silently; a "pass"
+  // wrap with no secret in hand throws "ZK" so the caller prompts for the passphrase.
+  async function keyboxOpen(boxStr, opts) {
+    var box = JSON.parse(boxStr);
+    var o = (opts && typeof opts === "object") ? opts : { passphrase: opts || "" };
+    var wraps = keyboxWraps(box);
+    var find = function (t) { return wraps.find(function (w) { return w.t === t; }); };
+    if (o.code && find("code")) return _keyboxUnwrap(find("code"), o.code);
+    if (o.fileKey && find("file")) return _keyboxUnwrap(find("file"), o.fileKey);
+    if (o.passphrase && find("pass")) return _keyboxUnwrap(find("pass"), o.passphrase);
+    var esc = find("esc"); if (esc) return esc.k;              // escrow: the account is the key
+    throw new Error("ZK");                                     // no silent method — a secret is needed once on this device
   }
   async function openVault(envStr, pass) {
     var env = JSON.parse(envStr);
@@ -396,14 +421,16 @@
     // v2: adopt the data key from the keybox if this device doesn't hold it yet
     if (rec.keybox) {
       var box = JSON.parse(rec.keybox);
-      // a zero-knowledge account must never silently accept an escrow keybox —
-      // that shape change is what a tampering server would send
-      if (cloudState().mode === "zk" && box.m === "esc") throw new Error("your vault's key seal changed unexpectedly — open the app on your computer to re-seal it");
+      // a zero-knowledge account must never silently accept a keybox whose escrow-ness
+      // INCREASED — an esc wrap appearing (v1 {m:"esc"} OR a v2 box now carrying a
+      // t:"esc" wrap) is what a tampering server sends to gain read access. keyboxHasEsc
+      // sees both shapes, so this is stronger than the old box.m === "esc" check.
+      if (cloudState().mode === "zk" && keyboxHasEsc(box)) throw new Error("your vault's key seal changed unexpectedly — open the app on your computer to re-seal it");
       if (!keyGet()) {
         try { keySet(await keyboxOpen(rec.keybox, pass || "")); }
         catch (e) { if ((e && e.message) === "ZK") throw e; throw new Error("wrong passphrase — try again"); }
       }
-      try { cloudSave(Object.assign(cloudState(), { mode: box.m === "zk" ? "zk" : "esc" })); } catch (e) {}
+      try { cloudSave(Object.assign(cloudState(), { mode: keyboxMode(box) })); } catch (e) {}
     } else if (!keyGet()) {
       // v2 blob but no keybox anywhere → the server schema is missing the keybox
       // field; a passphrase prompt would be a lie (there is nothing it can unwrap)
