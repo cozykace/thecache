@@ -3987,7 +3987,7 @@ async function cloudFindVaultId(s) {
 //              a fresher edit and the web app can't blind-adopt on every unlock.
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
-const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms"];   // + deckDay (calendar) + dms (the messages cache — a mirror of server data + per-thread read marks; per-device, never rides the vault)
+const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.simplefin"];   // + deckDay (calendar) + dms (messages cache) + simplefin (the browser bank credential — a bearer secret; DEVICE-LOCAL so it never rides the vault, same as the desktop's chmod-600 .simplefin file; see WIKI 2026-07-24-bank-credential-device-only)
 const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs", "money.bugCredits"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state) + bugCredits (union by report id, like badges)
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
@@ -4008,7 +4008,7 @@ function isGenericKey(k) { return k.indexOf("money.") === 0 && !isInternalKey(k)
 const PROFILE_PREFIX = "cacheprof.", LMETA_KEY = "money.__lmeta";
 function isAccountDataKey(k) {
   if (typeof k !== "string" || k.indexOf("money.") !== 0) return false;
-  if (isInternalKey(k)) return k === "money.dms";                                  // internals aren't account data — except dms (this account's messages)
+  if (isInternalKey(k)) return k === "money.dms" || k === "money.simplefin";       // internals aren't account data — except dms (this account's messages) and simplefin (this account's BANK CREDENTIAL: keep it out of the vault, but silo it per account + clear it on logout, so a shared browser never lets one account pull another's bank)
   if (DEVICE_LOCAL_KEYS.some((dk) => k.indexOf(dk + ".") === 0)) return false;     // a suffixed device key stays device-scoped (e.g. money.settings.w modal geometry)
   return true;
 }
@@ -4262,11 +4262,27 @@ async function cloudPush(passphrase) {
     // re-running this on every push is idempotent (the content-hash short-circuit then makes
     // repeats free). The imported money files (ledger/balances/transactions) aren't in
     // MAP_FILE_NAMES, so the authored-hash witness is unaffected.
+    // total/cash/accounts/burn/spend_window are the REAL bank balances from the last in-browser
+    // SimpleFIN pull. They can't be re-derived from a transaction ledger, so the fold below
+    // (rebuildFromLedger) drops them — grab the freshest live copy from the served store BEFORE
+    // the fold overwrites it, then carry it into the sealed vault so a reload of this tab AND
+    // every other device keep the balances, not just the transactions. (No-op for a CSV-only
+    // session — those fields are simply absent, so the guard skips them.)
+    let _liveBalHdr = null;
+    try { if (window.__cacheWebMoney) { const lb = JSON.parse((window.__cacheWebMoney.getFiles() || {})["balances.json"] || "{}"); _liveBalHdr = { total: lb.total, cash: lb.cash, accounts: lb.accounts, burn_per_day: lb.burn_per_day, spend_window_days: lb.spend_window_days, updated: lb.updated }; } } catch (e) {}
     try {
       if (window.__cacheMoneyApplyToVault) {
         const applied = window.__cacheMoneyApplyToVault(files);
         if (applied) {
           files = applied.files;
+          // carry the real bank balances into the vault copy (they survive the ledger rebuild)
+          if (_liveBalHdr && files["balances.json"]) {
+            try {
+              const vb = JSON.parse(files["balances.json"]);
+              ["total", "cash", "accounts", "burn_per_day", "spend_window_days", "updated"].forEach((f) => { if (_liveBalHdr[f] !== undefined) vb[f] = _liveBalHdr[f]; });
+              files["balances.json"] = JSON.stringify(vb, null, 2); applied.files["balances.json"] = files["balances.json"];
+            } catch (e) {}
+          }
           _foldedMoney = applied.folded || null;
           // drop any stale precomputed summary from the sealed vault — every web reader
           // (this device and others) computes /api/summary LIVE from the merged ledger,
@@ -5202,6 +5218,54 @@ function applyPrivacy() {
 function applyDockMobile() {
   document.documentElement.toggleAttribute("data-dockmobile", localStorage.getItem("money.dockMobile") === "1");
 }
+// ── The SimpleFIN Access URL: a bearer credential to the user's bank ──────────────
+// DEVICE-LOCAL — it never rides the vault (money.simplefin is in DEVICE_LOCAL_KEYS /
+// W_INTERNAL), the browser equivalent of the desktop's chmod-600 .simplefin file. This
+// ONE helper pair is the deliberate SEAM: if ZK-by-default ships and we later choose to
+// sync the credential in the vault, it's a change HERE, not a hunt through the pull code.
+// See WIKI 2026-07-24-bank-credential-device-only. Handled ONLY here + in webmoney's sf*
+// functions — never placed in a URL, log, toast, title, or any data/*.json.
+const SF_CRED_KEY = "money.simplefin";
+function sfGetCred() { try { return localStorage.getItem(SF_CRED_KEY) || ""; } catch (e) { return ""; } }
+function sfPutCred(url) { try { if (url) localStorage.setItem(SF_CRED_KEY, url); else localStorage.removeItem(SF_CRED_KEY); } catch (e) {} }
+function sfHasCred() { return !!sfGetCred(); }
+
+// "How does this work?" — a plain-language, visual walkthrough of the SimpleFIN bank link,
+// so the safety model is legible before anyone pastes a token. The two ideas to land: a
+// middleman (SimpleFIN) holds the bank login so we never see it, and the key stays on the
+// device so we can't read the data. Reachable from ⚡ Connect and from Settings.
+function openSfExplainer() {
+  if (document.getElementById("sfxModal")) return;   // one at a time
+  const step = (icon, title, desc) => '<div class="sfx-step"><span class="sfx-ic"><i data-lucide="' + icon + '"></i></span>' +
+    '<div class="sfx-txt"><div class="sfx-t">' + title + '</div><div class="sfx-d">' + desc + "</div></div></div>";
+  const trust = (icon, title, sub) => '<div class="sfx-trust"><i data-lucide="' + icon + '"></i>' +
+    "<div><b>" + title + "</b><span>" + sub + "</span></div></div>";
+  const back = document.createElement("div"); back.className = "cat-backdrop"; back.id = "sfxBackdrop";
+  const modal = document.createElement("div"); modal.className = "cat-modal sfx-modal"; modal.id = "sfxModal";
+  const close = () => { modal.remove(); back.remove(); };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) close(); });
+  modal.innerHTML =
+    '<div class="cat-head"><span>How your bank link works</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="cat-list sfx-body">' +
+      '<div class="sfx-sec">Set up once</div>' +
+      step("building-2", "Connect your bank at SimpleFIN", "SimpleFIN is a secure middleman — <b>it</b> holds the connection to your bank, so The Cache never sees your bank login. It hands you a one-time setup code.") +
+      step("clipboard", "Paste the code into The Cache", "On this device, drop that one-time code in and tap Connect my bank.") +
+      step("key", "Your device gets a private key", "The code is traded for a private bank key — and that key <b>stays on this device</b>. It never goes to our servers.") +
+      '<div class="sfx-sec">Every time you sync</div>' +
+      step("refresh-cw", "Tap “Sync now”", "Your device uses its key to ask SimpleFIN for your latest balances and transactions.") +
+      step("calculator", "The math happens on your device", "Spending, income, safe-to-spend — all worked out right here, not on a server.") +
+      step("lock", "It’s sealed, then synced", "The result is encrypted and synced to your other devices. Our server only ever sees a <b>scrambled blob</b> it can’t read.") +
+      '<div class="sfx-trustbox">' +
+        trust("shield", "Your bank password never touches The Cache", "SimpleFIN holds it — we never see it.") +
+        trust("smartphone", "Your bank key never leaves this device", "Set up on each device, so it’s never in the cloud.") +
+        trust("eye-off", "We can’t read your money", "Only your devices can unlock it.") +
+      "</div>" +
+    "</div>";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  modal.querySelector(".cat-close").addEventListener("click", close);
+  try { drawIcons(); } catch (e) {}
+}
+
 // First-run coaching: how to set up the SimpleFIN bank connection, in-app (no Terminal).
 function openConnect() {
   closeCategorizer();
@@ -5210,35 +5274,91 @@ function openConnect() {
   back.addEventListener("pointerdown", (e) => { if (e.target === back) closeCategorizer(); });
   const modal = document.createElement("div");
   modal.className = "cat-modal connect-modal";
-  // On the hosted web app the SimpleFIN token flow can't run (no local sync engine), so the
-  // web modal leads with what DOES work here: importing a bank CSV (parsed + computed in the
-  // browser by webmoney.js, sealed into the vault). A live bank connection is still a
-  // desktop-only, once setup — the modal names it as the "or, automatic" path.
+  // On the hosted web app, money comes in TWO ways, both computed in the browser and sealed
+  // into the vault (nothing leaves the device unencrypted): a live SimpleFIN bank connection
+  // (claim a token here, pull on demand — webmoney.js sf* functions), or a one-time CSV import.
   const web = !!window.__CACHE_WEB__;
   if (web) {
+    const connected = sfHasCred();
     modal.innerHTML =
       '<div class="cat-head"><span>Get your money in</span><button class="cat-close" aria-label="Close">✕</button></div>' +
       '<div class="connect-body">' +
-        '<div class="cn-status">checking…</div>' +
-        '<div class="cn-intro">Right here on the web you can <b>import a bank CSV</b> — download your transactions from your bank, drop the file in, and your cache computes your spending, safe-to-spend and income in your browser, then <b>syncs it to your other devices</b>. Nothing leaves your device unencrypted.</div>' +
-        '<div class="cn-alts">' +
-          '<button class="cn-csv">Import a bank CSV</button>' +
-        '</div>' +
-        '<div class="cn-or">— or, for automatic daily bank sync —</div>' +
-        '<div class="cn-intro">Want it hands-off? A live bank connection (SimpleFIN) pulls your balances and transactions on its own. Today that’s a one-time setup in the <b>desktop app</b> — once it’s on, it syncs here. A CSV import and a live sync live happily in the same cache.</div>' +
-        '<div class="cn-result"></div>' +
+        (connected
+          ? '<div class="cn-intro"><span class="cn-ok">✓ Your bank is connected.</span> <span id="sfAge"></span> Pull the latest whenever you want — SimpleFIN refreshes about once a day.</div>' +
+            '<div class="cn-alts"><button class="cn-connect" id="sfSync">Sync now</button></div>' +
+            '<div class="cn-result" id="sfResult"></div>' +
+            '<div class="cn-or">— manage —</div>' +
+            '<div class="cn-manage"><button class="cn-linkbtn" id="sfCsv">import a CSV instead</button></div>' +
+            '<div class="cn-manage"><button class="cn-linkbtn cn-linkbtn-danger" id="sfDisconnect">Disconnect this bank</button></div>'
+          : '<div class="cn-intro">Connect your bank right here — paste your <b>SimpleFIN</b> setup token and your cache pulls your balances and transactions itself, then <b>syncs them to your other devices</b>. Nothing leaves your device unencrypted. <button class="cn-linkbtn" id="sfExplain">How does this work?</button></div>' +
+            '<ol class="cn-steps">' +
+              '<li>Make a SimpleFIN account at <a href="https://bridge.simplefin.org" target="_blank" rel="noreferrer">bridge.simplefin.org</a> <span class="cn-dim">(~$15/yr — it protects your bank login)</span> and connect your bank(s).</li>' +
+              '<li>Click <b>New app connection</b> → it shows a long <b>setup token</b>.</li>' +
+              '<li>Paste it below. <span class="cn-dim">SimpleFIN emails you when a new device connects — that’s just you. Each device sets up its own connection for now.</span></li>' +
+            '</ol>' +
+            '<textarea class="cn-token" id="sfToken" rows="3" placeholder="paste your SimpleFIN setup token"></textarea>' +
+            '<div class="cn-alts"><button class="cn-connect" id="sfConnect">Connect my bank</button></div>' +
+            '<div class="cn-result" id="sfResult"></div>' +
+            '<div class="cn-or">— or —</div>' +
+            '<div class="cn-intro">Prefer a one-time file? <button class="cn-linkbtn" id="sfCsv">Import a bank CSV</button> — same cache, no subscription.</div>') +
       '</div>';
     document.body.appendChild(back);
     document.body.appendChild(modal);
     if (typeof makeModalResizable === "function") makeModalResizable(modal, "money.connect");
     modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer());
-    fetch("/api/connect-status").then((r) => r.json()).then((d) => {
-      const statusEl = modal.querySelector(".cn-status");
-      statusEl.innerHTML = (d && d.connected)
-        ? '<span class="cn-ok">✓ Your cache already has money in it.</span> Import another CSV any time — duplicates are skipped automatically.'
-        : '<span class="cn-no">No money in your cache yet.</span> Import a CSV to get started.';
-    }).catch(() => { const s = modal.querySelector(".cn-status"); if (s) s.textContent = ""; });
-    modal.querySelector(".cn-csv").addEventListener("click", () => { closeCategorizer(); document.getElementById("importStatement").click(); });
+    const R = modal.querySelector("#sfResult");
+    const say = (html, cls) => { if (R) R.innerHTML = cls ? ('<span class="' + cls + '">' + html + "</span>") : html; };
+    const note = (p) => (p && p.errors && p.errors.length) ? (" Note: " + escapeHtml(p.errors.join("; "))) : "";
+    // staleness: the app remembers, not the person — show how old the numbers are (guardrail:
+    // manual sync must never mean silently-stale balances presented as current)
+    const ageEl = modal.querySelector("#sfAge");
+    if (ageEl) fetch("data/balances.json?t=" + Date.now()).then((r) => r.ok ? r.json() : null).then((d) => {
+      if (d && d.updated) ageEl.innerHTML = "Your numbers are from <b>" + escapeHtml(ageStr(Date.now() - new Date(d.updated).getTime())) + "</b> ago.";
+    }).catch(() => {});
+    const exBtn = modal.querySelector("#sfExplain");
+    if (exBtn) exBtn.addEventListener("click", () => { try { openSfExplainer(); } catch (e) {} });
+    const csvBtn = modal.querySelector("#sfCsv");
+    if (csvBtn) csvBtn.addEventListener("click", () => { closeCategorizer(); const b = document.getElementById("importStatement"); if (b) b.click(); });
+    const conn = modal.querySelector("#sfConnect");
+    if (conn) conn.addEventListener("click", async () => {
+      const t = modal.querySelector("#sfToken"); const tok = t ? t.value.trim() : "";
+      if (!tok) { say("Paste your setup token first.", "cn-err"); return; }
+      conn.disabled = true; say("Connecting…", "cn-working");
+      try {
+        const c = await window.__cacheMoneySfClaim(tok);
+        if (!c.ok) { say(escapeHtml(c.error), "cn-err"); conn.disabled = false; return; }
+        sfPutCred(c.accessUrl);                          // device-local — the credential never rides the vault
+        say("Pulling your accounts…", "cn-working");
+        const p = await window.__cacheMoneySfPull(c.accessUrl);
+        if (!p.ok) {
+          // the claim SUCCEEDED (a used token can't be re-claimed) — keep the credential and let
+          // "Sync now" retry, rather than stranding the user on a burned token
+          say("Connected, but the first sync didn't land: " + escapeHtml(p.error) + " — try Sync now in a moment.", "cn-err");
+          setTimeout(() => { if (!document.body.contains(modal)) return; closeCategorizer(); openConnect(); }, 1600); return;   // don't reopen if the user already closed it
+        }
+        try { autoPushNow(); } catch (e) {}
+        try { Store.refresh(); } catch (e) {}
+        say("✓ Connected — pulled " + p.added + " transaction(s)." + note(p), "cn-ok");
+        setTimeout(() => { if (!document.body.contains(modal)) return; closeCategorizer(); openConnect(); }, 1300);   // reopen in the connected state, unless the user already closed it
+      } catch (e) { say(escapeHtml((e && e.message) || "couldn't connect"), "cn-err"); conn.disabled = false; }
+    });
+    const sync = modal.querySelector("#sfSync");
+    if (sync) sync.addEventListener("click", async () => {
+      sync.disabled = true; say("Syncing…", "cn-working");
+      try {
+        const p = await window.__cacheMoneySfPull(sfGetCred());
+        if (!p.ok) { say(escapeHtml(p.error), "cn-err"); sync.disabled = false; return; }
+        try { autoPushNow(); } catch (e) {}
+        try { Store.refresh(); } catch (e) {}
+        say("✓ Synced — " + p.added + " new transaction(s)." + note(p), "cn-ok");
+        sync.disabled = false;
+      } catch (e) { say(escapeHtml((e && e.message) || "sync failed"), "cn-err"); sync.disabled = false; }   // never leave the button stuck disabled
+    });
+    const disc = modal.querySelector("#sfDisconnect");
+    if (disc) disc.addEventListener("click", () => {
+      sfPutCred("");   // device-local only — clears the credential from THIS device; the data stays
+      closeCategorizer(); flash("Bank disconnected from this device — your money stays in your cache."); openConnect();
+    });
     return;
   }
   {
@@ -5503,7 +5623,7 @@ function openSettings() {
       // ISN'T one), and dead-ended. Same trap that was fixed in openConnect and missed here.
       '<div class="set-sec">Bank connection</div>' +
       (window.__CACHE_WEB__
-        ? '<div class="set-hint">Import a bank CSV from <b>⚡ Connect</b> and your cache works out the rest, right here. A live daily bank connection is a one-time setup in the desktop app today — doing it in the browser is being built.</div>'
+        ? '<div class="set-hint">Link your bank right here — open <b>⚡ Connect</b> to paste your SimpleFIN token (or import a bank CSV). Your cache pulls and computes everything in your browser; nothing leaves your device unencrypted. <button class="cn-linkbtn" id="setSfExplain">How does this work?</button></div>'
         : '<div class="set-bank-status" id="setBankStatus">checking…</div>' +
           '<div class="set-token-wrap"><input id="setToken" class="set-bank-input" type="password" placeholder="paste your SimpleFIN setup token">' +
             '<button class="set-token-eye" id="setTokenEye" type="button" aria-label="Show/hide token"><i data-lucide="eye"></i></button></div>' +
@@ -5887,6 +6007,8 @@ function openSettings() {
   });
   const helpBtn = modal.querySelector("#setConnectHelp");
   if (helpBtn) helpBtn.addEventListener("click", () => openConnect());
+  const setEx = modal.querySelector("#setSfExplain");
+  if (setEx) setEx.addEventListener("click", () => { try { openSfExplainer(); } catch (e) {} });
   const tokenInput = modal.querySelector("#setToken");
   const eyeBtn = modal.querySelector("#setTokenEye");
   if (eyeBtn && tokenInput) eyeBtn.addEventListener("click", () => {
@@ -7133,7 +7255,7 @@ function updateSyncHealth() {
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       if (!d || !d.updated) {
-        if (window.__CACHE_WEB__) { syncDot.style.background = "#8a8a8a"; syncText.textContent = "no money data yet"; syncHealth.title = "import a bank CSV to get started (⚡ Connect) — or set up a live bank sync once in the desktop app"; }
+        if (window.__CACHE_WEB__) { syncDot.style.background = "#8a8a8a"; syncText.textContent = "no money data yet"; syncHealth.title = "⚡ Connect to link your bank (SimpleFIN) or import a bank CSV — right here in your browser"; }
         else { syncDot.style.background = "#c9542e"; syncText.textContent = "no sync"; }
         return;
       }

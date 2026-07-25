@@ -91,12 +91,13 @@ def run_sync(access_url=None):
     data = fetch_accounts(access_url, now - (FETCH_DAYS + 2) * 86400)
     accounts = data.get("accounts") or []
     errors = store.extract_errors(data)   # v2 errlist + deprecated v1 errors, sanitized
-    # A response can be HTTP 200 yet carry connection/account errors (e.g. a bank login
-    # expired) with NO accounts. Writing that would zero out balances.json and blank the
-    # transaction window behind a silent "0 transactions" — so refuse to overwrite good
-    # local data, and surface the bank's message (spec: display /accounts errors).
-    if errors and not accounts:
-        raise RuntimeError("Bank sync couldn't get your data: " + "; ".join(errors))
+    # NO accounts → refuse to write, with OR without errors. A 200 can carry errors and no
+    # accounts (a bank login expired), but it can also be empty and error-free — either way,
+    # writing it would zero out balances.json and blank the transaction window behind a silent
+    # "0 transactions". Refuse to overwrite good local data; surface the bank's message if any.
+    if not accounts:
+        raise RuntimeError(("Bank sync couldn't get your data: " + "; ".join(errors)) if errors
+                           else "Bank sync returned no accounts — nothing was changed. Try again in a moment.")
     snapshot, txns = store.build_snapshot(accounts, WINDOW_DAYS, now, FETCH_DAYS,
                                           connections=data.get("connections"))
     store.save_balances(snapshot)

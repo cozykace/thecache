@@ -32,6 +32,7 @@ _Last updated: 2026-07-16_
 
 ## Connect your money
 - **Automatic bank sync** — link real accounts (read-only) and pull balances + transactions on demand.
+- **Connect your bank from the web — no computer needed** — paste your SimpleFIN token on your phone or laptop and your cache pulls your balances and transactions itself, computing everything in your browser and sealing it to your encrypted cache. SimpleFIN holds the bank login so The Cache never sees it; the key stays on your device so we can't read your money. A built-in "How does this work?" explains it plainly, you pull whenever you want (with a clear "these numbers are from…"), and a failed pull can never overwrite your good data.
 - **Import a bank CSV right in your browser** — no desktop needed. Drop a CSV export onto your cache and it parses, builds your ledger, and computes your spending, safe-to-spend and income entirely on your device, then syncs it to your other devices — sealed and unreadable to the cloud. Perfect for cards that don't auto-connect, for backfilling older history, or for running your whole cache from the web alone.
 - **Never double-counts** — re-import an overlapping statement as often as you like; duplicates are skipped, and anything you deleted stays deleted.
 - **Local & private by design** — your financial data lives on your machine, never on a server, never committed anywhere.

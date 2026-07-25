@@ -256,5 +256,75 @@ ok("ledgerKey falls back to a content key", M.ledgerKey({ posted: 1000, amount: 
      p.label.indexOf("Jan") !== -1 && (p.end - p.start) > 29 * 86400);
 })();
 
+// ── SimpleFIN, in the browser (sfDecodeToken / sfAccountsRequest / extractErrors / sfApply) ──
+// The credential-safety guarantees are the ballgame here: a bank secret must never reach a URL,
+// and a partial/failed pull must never zero good data.
+const b64 = (s) => Buffer.from(s, "binary").toString("base64");
+
+// setup-token decode
+ok("sfDecodeToken: valid beta-host token decodes to its claim URL",
+   M.sfDecodeToken(b64("https://beta-bridge.simplefin.org/simplefin/claim/abc")) === "https://beta-bridge.simplefin.org/simplefin/claim/abc");
+ok("sfDecodeToken: surrounding whitespace/newlines are stripped",
+   M.sfDecodeToken("  " + b64("https://beta-bridge.simplefin.org/x") + "\n ") === "https://beta-bridge.simplefin.org/x");
+ok("sfDecodeToken: the LEGACY host is rewritten to beta (it 302s dropping the path, no CORS)",
+   M.sfDecodeToken(b64("https://bridge.simplefin.org/simplefin/claim/xyz")) === "https://beta-bridge.simplefin.org/simplefin/claim/xyz");
+ok("sfDecodeToken: non-base64 junk → a clean thrown error, never a crash",
+   (() => { try { M.sfDecodeToken("!!!! not base64 !!!!"); return false; } catch (e) { return /valid setup token/i.test(e.message); } })());
+ok("sfDecodeToken: a non-https link is refused",
+   (() => { try { M.sfDecodeToken(b64("http://beta-bridge.simplefin.org/x")); return false; } catch (e) { return /secure|https/i.test(e.message); } })());
+ok("sfDecodeToken: a link to ANY other host is refused (SSRF guard)",
+   (() => { try { M.sfDecodeToken(b64("https://evil.example.com/steal")); return false; } catch (e) { return /recognize|SimpleFIN/i.test(e.message); } })());
+ok("sfDecodeToken: empty token → refused",
+   (() => { try { M.sfDecodeToken("   "); return false; } catch (e) { return /paste/i.test(e.message); } })());
+
+// Access URL → the /accounts request (the credential MUST leave the URL)
+(function () {
+  const req = M.sfAccountsRequest("https://usr%40n:p%40ss@beta-bridge.simplefin.org/simplefin", 1000000);
+  ok("sfAccountsRequest: the rebuilt URL contains NO '@' and NO credentials", req.url.indexOf("@") === -1 && req.url.indexOf("p%40ss") === -1);
+  ok("sfAccountsRequest: it targets /accounts with the start-date", req.url === "https://beta-bridge.simplefin.org/simplefin/accounts?start-date=1000000");
+  ok("sfAccountsRequest: credentials go in a Basic auth header (percent-encoding preserved for parity)",
+     req.auth === "Basic " + b64("usr%40n:p%40ss"));
+  const withPort = M.sfAccountsRequest("https://u:p@beta-bridge.simplefin.org:8443/sf", null);
+  ok("sfAccountsRequest: a self-hosted port survives", withPort.url === "https://beta-bridge.simplefin.org:8443/sf/accounts");
+})();
+
+// extract_errors (mirrors store.extract_errors — tested value-for-value in webmoney_parity.py too)
+ok("extractErrors: v2 errlist msg + code, control chars sanitized, order-preserving dedupe",
+   eq(M.extractErrors({ errlist: [{ msg: "bad\nlogin" }, { code: "E1" }], errors: ["old", "bad login"] }),
+      ["bad login", "E1", "old"]));
+ok("extractErrors: a 200 with no errors → empty list", eq(M.extractErrors({ accounts: [] }), []));
+ok("extractErrors: a >200-char message is capped", M.extractErrors({ errlist: [{ msg: "x".repeat(500) }] })[0].length === 200);
+
+// sfApply — the compute + the zero-wipe guard (the data-loss backstop)
+(function () {
+  const now = 1721000000;
+  const files = { "ledger.jsonl": "", "balances.json": "{}", "categories.json": "{}", "income.json": "{}" };
+  const data = { accounts: [
+    { id: "a1", name: "Checking", org: { name: "Placeholder Bank" }, balance: "1000.00", currency: "USD",
+      transactions: [{ id: "t1", posted: now - 86400, amount: "-10.00", description: "COFFEE" }] },
+    { id: "a2", name: "Savings", org: { name: "Placeholder Bank" }, balance: "500.00", currency: "USD", transactions: [] } ] };
+  const r = M.sfApply(files, data, { now });
+  const bal = JSON.parse(r.files["balances.json"]);
+  ok("sfApply: real bank balances land (total/cash from the snapshot, not the ledger)", bal.total === 1500 && bal.cash === 1500 && bal.accounts.length === 2);
+  ok("sfApply: `updated` is set — a real bank pull is the one browser event that moves it", !!bal.updated);
+  ok("sfApply: one txn added", r.added === 1);
+  const r2 = M.sfApply(r.files, data, { now });   // re-pull identical data
+  ok("sfApply: re-pulling the SAME data adds nothing (id-keyed dedupe, not content-order)", r2.added === 0);
+  // v2 connection org resolution flows through
+  const v2 = M.sfApply(files, { accounts: [{ id: "a3", conn_id: "c9", balance: "1.00", transactions: [] }], connections: [{ conn_id: "c9", org_name: "V2 Bank" }] }, { now });
+  ok("sfApply: v2 Connection org name resolves (was v1-only before)", JSON.parse(v2.files["balances.json"]).accounts[0].org === "V2 Bank");
+  // the zero-wipe guard: errors + zero accounts must THROW and write nothing
+  let threw = false, msg = "";
+  try { M.sfApply(files, { accounts: [], errlist: [{ msg: "login expired" }] }, { now }); } catch (e) { threw = true; msg = e.message; }
+  ok("sfApply: errors + NO accounts → throws (never overwrites good data with zeros)", threw && /couldn't get your data/i.test(msg));
+  // an EMPTY-but-error-free 200 must ALSO refuse to write (it would silently zero balances)
+  let threw2 = false, msg2 = "";
+  try { M.sfApply(files, { accounts: [] }, { now }); } catch (e) { threw2 = true; msg2 = e.message; }
+  ok("sfApply: no accounts + NO errors → also throws (empty-200 zero-wipe blocked)", threw2 && /no accounts/i.test(msg2));
+  // but errors ALONGSIDE real accounts is a partial success — it writes and reports
+  const partial = M.sfApply(files, { accounts: data.accounts, errlist: [{ msg: "one account is slow" }] }, { now });
+  ok("sfApply: errors WITH accounts → writes the good data and surfaces the message", partial.added === 1 && partial.errors.length === 1);
+})();
+
 console.log("\n" + p + " passed, " + f + " failed");
 process.exit(f ? 1 : 0);

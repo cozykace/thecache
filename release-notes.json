@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-24-browser-bank-connect",
+    "date": "2026-07-24",
+    "title": "Connect your bank right from your phone",
+    "body": "No computer needed. Paste your SimpleFIN setup token on the web and your cache pulls your balances and transactions itself, then syncs them to your other devices — all computed on your device, sealed so the cloud can't read it. SimpleFIN holds the bank login (we never see it) and the key stays on your phone (so we can't see your money either). Tap the new \"How does this work?\" for a plain walkthrough. Sync when you want; it always tells you how fresh your numbers are."
+  },
+  {
     "id": "2026-07-24-whats-changed",
     "date": "2026-07-24",
     "title": "What changed finds you now",

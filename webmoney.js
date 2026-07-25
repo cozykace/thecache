@@ -308,11 +308,53 @@
   }
   function _titleCase(s) { return (s || "").replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
 
+  // ── SimpleFIN error handling (mirror store._sanitize_msg + store.extract_errors) ──
+  // Third-party error text → one safe display line (control chars out, whitespace
+  // collapsed, capped). These strings reach the UI, so never trust their shape.
+  function _sanitizeMsg(s) {
+    s = String(s == null ? "" : s).replace(/[\x00-\x1f\x7f]+/g, " ");
+    return s.replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "").slice(0, 200);
+  }
+  // Human-readable, sanitized errors from a /accounts response — v2 `errlist`
+  // (structured) and the deprecated v1 `errors` (strings), de-duped in order. The spec
+  // REQUIRES these be displayed, so a partial or failed pull is never silently swallowed.
+  function extractErrors(data) {
+    var out = [];
+    if (data && typeof data === "object") {
+      (data.errlist || []).forEach(function (e) {
+        var m = (e && typeof e === "object") ? _sanitizeMsg(e.msg || e.code || "") : _sanitizeMsg(e);
+        if (m) out.push(m);
+      });
+      (data.errors || []).forEach(function (e) { var m = _sanitizeMsg(e); if (m) out.push(m); });   // v1 (DEPRECATED)
+    }
+    var seen = Object.create(null), uniq = [];
+    out.forEach(function (m) { if (!seen[m]) { seen[m] = 1; uniq.push(m); } });
+    return uniq;
+  }
+  // Institution name across protocol versions (mirror store._account_org_name):
+  // v1 nested `org.name` → v2 Connection (`org_name`/`name` by `conn_id`) → `conn_name` → "".
+  function accountOrgName(a, connById) {
+    var org = a && a.org;
+    if (org && typeof org === "object" && org.name) return org.name;
+    var c = connById && connById[a && a.conn_id];
+    if (c && typeof c === "object" && (c.org_name || c.name)) return c.org_name || c.name;
+    return (a && a.conn_name) || "";
+  }
+
   // ── build_snapshot (mirror store.build_snapshot) ─────────────────────────────
   // The bank-sync path. accounts: [{id,name,org,balance,currency,transactions:[...]}].
   // Returns {snapshot, txns}. Transfers ARE included in spending here (parity anchor).
+  // opts.connections: the v2 Connection list — resolves institution names for v2 bridges.
   function buildSnapshot(accounts, opts) {
     opts = opts || {};
+    // key by the Connection's own `conn_id` — MUST mirror store.build_snapshot
+    // (`{c["conn_id"]: c}`), since the account references it by `conn_id`. Keying by `id`
+    // instead silently blanks every v2 bank name on the web while the desktop shows them.
+    var connById = Object.create(null);
+    // mirror store.py `{c["conn_id"]: c for c in connections if isinstance(c, dict)}` EXACTLY —
+    // including a null/absent conn_id, which Python keys under None (one slot). Guarding on
+    // `conn_id != null` instead would drop those and diverge from the desktop.
+    (opts.connections || []).forEach(function (c) { if (c && typeof c === "object") connById[c.conn_id] = c; });
     var windowDays = opts.windowDays || 30;
     var now = opts.now || Math.floor(Date.now() / 1000);
     var fetchDays = opts.fetchDays || windowDays;
@@ -350,7 +392,7 @@
       });
       outAccounts.push({
         id: a.id, name: a.name || "Account",
-        org: (a.org && a.org.name) || "",
+        org: accountOrgName(a, connById),
         balance: round2(bal), currency: a.currency || "USD",
       });
     });
@@ -768,6 +810,124 @@
     return { files: out, added: landed.length, dup: dup };
   }
 
+  // ── SimpleFIN: claim a token + pull accounts, IN THE BROWSER ─────────────────
+  // Ports sync.py (claim_setup_token / fetch_accounts / run_sync). The credential (the
+  // Access URL) is a bearer secret to the user's bank; it is handled ONLY here and stored
+  // device-local by app.js — it never rides the vault, never lands in a URL/log/toast.
+  var SF_HOST = "beta-bridge.simplefin.org";
+  var SF_LEGACY = "bridge.simplefin.org";
+  var SF_FETCH_DAYS = 90, SF_WINDOW_DAYS = 30;
+  // base64 works in the browser (atob/btoa) and in node (globals ≥16, Buffer otherwise) so
+  // the decode/auth functions are unit-testable without a DOM
+  var _atob = (typeof atob !== "undefined") ? atob : function (s) { return require("buffer").Buffer.from(s, "base64").toString("binary"); };
+  var _btoa = (typeof btoa !== "undefined") ? btoa : function (s) { return require("buffer").Buffer.from(s, "binary").toString("base64"); };
+  // https + the simplefin bridge allowlist (mirrors server.py ALLOWED_BRIDGE_HOSTS). The
+  // legacy host 302s dropping the path with no CORS headers, so REWRITE it to beta rather
+  // than allowlist it. Mutates + returns the URL; throws a plain-language error otherwise.
+  function _sfAllowHost(u) {
+    if (u.protocol !== "https:") throw new Error("That bank link isn't secure (https) — re-copy your setup token.");
+    if (u.hostname === SF_LEGACY) u.hostname = SF_HOST;
+    if (u.hostname !== SF_HOST) throw new Error("That link points somewhere we don't recognize — only SimpleFIN connections work in the browser.");
+    return u;
+  }
+  // Setup token (base64) → claim URL. Strip whitespace, re-pad `=`, decode, validate.
+  function sfDecodeToken(setupToken) {
+    var token = String(setupToken == null ? "" : setupToken).replace(/\s+/g, "");
+    if (!token) throw new Error("Paste your SimpleFIN setup token first.");
+    while (token.length % 4) token += "=";
+    var claim;
+    try { claim = _atob(token).replace(/^\s+|\s+$/g, ""); }
+    catch (e) { throw new Error("That doesn't look like a valid setup token — copy the whole token from SimpleFIN's “New app connection” and try again."); }
+    if (claim.indexOf("http") !== 0) throw new Error("That token didn't decode to a valid link — copy the full token and retry.");
+    var u; try { u = new URL(claim); } catch (e2) { throw new Error("That token didn't decode to a valid link — copy the full token and retry."); }
+    return _sfAllowHost(u).href;
+  }
+  // Access URL (https://user:pass@host/path) → the /accounts request. fetch() throws on
+  // credentials-in-URL, so we STRIP the userinfo and send Basic auth in a header instead —
+  // the credential can never land in a URL, log, or referrer. userinfo stays percent-encoded
+  // (never decodeURIComponent): new URL().username matches Python's urlparse, preserving parity.
+  function sfAccountsRequest(accessUrl, startDate) {
+    var u; try { u = new URL(accessUrl); } catch (e) { throw new Error("Your saved bank connection looks corrupted — reconnect to fix it."); }
+    var user = u.username, pass = u.password;
+    _sfAllowHost(u);   // https + host allowlist (rewrites legacy) — after reading userinfo
+    var url = u.protocol + "//" + u.host + u.pathname.replace(/\/+$/, "") + "/accounts";
+    if (startDate) url += "?start-date=" + String(Math.floor(startDate));
+    return { url: url, auth: "Basic " + _btoa(user + ":" + pass) };
+  }
+  // A /accounts response (already fetched) + the current money files → new money files.
+  // Pure (no network), so it's unit-testable. Mirrors run_sync: errors → zero-wipe guard →
+  // build_snapshot → merge_ledger (by bank id, NOT the CSV content-occurrence counter) →
+  // recompute, then overlay the REAL balances (total/cash/accounts) the ledger can't carry.
+  function sfApply(files, data, opts) {
+    opts = opts || {};
+    var now = opts.now || Math.floor(Date.now() / 1000);
+    var accounts = (data && data.accounts) || [];
+    var errors = extractErrors(data);
+    // NO accounts → refuse to write, WITH or without errors. A 200 can carry errors and no
+    // accounts (a bank login expired), but it can also be empty and error-free — either way,
+    // writing it zeroes balances + blanks the window, and on web the vault is the ONLY durable
+    // copy, so a push would destroy the good data everywhere. Surface the bank's message if any.
+    if (!accounts.length) {
+      var err = new Error(errors.length
+        ? "Bank sync couldn't get your data: " + errors.join("; ")
+        : "Bank sync returned no accounts — nothing was changed. Try again in a moment.");
+      err.sfErrors = errors;
+      throw err;
+    }
+    var built = buildSnapshot(accounts, {
+      windowDays: SF_WINDOW_DAYS, fetchDays: SF_FETCH_DAYS, now: now,
+      connections: data && data.connections, updated: opts.updated || _isoNow(),
+    });
+    var ctx = _overridesFrom(files);
+    var led = parseJsonl(files["ledger.jsonl"]);
+    var before = Object.keys(led).length;
+    var merged = mergeLedger(led, built.txns, ctx.tomb);   // id-keyed, tombstone-aware, shrink-guarded
+    var out = {}; Object.keys(files).forEach(function (n) { out[n] = files[n]; });
+    out["ledger.jsonl"] = serializeJsonl(merged);
+    out = rebuildFromLedger(out, { now: now });   // spending/income/subs/transactions.json from the ledger window
+    // overlay what rebuildFromLedger deliberately doesn't touch — the real bank balances
+    var bal = _parseObj(out["balances.json"]), snap = built.snapshot;
+    bal.total = snap.total; bal.cash = snap.cash; bal.accounts = snap.accounts;
+    bal.burn_per_day = snap.burn_per_day; bal.spend_window_days = snap.spend_window_days;
+    bal.updated = snap.updated;   // the ONE browser event that moves `updated` — a real bank pull
+    out["balances.json"] = JSON.stringify(bal, null, 2);
+    // which ledger entries are genuinely new (for the cloud-push re-merge + the UI count)
+    var addedTxns = built.txns.filter(function (t) { return !led[ledgerKey(t)] && !isDeleted(ledgerKey(t), ctx.tomb); });
+    return { files: out, added: Object.keys(merged).length - before, addedTxns: addedTxns, errors: errors, snapshot: snap };
+  }
+  // Claim a setup token in the browser → the durable Access URL. The POST MUST stay a CORS
+  // "simple request": NO headers object, NO body, NO Content-Type, NO mode override. The claim
+  // endpoint has no OPTIONS handler, so ANY custom header triggers a preflight that 404s and
+  // kills the flow. Do not "improve" this call. (sync.py claim_setup_token.)
+  function sfClaim(setupToken) {
+    var claimUrl = sfDecodeToken(setupToken);   // throws on a bad token
+    return fetch(claimUrl, { method: "POST" }).then(function (r) {
+      if (!r.ok) {
+        if (r.status === 403) throw new Error("SimpleFIN rejected that token (403). A setup token can only be claimed once — if you didn't just reuse it, treat it as compromised: delete it in SimpleFIN and make a new connection.");
+        throw new Error("Couldn't set up the connection (HTTP " + r.status + ").");
+      }
+      return r.text();
+    }).then(function (txt) {
+      var accessUrl = String(txt).replace(/^\s+|\s+$/g, "");
+      var u; try { u = new URL(accessUrl); } catch (e) { throw new Error("SimpleFIN returned something unexpected — make a new connection and try again."); }
+      _sfAllowHost(u);   // must be https on the allowed host
+      return accessUrl;
+    });
+  }
+  // Pull /accounts with Basic auth (credentials in the header, never the URL). /accounts
+  // DOES preflight fine — Authorization is an allowed header. (sync.py fetch_accounts.)
+  function sfFetchAccounts(accessUrl, startDate) {
+    var req = sfAccountsRequest(accessUrl, startDate);   // {url, auth} — userinfo stripped
+    return fetch(req.url, { headers: { "Authorization": req.auth } }).then(function (r) {
+      if (!r.ok) {
+        if (r.status === 403) throw new Error("Your bank connection was declined (403) — access may have been revoked, or the saved credential is no longer valid. Reconnect to fix it.");
+        if (r.status === 402) throw new Error("Your SimpleFIN bridge says payment is required (402) before it will share data. Check your SimpleFIN account, then sync again.");
+        throw new Error("Bank sync failed (HTTP " + r.status + ").");
+      }
+      return r.json();
+    });
+  }
+
   // ── public surface ───────────────────────────────────────────────────────────
   var CacheMoney = {
     pyRound: pyRound, round2: round2,
@@ -780,6 +940,8 @@
     resolvePeriod: resolvePeriod, periodSummary: periodSummary,
     rebuildFromLedger: rebuildFromLedger,
     parseCsv: parseCsv, importTxns: importTxns,
+    extractErrors: extractErrors, accountOrgName: accountOrgName,
+    sfDecodeToken: sfDecodeToken, sfAccountsRequest: sfAccountsRequest, sfApply: sfApply,
     _clean: _clean, _incomeKey: _incomeKey, _contentKey: _contentKey, _genId: _genId,
   };
 
@@ -837,6 +999,27 @@
       var done = Object.create(null);
       folded.forEach(function (t) { done[ledgerKey(t)] = 1; });
       _pending = _pending.filter(function (t) { return !done[ledgerKey(t)]; });
+    };
+    // SimpleFIN, in the browser. claim() returns the Access URL (app.js stores it device-local,
+    // never in the vault); pull() fetches + computes + commits, exactly like a CSV import but
+    // from a live bank. Both resolve to {ok:...} and never reject, so the UI shows a message.
+    window.__cacheMoneySfClaim = function (setupToken) {
+      return sfClaim(setupToken).then(function (accessUrl) { return { ok: true, accessUrl: accessUrl }; })
+        .catch(function (e) { return { ok: false, error: (e && e.message) || "couldn't connect" }; });
+    };
+    window.__cacheMoneySfPull = function (accessUrl) {
+      var bridge = window.__cacheWebMoney;
+      if (!bridge) return Promise.resolve({ ok: false, error: "cloud not ready yet — try again in a moment" });
+      var now = Math.floor(Date.now() / 1000);
+      return sfFetchAccounts(accessUrl, now - (SF_FETCH_DAYS + 2) * 86400).then(function (data) {
+        var files = bridge.getFiles() || {};
+        var res = sfApply(files, data, { now: now });   // throws on the zero-wipe guard (errors + no accounts)
+        res.addedTxns.forEach(function (t) { _pending.push(t); });   // seal these into the vault on the next push
+        bridge.commit(res.files);
+        return { ok: true, added: res.added, errors: res.errors };
+      }).catch(function (e) {
+        return { ok: false, error: (e && e.message) || "sync failed", errors: (e && e.sfErrors) || [] };
+      });
     };
   }
 })();

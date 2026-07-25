@@ -151,5 +151,30 @@ function pullInto(deviceLS, vault) { localStorage = deviceLS; return mergeRemote
   ok("S8: incoming vault zoom is ignored", other.getItem("money.zoom") === "1.0");
 })();
 
+// ── Scenario 9: the SimpleFIN bank credential NEVER rides the vault ───────────
+// money.simplefin is the browser's Access URL — a bearer secret to the user's bank. It
+// MUST be device-local: never sealed into the (server-held) vault, and an incoming vault
+// value must never be adopted onto a device. A regression here leaks a live bank credential.
+(function () {
+  const CRED = "https://user:pass@beta-bridge.simplefin.org/simplefin";
+  const dev = makeLS();
+  dev.setItem("money.simplefin", CRED);
+  dev.setItem("money.note", "real config");
+  let vault = pushFrom(dev, { local: {}, localMeta: {} });
+  ok("S9: the bank credential is NOT sealed into the vault", !("money.simplefin" in vault.local));
+  ok("S9: it's absent from the vault meta too", !("money.simplefin" in vault.localMeta));
+  ok("S9: ordinary config still syncs (so it's an exclusion, not a no-op)", vault.local["money.note"] === "real config");
+  // a hostile/compromised vault carrying a credential must be ignored on pull
+  const victim = makeLS();
+  pullInto(victim, { local: { "money.simplefin": "https://attacker:x@beta-bridge.simplefin.org/sf" }, localMeta: { "money.simplefin": 9999999999999 } });
+  ok("S9: an incoming vault credential is NOT written to the device", victim.getItem("money.simplefin") === null);
+  // …and it is BOTH internal (never in the vault) AND account-data (siloed per account + cleared
+  // on logout) — the fix for the shared-browser leak. Without the second, one account on a shared
+  // browser could pull the previous account's bank data.
+  ok("S9: the credential is internal (never rides the vault)", isInternalKey("money.simplefin"));
+  ok("S9: the credential IS account-data (so logout/switch silos + clears it)", isAccountDataKey("money.simplefin"));
+  ok("S9: pure device geometry (zoom) is NOT account-data (control)", !isAccountDataKey("money.zoom"));
+})();
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

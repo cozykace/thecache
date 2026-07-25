@@ -11,7 +11,7 @@
          eval (verified). style-src keeps 'unsafe-inline' because the UI sets style attributes;
          that can't read localStorage, so the key stays safe. Custom self-hosted cloud URLs need
          their host added here (rare; default is thecache.pockethost.io). -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.ytimg.com; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' https://thecache.pockethost.io https://us.i.posthog.com https://us-assets.i.posthog.com https://api.github.com https://api.web3forms.com https://raw.githubusercontent.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self' https://api.web3forms.com" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.ytimg.com; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' https://thecache.pockethost.io https://us.i.posthog.com https://us-assets.i.posthog.com https://api.github.com https://api.web3forms.com https://raw.githubusercontent.com https://beta-bridge.simplefin.org; frame-src https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self' https://api.web3forms.com" />
     <title>THE CACHE</title>
     <link rel="icon" type="image/png" href="av assets/THECACHE_ICON.png" />
     <!-- Installable web app: "Add to Home Screen" on iPhone → fullscreen app w/ icon (needs a hosted HTTPS URL) -->
@@ -25,9 +25,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=57a57d902c" />
+    <link rel="stylesheet" href="styles.css?v=5136aac6ef" />
     <!-- apply saved theme before paint to avoid a flash (external so the CSP stays inline-free) -->
-    <script src="theme-preload.js?v=57a57d902c"></script>
+    <script src="theme-preload.js?v=5136aac6ef"></script>
   </head>
   <body>
     <a class="skip-link" href="#board">Skip to dashboard</a>
@@ -149,8 +149,8 @@
          is no longer loaded here; app.js pulls it in on demand only when a soundtrack is used. -->
     <script defer src="assets/vendor/lucide.min.js"></script>
     <script type="module" src="assets/vendor/motion-init.js"></script>
-    <script defer src="webcache.js?v=57a57d902c"></script>
-    <script defer src="webmoney.js?v=57a57d902c"></script>
-    <script defer src="app.js?v=57a57d902c"></script>
+    <script defer src="webcache.js?v=5136aac6ef"></script>
+    <script defer src="webmoney.js?v=5136aac6ef"></script>
+    <script defer src="app.js?v=5136aac6ef"></script>
   </body>
 </html>

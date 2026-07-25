@@ -1064,6 +1064,33 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .cn-connect { border: 1px solid var(--accent); background: var(--accent); color: var(--paper); cursor: pointer;
   font-family: inherit; font-size: 13px; font-weight: 600; padding: 10px; border-radius: 10px; }
 .cn-connect:hover { filter: brightness(1.06); }
+.cn-connect:disabled { opacity: 0.6; cursor: default; filter: none; }
+/* inline text-style action (disconnect / "import a CSV instead") — a REAL 44px hit area
+   (inline-flex + min-height, not just padding, which alone left it ~28px) */
+.cn-linkbtn { border: none; background: none; margin: 0; padding: 0 6px; min-height: 44px;
+  display: inline-flex; align-items: center; font-family: inherit; font-size: inherit;
+  color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.cn-linkbtn:hover { filter: brightness(1.1); }
+.cn-linkbtn-danger { color: var(--danger, #c9542e); }
+.cn-manage { display: block; }   /* each manage action on its own row — a mis-tap can't hit Disconnect */
+
+/* "How your bank link works" — the in-app visual explainer (openSfExplainer) */
+.sfx-body { gap: 0; }
+.sfx-sec { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(var(--ink-rgb), 0.45); margin: 14px 0 8px; }
+.sfx-sec:first-child { margin-top: 4px; }
+.sfx-step { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; }
+.sfx-ic { flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%; background: rgba(var(--accent-rgb, var(--ink-rgb)), 0.12);
+  display: flex; align-items: center; justify-content: center; color: var(--accent); }
+.sfx-ic i { width: 17px; height: 17px; }
+.sfx-txt { flex: 1; min-width: 0; }
+.sfx-t { font-size: 13.5px; font-weight: 600; color: var(--ink); margin-bottom: 2px; }
+.sfx-d { font-size: 12.5px; line-height: 1.5; color: rgba(var(--ink-rgb), 0.7); }
+.sfx-d b { color: var(--ink); font-weight: 600; }
+.sfx-trustbox { margin-top: 14px; border-top: 1px solid var(--edge-soft); padding-top: 12px; display: flex; flex-direction: column; gap: 11px; }
+.sfx-trust { display: flex; gap: 11px; align-items: flex-start; }
+.sfx-trust i { width: 18px; height: 18px; color: var(--accent); flex: 0 0 auto; margin-top: 1px; }
+.sfx-trust b { display: block; font-size: 12.5px; color: var(--ink); font-weight: 600; }
+.sfx-trust span { display: block; font-size: 12px; color: rgba(var(--ink-rgb), 0.6); line-height: 1.45; }
 .cn-or { text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: rgba(var(--ink-rgb), 0.4); }
 .cn-alts { display: flex; gap: 8px; }
 .cn-alts button { flex: 1; border: 1px solid var(--edge); background: var(--panel); color: var(--ink); cursor: pointer;

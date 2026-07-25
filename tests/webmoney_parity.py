@@ -118,6 +118,28 @@ def test_build_snapshot():
         d.pop("updated", None)
     ok("build_snapshot: no overrides — snapshots equal", deepclose(py_snap, js_snap) == "" or print(deepclose(py_snap, js_snap)))
 
+
+def test_build_snapshot_connections():
+    # v2 protocol: accounts carry a `conn_id`, institution names live in a `connections`
+    # list. store._account_org_name and webmoney.accountOrgName must resolve identically,
+    # or a v2 bridge shows blank bank names in the browser and correct ones on the desktop.
+    accounts = [
+        {"id": "a1", "name": "Checking", "conn_id": "c1", "balance": 100.0, "currency": "USD",
+         "transactions": [{"id": "x1", "posted": NOW - DAY, "amount": -5.0, "description": "COFFEE"}]},
+        {"id": "a2", "name": "Card", "conn_id": "c2", "conn_name": "Fallback Label", "balance": -20.0, "currency": "USD", "transactions": []},
+        {"id": "a3", "name": "Legacy", "org": {"name": "V1 Nested Bank"}, "balance": 50.0, "currency": "USD", "transactions": []},
+    ]
+    conns = [{"conn_id": "c1", "org_name": "V2 Org Bank"}, {"conn_id": "c2", "name": "V2 Name Bank"}]
+    py_snap, _ = store.build_snapshot(accounts, window_days=30, now=NOW, connections=conns)
+    js_snap = run_js("buildSnapshot", {"a": accounts, "b": {"windowDays": 30, "now": NOW, "connections": conns}})["snapshot"]
+    for d in (py_snap, js_snap):
+        d.pop("updated", None)
+    m = deepclose(py_snap, js_snap)
+    ok("build_snapshot: v2 connections org-name resolution equal" + (" · " + m if m else ""), m == "")
+    # and prove the resolution actually happened (v2 org, v2 name, v1 nested, in order)
+    orgs = [a["org"] for a in js_snap["accounts"]]
+    ok("build_snapshot: v2/v1 org names resolved as expected", orgs == ["V2 Org Bank", "V2 Name Bank", "V1 Nested Bank"])
+
 def test_build_snapshot_overrides(tmp):
     # a category override, an income tag, and a catmeta fold-in (remap) all applied
     overrides = {"jane doe": "income"}   # income tag: JANE DOE deposits count as income
@@ -305,6 +327,7 @@ def main():
     try:
         redirect(tmp)
         test_build_snapshot()
+        test_build_snapshot_connections()
         # each override test gets a clean subdir so files don't leak between cases
         t2 = os.path.join(tmp, "ov"); os.makedirs(t2, exist_ok=True); redirect(t2)
         test_build_snapshot_overrides(t2)
