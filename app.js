@@ -11953,132 +11953,159 @@ function openWizard() {
     '<div class="daily-stage" id="wizStage"></div>';
   document.body.appendChild(root);
   const stage = root.querySelector("#wizStage"), dotsEl = root.querySelector("#wizDots");
-  let i = 0; const picks = []; let door = "later"; let energyLogged = false;
+  let i = 0, maxSeen = 0; let doneGranted = false;
+  const picks = (() => { try { return JSON.parse(localStorage.getItem(WIZ_PICKS_KEY) || "[]") || []; } catch (e) { return []; } })();
   const markDone = () => { try { localStorage.setItem(WIZ_KEY, String(Date.now())); } catch (e) {} };
   const close = () => { markDone(); root.remove(); document.removeEventListener("keydown", onKey); };
-  function onKey(e) { if (e.key === "Escape") close(); }
+  // Escape closes the wizard — UNLESS a .cat-modal is layered on top (the connect panel); then
+  // let that panel's own Escape handler take it, so one press doesn't close both.
+  function onKey(e) { if (e.key === "Escape" && !(typeof _modalStack !== "undefined" && _modalStack.length)) close(); }
   document.addEventListener("keydown", onKey);
   root.querySelector("#wizClose").addEventListener("click", close);
-  const STEPS = [wWelcome, wName, wAreas, wMoney, wEnergy, wReserve, wDone];
-  function dots() { dotsEl.innerHTML = ""; for (let s = 0; s < STEPS.length; s++) { const d = document.createElement("span"); d.className = "daily-dot" + (s < i ? " done" : (s === i ? " on" : "")); dotsEl.appendChild(d); } }
-  function next() { i++; if (i >= STEPS.length) { close(); return; } render(); }
-  function render() { dots(); const body = document.createElement("div"); body.className = "daily-body daily-in"; STEPS[i](body); stage.innerHTML = ""; stage.appendChild(body); }
+  const STEPS = [wWelcome, wName, wAreas, wMoney, wDeck, wDone];
+  // tappable progress dots: revisit any step you've SEEN (≤ maxSeen); future dots are inert, so
+  // a tired brain can move freely without blind-jumping past the data steps into the finish.
+  function dots() {
+    dotsEl.innerHTML = "";
+    for (let s = 0; s < STEPS.length; s++) {
+      const d = document.createElement("button"); d.type = "button";
+      d.className = "daily-dot" + (s < i ? " done" : (s === i ? " on" : "")) + (s <= maxSeen ? "" : " future");
+      if (s > maxSeen) d.disabled = true; else if (s !== i) d.addEventListener("click", () => goTo(s));
+      dotsEl.appendChild(d);
+    }
+  }
+  function next() { i++; if (i >= STEPS.length) { close(); return; } maxSeen = Math.max(maxSeen, i); render(); }
+  function back() { if (i > 0) { i--; render(); } }
+  function goTo(s) { if (s >= 0 && s <= maxSeen && s < STEPS.length) { i = s; render(); } }
+  function render() {
+    dots();
+    const body = document.createElement("div"); body.className = "daily-body daily-in";
+    STEPS[i](body);
+    if (i > 0) { const bk = document.createElement("button"); bk.type = "button"; bk.className = "wiz-back"; bk.textContent = "‹ Back"; bk.addEventListener("click", back); body.appendChild(bk); }
+    stage.innerHTML = ""; stage.appendChild(body);
+  }
   const skipBtn = '<button class="wiz-skip" data-skip>skip this step</button>';
+  // Open the real connect panel LAYERED over the wizard, then re-render the money step once it's
+  // TRULY closed — surviving openConnect's own close-then-reopen-in-connected-state churn (450ms).
+  function openConnectLayered(onDone) {
+    try { openConnect(); } catch (e) { return; }
+    let settle = 0;
+    const obs = new MutationObserver(() => {
+      if (document.querySelector(".connect-modal")) { if (settle) { clearTimeout(settle); settle = 0; } return; }
+      if (settle) return;
+      settle = setTimeout(() => { obs.disconnect(); try { onDone(); } catch (e) {} }, 450);
+    });
+    obs.observe(document.body, { childList: true });
+  }
+  // is money actually in? web: a SimpleFIN credential OR imported balances/ledger (CSV makes no
+  // credential). The served FILES are decrypted in memory, so this is a synchronous check.
+  function webMoneyIn() {
+    if (typeof sfHasCred === "function" && sfHasCred()) return true;
+    try {
+      const f = (window.__cacheWebMoney && window.__cacheWebMoney.getFiles && window.__cacheWebMoney.getFiles()) || {};
+      if ((f["ledger.jsonl"] || "").trim()) return true;
+      const bal = JSON.parse(f["balances.json"] || "{}");
+      if (bal && (bal.total != null || (Array.isArray(bal.accounts) && bal.accounts.length))) return true;
+    } catch (e) {}
+    return false;
+  }
 
   function wWelcome(b) {
     b.innerHTML = '<div class="daily-emoji">✨</div><div class="daily-q">Welcome to your cache</div>' +
-      '<div class="daily-hint">A calm, private home for your life — starting with your money. Six quick steps, all of them skippable, nothing leaves your machine.</div>' +
+      '<div class="daily-hint">A calm, private home for your life — money first, the rest as you’re ready. A few short steps, and nothing here leaves your device without your say-so. You can move back and forth any time; you can’t lose your place.</div>' +
       '<div class="daily-opts"><button class="daily-btn" data-go><span class="e">🧭</span><span>Set me up</span></button>' +
       '<button class="daily-btn" data-explore><span class="e">👀</span><span>Just let me look around</span></button></div>';
     b.querySelector("[data-go]").addEventListener("click", next);
     b.querySelector("[data-explore]").addEventListener("click", close);
   }
   function wName(b) {
+    const cur = (() => { try { return localStorage.getItem("money.cacheName") || ""; } catch (e) { return ""; } })();
     b.innerHTML = '<div class="daily-q">Name your cache</div>' +
       '<div class="daily-hint">It’s yours — call it anything. You can rename it any time from the menu.</div>' +
-      '<input class="daily-note" id="wizName" maxlength="40" placeholder="e.g. The Vault, Mission Control, Pat’s Cache…">' +
+      '<input class="daily-note" id="wizName" maxlength="40" placeholder="e.g. The Vault, Mission Control, Pat’s Cache…" value="' + escapeHtml(cur) + '">' +
       '<button class="daily-cta" id="wizNameGo">Next</button>' + skipBtn;
+    const save = () => { const v = (b.querySelector("#wizName").value || "").trim(); if (v) { try { localStorage.setItem("money.cacheName", v); } catch (e) {} try { if (typeof renderCharacter === "function") renderCharacter(); } catch (e) {} } };
+    b.querySelector("#wizName").addEventListener("input", save);   // saves as you type, so Back keeps it
     b.querySelector("#wizNameGo").addEventListener("click", () => {
-      const v = (b.querySelector("#wizName").value || "").trim();
-      if (v) { try { localStorage.setItem("money.cacheName", v); } catch (e) {} try { if (typeof renderCharacter === "function") renderCharacter(); } catch (e) {} }
+      save();
       next();
     });
     b.querySelector("[data-skip]").addEventListener("click", next);
   }
   function wAreas(b) {
-    b.innerHTML = '<div class="daily-q">What parts of your life do you already track?</div>' +
-      '<div class="daily-hint">Tap everything that fits. Money and Health work today; the rest say “soon” honestly — your picks shape your daily check-in and tell us what to build next.</div>' +
+    b.innerHTML = '<div class="daily-q">What should your cache keep an eye on?</div>' +
+      '<div class="daily-hint">Tap anything that fits. Money and Health work today; the rest say “soon” honestly — your picks become cards in your daily deck and tell us what to build next.</div>' +
       '<div class="wiz-grid">' + WIZ_AREAS.map((a, ix) =>
-        '<button class="wiz-chip" data-ix="' + ix + '"><span class="e">' + a[0] + '</span><span>' + a[1] + '</span><span class="wiz-tag' + (a[2] ? " now" : "") + '">' + (a[2] ? "works today" : "soon") + "</span></button>").join("") + "</div>" +
+        '<button class="wiz-chip' + (picks.indexOf(a[1]) !== -1 ? " on" : "") + '" data-ix="' + ix + '"><span class="e">' + a[0] + '</span><span>' + a[1] + '</span><span class="wiz-tag' + (a[2] ? " now" : "") + '">' + (a[2] ? "works today" : "soon") + "</span></button>").join("") + "</div>" +
       '<button class="daily-cta" id="wizAreasGo">Next</button>' + skipBtn;
+    const savePicks = () => { try { localStorage.setItem(WIZ_PICKS_KEY, JSON.stringify(picks)); } catch (e) {} };
     b.querySelectorAll(".wiz-chip").forEach((c) => c.addEventListener("click", () => {
       const label = WIZ_AREAS[parseInt(c.dataset.ix, 10)][1];
       const at = picks.indexOf(label);
       if (at === -1) { picks.push(label); c.classList.add("on"); } else { picks.splice(at, 1); c.classList.remove("on"); }
+      savePicks();   // persist immediately — Back re-marks chips from picks, never loses a tap
     }));
-    b.querySelector("#wizAreasGo").addEventListener("click", () => {
-      try { localStorage.setItem(WIZ_PICKS_KEY, JSON.stringify(picks)); } catch (e) {}
-      wizSeedDeck(picks);
-      next();
-    });
+    b.querySelector("#wizAreasGo").addEventListener("click", () => { savePicks(); wizSeedDeck(picks); next(); });
     b.querySelector("[data-skip]").addEventListener("click", next);
   }
   function wMoney(b) {
-    if (window.__CACHE_WEB__) {
-      // Money joins RIGHT HERE now: webmoney.js parses a bank CSV and computes it in the
-      // browser, then seals it into the vault. (A hands-off DAILY bank sync is still a
-      // one-time desktop setup.) Never imply a computer is required — it isn't anymore.
+    const renderConnect = () => {
       b.innerHTML = '<div class="daily-q">Get your money in</div>' +
-        '<div class="daily-hint">Import a bank CSV right here — your cache reads it in your browser, works out your spending, safe-to-spend and income, then syncs to your other devices. Nothing leaves your device unencrypted. (Want it hands-off instead? A live daily bank sync is a one-time setup in the desktop app today.)</div>' +
-        '<div class="daily-opts">' +
-          '<button class="daily-btn" data-door="webcsv"><span class="e">📄</span><span>Import a bank CSV</span></button>' +
-          '<button class="daily-btn" data-door="later"><span class="e">⏭️</span><span>Later — keep going</span></button></div>';
-      b.querySelectorAll("[data-door]").forEach((d) => d.addEventListener("click", () => { door = d.dataset.door; next(); }));
-      return;
+        '<div class="daily-hint">This is the real payoff — and it replaces a pile of questions. Bring in your bank and your cache works out your spending, income and what’s safe to spend, no numbers typed by hand. It’s all read on <b>this device</b>; the server only ever sees a scrambled blob it can’t open. Not now? Totally fine — the ⚡ in the menu is here whenever you’re ready.</div>' +
+        '<div class="daily-opts"><button class="daily-btn" data-connect><span class="e">🏦</span><span>Connect my bank</span></button></div>' +
+        '<button class="wiz-skip" data-explain>How does this work?</button>' +
+        '<button class="wiz-skip" data-later>I’ll connect later</button>';
+      // desktop connect reloads on success, so mark setup done first (it just won't re-onboard)
+      b.querySelector("[data-connect]").addEventListener("click", () => { if (!window.__CACHE_WEB__) markDone(); openConnectLayered(() => render()); });
+      const ex = b.querySelector("[data-explain]"); if (ex) ex.addEventListener("click", () => { try { openSfExplainer(); } catch (e) {} });
+      b.querySelector("[data-later]").addEventListener("click", next);
+    };
+    const renderIn = (line) => {
+      b.innerHTML = '<div class="daily-emoji">✅</div><div class="daily-q">Your money is in</div>' +
+        '<div class="daily-hint">' + escapeHtml(line || "Your cache is reading your spending, income and safe-to-spend right here — sealed so only your devices can open it.") + "</div>" +
+        '<button class="daily-cta" data-next>Next</button>' +
+        '<button class="wiz-skip" data-reconnect>Manage the connection</button>';
+      b.querySelector("[data-next]").addEventListener("click", next);
+      b.querySelector("[data-reconnect]").addEventListener("click", () => openConnectLayered(() => render()));
+    };
+    if (window.__CACHE_WEB__) {
+      if (webMoneyIn()) renderIn(); else renderConnect();
+    } else {
+      renderConnect();   // desktop: default to the pitch, then flip to ✓ if the backend says connected
+      fetch("/api/connect-status").then((r) => (r.ok ? r.json() : null)).then((d) => { if (d && d.connected && b.isConnected) renderIn("Your bank is connected — your cache pulls your balances and transactions."); }).catch(() => {});
     }
-    b.innerHTML = '<div class="daily-q">Boss battle: connect your money</div>' +
-      '<div class="daily-hint">The biggest payoff in the whole setup. Plain truth: your bank data stays on YOUR machine, the app never sees your bank login, and the demo is a zero-risk way to look around first. I’ll open the connection panel when we finish.</div>' +
-      '<div class="daily-opts">' +
-        '<button class="daily-btn" data-door="bank"><span class="e">🏦</span><span>Connect my real bank</span></button>' +
-        '<button class="daily-btn" data-door="demo"><span class="e">🎮</span><span>Load demo data first</span></button>' +
-        '<button class="daily-btn" data-door="csv"><span class="e">📄</span><span>Import a CSV statement</span></button>' +
-        '<button class="daily-btn" data-door="later"><span class="e">⏭️</span><span>Later — keep going</span></button></div>';
-    b.querySelectorAll("[data-door]").forEach((d) => d.addEventListener("click", () => { door = d.dataset.door; next(); }));
   }
-  function wEnergy(b) {
-    const it = (deckLive(loadDeck()).find((q) => q && q.id === "energy")) || DEFAULT_DECK.find((q) => q.id === "energy");
-    b.innerHTML = '<div class="daily-q">' + escapeHtml(it.prompt) + '</div>' +
-      '<div class="daily-hint">This is a card from <b>the deck</b> — the heart of Cache. Your energy varies; that’s not a flaw. One tap a day builds a pattern you can plan around.</div>';
-    const holder = document.createElement("div"); holder.className = "daily-input"; b.appendChild(holder);
-    const sk = document.createElement("button"); sk.className = "wiz-skip"; sk.textContent = "skip this step"; b.appendChild(sk);
-    sk.addEventListener("click", next);
-    buildDailyInput(holder, it, (v) => {
-      try {
-        const entry = { ts: todayKey(), at: Date.now(), itemId: it.id, prompt: it.prompt, input: it.input, value: v, dest: it.dest || null };
-        const log = loadLog(); log.push(entry);
-        if (saveLog(log)) { energyLogged = true; ckPush([entry]); try { document.dispatchEvent(new CustomEvent("cache:logged")); } catch (e) {} }
-      } catch (e) {}
-      next();
-    });
-  }
-  function wReserve(b) {
-    b.innerHTML = '<div class="daily-q">Set your safety buffer</div>' +
-      '<div class="daily-hint">Money you never want to touch — Safe-to-spend subtracts it before telling you what’s truly spendable. Changeable any time in Settings.</div>' +
-      '<button class="daily-none" data-v="">🌱 Not yet — skip</button>' +
-      '<div class="daily-chips">' + ["100", "250", "500", "1000"].map((c) => '<button class="daily-chip" data-v="' + c + '">$' + c + "</button>").join("") + '<button class="daily-chip" data-v="__other">Other</button></div>';
-    b.querySelectorAll("[data-v]").forEach((btn) => btn.addEventListener("click", () => {
-      const v = btn.dataset.v;
-      if (v === "__other") {
-        b.innerHTML = '<div class="daily-q">Set your safety buffer</div><input class="daily-note" id="wizRes" type="number" inputmode="decimal" placeholder="amount…"><button class="daily-cta" id="wizResGo">Next</button>';
-        b.querySelector("#wizResGo").addEventListener("click", () => { const n = parseFloat(b.querySelector("#wizRes").value) || 0; if (n > 0) try { localStorage.setItem(RESERVE_KEY, String(n)); } catch (e) {} next(); });
-        return;
-      }
-      if (v) try { localStorage.setItem(RESERVE_KEY, v); } catch (e) {}
-      next();
-    }));
+  function wDeck(b) {
+    let card = null;
+    try { card = (deckLive(loadDeck()) || []).find((q) => q && q.prompt) || (typeof DEFAULT_DECK !== "undefined" ? DEFAULT_DECK.find((q) => q && q.prompt) : null) || null; } catch (e) {}
+    const prompt = card && card.prompt ? card.prompt : "How’s your energy today?";
+    b.innerHTML = '<div class="daily-q">Meet the deck</div>' +
+      '<div class="daily-hint">The deck is the heart of your cache — a tiny daily check-in. Open it from the <b>🃏 button</b> at the bottom, answer a card or two, and your cache stays fed. One minute a day, no streaks, no guilt. The areas you just picked are already waiting in there.</div>' +
+      '<div class="wiz-deckcard"><div class="wiz-deckcard-q">' + escapeHtml(prompt) + "</div>" +
+        '<div class="wiz-deckcard-pips"><span class="wiz-pip"></span><span class="wiz-pip"></span><span class="wiz-pip on"></span><span class="wiz-pip"></span><span class="wiz-pip"></span></div>' +
+        '<div class="wiz-deckcard-note">a card in your deck — nothing to answer right now</div></div>' +
+      '<button class="daily-cta" id="wizDeckGo">Got it</button>';
+    b.querySelector("#wizDeckGo").addEventListener("click", next);
   }
   function wDone(b) {
-    markDone();
-    try { if (typeof addExp === "function") addExp(10); } catch (e) {}
-    try { if (typeof logChar === "function") logChar("feat", "Setup complete · +10 EXP"); } catch (e) {}
+    // grant EXP + confetti ONCE — bouncing back into Done via Back or a dot must not re-grant
+    const firstArrival = !doneGranted;
+    if (firstArrival) {
+      doneGranted = true; markDone();
+      try { if (typeof addExp === "function") addExp(10); } catch (e) {}
+      try { if (typeof logChar === "function") logChar("feat", "Setup complete · +10 EXP"); } catch (e) {}
+    }
     const bits = [];
-    if (picks.length) bits.push(picks.length + (picks.length === 1 ? " life area" : " life areas") + " picked");
-    if (energyLogged) bits.push("energy day 1 logged");
-    if (!window.__CACHE_WEB__) bits.push(door === "later" ? "money connection saved for later (⚡ in the menu)" : "opening the connection panel next");
-    else bits.push(door === "webcsv" ? "opening CSV import next" : "import a CSV any time (⚡ in the menu)");
+    try { if ((localStorage.getItem("money.cacheName") || "").trim()) bits.push("name set"); } catch (e) {}
+    if (picks.length) bits.push(picks.length + (picks.length === 1 ? " area" : " areas") + " picked");
+    bits.push((window.__CACHE_WEB__ && webMoneyIn()) ? "money in" : "bank saved for later (⚡ in the menu)");
     b.innerHTML = '<div id="wizDone" class="daily-emoji">✨</div><div class="daily-big">Your cache is ready</div>' +
       '<div class="daily-exp">+10 EXP</div><div class="daily-funny">' + escapeHtml(bits.join(" · ")) + "</div>" +
-      '<div class="daily-hint">One thing to remember: <b>🃏 the deck!</b> button at the bottom. When you open your cache, tap the deck — one minute keeps it fed.</div>' +
+      '<div class="daily-hint">One thing to remember: <b>🃏 the deck</b> at the bottom — that’s your daily minute. (Didn’t link a bank? The ⚡ in the menu is there whenever you’re ready.)</div>' +
       '<button class="daily-cta" id="wizEnter">Enter your cache</button>';
-    const r = stage.getBoundingClientRect(); dailyBurst(stage, r.width / 2, r.height * 0.36);
-    const pop = b.querySelector("#wizDone"); if (!reduceMotion() && pop.animate) pop.animate([{ transform: "scale(.4) rotate(-12deg)" }, { transform: "scale(1.15) rotate(6deg)" }, { transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.2,1.3,.4,1)" });
-    b.querySelector("#wizEnter").addEventListener("click", () => {
-      close();
-      // web picked "Import a bank CSV" → open the same connect panel (its web branch leads
-      // with CSV import), exactly mirroring the desktop end-of-wizard behavior
-      if ((!window.__CACHE_WEB__ && door !== "later") || (window.__CACHE_WEB__ && door === "webcsv")) { try { openConnect(); } catch (e) {} }
-      else setTimeout(showDeckCoach, 700);   // land the ritual: point at the deck
-    });
+    if (firstArrival) { try { const r = stage.getBoundingClientRect(); dailyBurst(stage, r.width / 2, r.height * 0.36); } catch (e) {} }
+    const pop = b.querySelector("#wizDone"); if (pop && !reduceMotion() && pop.animate) pop.animate([{ transform: "scale(.4) rotate(-12deg)" }, { transform: "scale(1.15) rotate(6deg)" }, { transform: "scale(1)" }], { duration: 600, easing: "cubic-bezier(.2,1.3,.4,1)" });
+    b.querySelector("#wizEnter").addEventListener("click", () => { close(); setTimeout(showDeckCoach, 700); });   // money is already in-flow; just land the deck ritual
   }
   render();
 }
