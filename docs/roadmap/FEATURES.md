@@ -32,7 +32,8 @@ _Last updated: 2026-07-16_
 
 ## Connect your money
 - **Automatic bank sync** — link real accounts (read-only) and pull balances + transactions on demand.
-- **Import statements** — drag a CSV onto the dashboard for cards that don't auto-connect, or to backfill older history. Duplicates are skipped automatically.
+- **Import a bank CSV right in your browser** — no desktop needed. Drop a CSV export onto your cache and it parses, builds your ledger, and computes your spending, safe-to-spend and income entirely on your device, then syncs it to your other devices — sealed and unreadable to the cloud. Perfect for cards that don't auto-connect, for backfilling older history, or for running your whole cache from the web alone.
+- **Never double-counts** — re-import an overlapping statement as often as you like; duplicates are skipped, and anything you deleted stays deleted.
 - **Local & private by design** — your financial data lives on your machine, never on a server, never committed anywhere.
 
 ## See where you stand

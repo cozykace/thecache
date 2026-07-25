@@ -73,6 +73,8 @@ def _num(x):
         v = float(x)
     except ValueError:
         return None
+    if v != v or v in (float("inf"), float("-inf")):  # reject NaN/Infinity — a non-finite amount corrupts every sum (matches webmoney _num's isFinite guard)
+        return None
     return -v if neg else v
 
 
