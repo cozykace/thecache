@@ -3765,26 +3765,36 @@ async function resetTestToFresh() {
   if (!isTestAccount()) { try { flash("Fresh-reset is only for +cachetest test accounts."); } catch (e) {} return; }
   if (!s.token) { try { flash("Log into the test account first."); } catch (e) {} return; }
   confirmDelete("the ENTIRE test account " + (s.email || "") + " — its account, cloud vault, and this device's copy (fresh-signup reset)", async () => {
-    let acctGone = false;
+    // Refresh the token FIRST. The "worked on the second try" bug was a stale token: the first
+    // DELETE 401'd and we swallowed it; some later interaction refreshed the token, so the
+    // second attempt worked. auth-refresh gets a fresh token before we touch anything.
+    try { await cloudAuthCheck(); } catch (e) {}
+    const cur = cloudState(); const tok = cur.token || s.token; const uid = cur.userId || s.userId;
+    if (!tok) { try { flash("Your login expired — log back in, then reset."); } catch (e) {} return; }
+    let acctGone = false, why = "";
     try {
-      const id = await cloudFindVaultId(s);   // delete the cloud vault (blob + keybox) if any
-      if (id) { try { await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "DELETE", headers: { Authorization: s.token } }); } catch (e) {} }
-      if (s.userId) {                          // delete the account itself, so the same email can sign up fresh
-        try { const r = await fetch(cloudUrl() + "/api/collections/users/records/" + s.userId, { method: "DELETE", headers: { Authorization: s.token } }); acctGone = r.ok; } catch (e) {}
+      const id = await cloudFindVaultId(cur);   // delete the cloud vault (blob + keybox) if any
+      if (id) { try { await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "DELETE", headers: { Authorization: tok } }); } catch (e) {} }
+      if (uid) {                                 // delete the account itself, so the same email can sign up fresh
+        try {
+          const r = await fetch(cloudUrl() + "/api/collections/users/records/" + uid, { method: "DELETE", headers: { Authorization: tok } });
+          acctGone = r.ok;
+          if (!r.ok) { try { why = " (" + ((await r.json()).message || ("HTTP " + r.status)) + ")"; } catch (e) { why = " (HTTP " + r.status + ")"; } }
+        } catch (e) { why = " (" + ((e && e.message) || "network error") + ")"; }
       }
     } catch (e) {}
     // HARD local discard (no parking — the account is gone): drop the key, wipe every
     // account-scoped key from the live slot, remove any parked silo, clear the session pointer.
     try { cloudKeySet(""); } catch (e) {}
     try { clearAccountData(); } catch (e) {}
-    try { if (s.userId) localStorage.removeItem(PROFILE_PREFIX + s.userId); } catch (e) {}
+    try { if (uid) localStorage.removeItem(PROFILE_PREFIX + uid); } catch (e) {}
     try { localStorage.removeItem(CLOUD_KEY); } catch (e) {}
     try {
       flash(acctGone
         ? "Account deleted — you're logged out. Sign up fresh to test onboarding again."
-        : "Logged out + wiped on this device. (The account couldn't be deleted server-side — add a self-delete rule to the PocketBase users collection, or use a new +cachetest email.)");
+        : "Logged out + wiped here, but the account wasn't deleted server-side" + why + ". Add a self-delete rule to the PocketBase users collection, or use a new +cachetest email.");
     } catch (e) {}
-    setTimeout(() => location.reload(), 1100);
+    setTimeout(() => location.reload(), acctGone ? 1100 : 2600);   // linger longer so you can read the failure reason
   });
 }
 async function cloudGenKey() {
