@@ -3748,6 +3748,36 @@ async function decryptJSON(envStr, pass) {
 const CLOUDKEY_KEY = "money.cloudKey";
 function cloudKeyGet() { try { return localStorage.getItem(CLOUDKEY_KEY) || ""; } catch (e) { return ""; } }
 function cloudKeySet(b64) { try { if (b64) localStorage.setItem(CLOUDKEY_KEY, b64); else localStorage.removeItem(CLOUDKEY_KEY); } catch (e) {} }
+
+// TEST-ONLY: a "+cachetest" email marks a throwaway account. The reset tool below (and its
+// button) exist ONLY for these — a real account (no "+cachetest") can never see or run it.
+// Gmail plus-addressing means hellocozyace+cachetest@gmail.com lands in your normal inbox but
+// is its own account, so you can make as many as you want without a single extra mailbox.
+function isTestAccount() { return (cloudState().email || "").toLowerCase().indexOf("+cachetest") !== -1; }
+// Return a test account to a BRAND-NEW signup: delete its cloud vault (blob + keybox) and drop
+// the local key, so the next render shows the first-time "Just me / Keep a spare" choice again.
+// Double-guarded (button hidden AND this refuses) so it can never touch a real account.
+async function resetTestToFresh() {
+  const s = cloudState();
+  if (!isTestAccount()) { try { flash("Fresh-reset is only for +cachetest test accounts."); } catch (e) {} return; }
+  if (!s.token) { try { flash("Log into the test account first."); } catch (e) {} return; }
+  confirmDelete("the CLOUD vault of " + (s.email || "this test account") + " — a fresh-signup reset", async () => {
+    try {
+      const id = await cloudFindVaultId(s);
+      if (id) {
+        const r = await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { method: "DELETE", headers: { Authorization: s.token } });
+        if (!r.ok && r.status !== 404) throw new Error("couldn't delete the vault (HTTP " + r.status + ")");
+      }
+      cloudKeySet("");                                        // drop the held vault key
+      try { localStorage.removeItem("money.simplefin"); } catch (e) {}   // per-account bank credential
+      const ns = cloudState();                               // forget "we have a backup" so the fresh flow shows
+      ["lastPush", "lastSeenVault", "mode", "keyboxMissing"].forEach((k) => { delete ns[k]; });
+      cloudSaveState(ns);
+      try { flash("Reset to a fresh signup — reloading…"); } catch (e) {}
+      setTimeout(() => location.reload(), 700);
+    } catch (e) { try { flash("Reset failed: " + ((e && e.message) || e)); } catch (e2) {} }
+  });
+}
 async function cloudGenKey() {
   const k = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
   return _b64(await crypto.subtle.exportKey("raw", k));
@@ -5238,13 +5268,17 @@ function openAccountMenu(anchor) {
     '<button class="am-item am-out" data-act="logout"><i data-lucide="log-out"></i>Log out</button>';
   document.body.appendChild(menu);
   const r = anchor.getBoundingClientRect();
-  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + "px";
-  // Open upward from the anchor (the dock chip sits at the bottom), but FLIP below when
-  // there isn't room above — this menu is also opened from the profile, where the button
-  // can sit anywhere in a scrolling panel and an always-upward menu lands off-screen.
-  const mh = menu.offsetHeight;
-  if (r.top - 8 >= mh) menu.style.bottom = (window.innerHeight - r.top + 8) + "px";
-  else menu.style.top = Math.min(r.bottom + 8, Math.max(8, window.innerHeight - mh - 8)) + "px";
+  const mw = menu.offsetWidth, mh = menu.offsetHeight, gap = 6;
+  // RIGHT-align to the anchor and hug it. The cloud chip is now a small dot at the far-right
+  // of the dock, so left-aligning the (much wider) menu to it clamps the menu leftward and it
+  // floats away from the button. Aligning the menu's RIGHT edge to the button's right edge
+  // keeps it visually hanging off the button, then clamp on-screen.
+  const left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
+  menu.style.left = left + "px";
+  // Open upward, hugging the anchor (the dock sits at the bottom); FLIP below only when there
+  // isn't room above (the profile's "Switch account" can sit high in a scrolling panel).
+  if (r.top >= mh + gap) menu.style.bottom = (window.innerHeight - r.top + gap) + "px";
+  else menu.style.top = Math.min(r.bottom + gap, Math.max(8, window.innerHeight - mh - 8)) + "px";
   drawIcons();
   menu.addEventListener("click", (e) => {
     const b = e.target.closest("[data-act]"); if (!b) return;
@@ -5878,6 +5912,14 @@ function openSettings() {
         '</div>' +
         '<div class="set-hint cloud-msg" id="setCloudMsg"></div>' +
       '</div>') +
+      // TEST TOOL — only ever appears for a "+cachetest" email (never your real account), so you
+      // can re-run the fresh-signup / recovery flow a hundred times on ONE login. Wipes this test
+      // account's cloud vault → back to the first-time "Just me / Keep a spare" choice.
+      (isTestAccount()
+        ? '<div class="set-sec">🧪 Test</div>' +
+          '<div class="set-bk-row"><button class="set-btn resettest-btn" id="resetTestFresh">Reset to a fresh signup</button></div>' +
+          '<div class="set-hint">Deletes <b>this test account\'s</b> cloud vault so the first-time key choice comes back. Only shows for <b>+cachetest</b> emails — your real account can never see this.</div>'
+        : '') +
       '<div class="set-sec">Profile</div>' +
       '<div class="set-hint">your name, pronouns, about — plus what (if anything) you share publicly</div>' +
       '<div class="set-bk-row"><button class="set-btn" id="setEditProfile">🪪 Edit profile</button></div>' +
@@ -5945,6 +5987,8 @@ function openSettings() {
   // money.profileCard only (GENERIC, converges); money.profile is never touched,
   // so the old whole-object save's stats-clobber can't happen anymore
   modal.querySelector("#setEditProfile").addEventListener("click", () => { closeCategorizer(); openProfile(); });
+  const rtf = modal.querySelector("#resetTestFresh");   // only exists for +cachetest accounts
+  if (rtf) rtf.addEventListener("click", () => { try { resetTestToFresh(); } catch (e) {} });
 
   const bind = (sel, key) => modal.querySelector(sel).addEventListener("change", (e) => {
     const val = e.target.value.trim();

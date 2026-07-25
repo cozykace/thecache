@@ -1137,6 +1137,9 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   cursor: pointer; font-family: inherit; font-size: 12px; color: var(--ink); padding: 9px 12px; white-space: nowrap;
   transition: background 0.12s ease, border-color 0.12s ease; }
 .set-btn:hover { border-color: var(--accent); color: var(--accent); }
+/* test-only reset button — a dashed border marks it as a throwaway/dev control */
+.resettest-btn { border-style: dashed; color: rgba(var(--ink-rgb), 0.7); }
+.resettest-btn:hover { border-color: var(--danger, #c9542e); color: var(--danger, #c9542e); }
 /* Cache cloud — guided 3-step setup */
 /* the "where am I / what next" banner */
 .cloud-guide { margin: 8px 0 10px; padding: 10px 13px; border-radius: 11px; font-size: 12.5px;
