@@ -6678,6 +6678,7 @@ function openSettings() {
       await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value);
       if (reloadIfSwitched(before)) return;
       refreshCloud(); cloudChip(); cloudAutoPull();
+      maybeCelebrateReset();   // fire the reset confetti immediately — it reads only money.justReset + the now-set token, so it must NOT wait on the cloudListMethods round-trip below
       // Honest TWO-SECRETS routing: getting into the account isn't the same as opening the
       // data. If this account's vault is passphrase-sealed (zero-knowledge / v1) and this
       // device doesn't already hold the key, say so plainly and point at the recovery flow —
@@ -6701,7 +6702,6 @@ function openSettings() {
       } else {
         clSay("✓ Logged in as " + st.email + ".", "ok");
       }
-      maybeCelebrateReset();   // password-reset confetti fires regardless of the recovery routing above (you DID reset your password)
     }
     catch (e) { clSay("Login failed: " + (e.message || e), "err"); reloadIfAborted(); }
   });

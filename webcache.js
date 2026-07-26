@@ -1037,7 +1037,7 @@
         (isReset ? '<button class="wc-btn primary" id="wcCfSubmit">Update password</button>' : '') +
       '</div>' +
       '<div class="wc-msg" id="wcCfMsg"></div>' +
-      '<div class="wc-link wc-hidden" id="wcCfBack">Back to sign in</div>' +
+      '<div class="wc-link' + (isReset ? '' : ' wc-hidden') + '" id="wcCfBack">Back to sign in</div>' +   // reset: always show an exit (no dead-end if you change your mind); verification auto-resolves so it stays hidden until its outcome
       '</div>';
     document.body.appendChild(g);
 
