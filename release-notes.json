@@ -18,6 +18,12 @@
     "body": "Confirming your email address is now a Cache Health item you can check off — it makes sure a password reset or recovery can actually reach you. It never blocks you from signing in or using your cache; it's just one more thing your cache nudges you to finish. A verification email goes out when you make an account (resend any time from Settings → Cache cloud), and the moment you click the link, it checks itself off."
   },
   {
+    "id": "2026-07-25-forgot-password-reset",
+    "date": "2026-07-25",
+    "title": "Forgot your password? Reset it yourself",
+    "body": "A quiet \"Forgot password?\" link now sits under the sign-in fields — on the web and in Settings → Cache cloud. Confirm your email and we send a reset link. It always says the same calm thing whether or not that email has an account, so it can't be used to find out who's registered. And it's honest about what a reset does: getting back into your account isn't the same as unlocking your data. If your cache is sealed just for you (zero-knowledge), the link gets you in, but your data still opens only with your recovery file or code — so the app says exactly that and points you there, instead of pretending your data is back. Accounts that keep a spare key with us just open as normal. The reset and email-verification links now land on The Cache's own clean page — set your new password right there — instead of a bare hosting page."
+  },
+  {
     "id": "2026-07-25-zero-knowledge-default",
     "date": "2026-07-25",
     "title": "Your cache is yours — zero-knowledge by default",

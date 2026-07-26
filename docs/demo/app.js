@@ -4181,6 +4181,61 @@ async function cloudSignup(url, email, password) {
   try { fetch(base + "/api/collections/users/request-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).catch(() => {}); } catch (e) {}
   return cloudLogin(base, email, password);   // auto log in
 }
+// ── Forgot the ACCOUNT password? ─────────────────────────────────────────────
+// PocketBase mails a reset link; that link opens PocketBase's own reset page where
+// the user sets a new password. This is a PUBLIC endpoint (works logged out).
+// ⚠️ THE TWO SECRETS: this resets the ACCOUNT password (getting you back INTO the
+// account). It does NOT unlock a zero-knowledge / v1 vault — that data still needs
+// the passphrase, recovery file, or code (see resetRouteForMethods + the recover flow).
+// ⚠️ ACCOUNT-ENUMERATION GUARD: the CALLER always shows the SAME calm confirmation
+// whether or not the email has an account. This fn NEVER branches on "does the account
+// exist" — PocketBase returns 204 for both, and we deliberately fold every other 4xx
+// (a 400/404 that could hint at existence) into the same success result. The only
+// things it distinguishes are TRANSPORT problems (offline / rate-limited / server
+// error), none of which reveal whether an account exists. It also never logs, stores,
+// or returns any token — option (a): the reset token is handled entirely on
+// PocketBase's own page, never in our runtime.
+async function cloudRequestReset(email, url) {
+  const base = (url || cloudUrl() || "").replace(/\/+$/, "");
+  let r;
+  try {
+    r = await fetch(base + "/api/collections/users/request-password-reset", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }) });
+  } catch (e) { throw new Error("offline"); }   // couldn't reach the cloud at all
+  if (r.status === 429) throw new Error("rate");     // too many requests — cooldown
+  if (r.status >= 500) throw new Error("server");    // a real server error, NOT an existence signal
+  // 204 (success) OR any 4xx: same calm answer. PocketBase returns 204 whether or not
+  // the address has an account, and we never surface anything that separates
+  // "no such account" from "sent". Enumeration-safe by construction.
+  return true;
+}
+// The TWO-SECRETS router: given a vault's unlock methods (keyboxMethods /
+// cloudListMethods — [] when there's no keybox), decide what an account-password reset
+// alone gets you.
+//   "open"    — an escrow spare is present (or no personal seal): logging back in
+//               opens the cache with nothing more to type.
+//   "recover" — zero-knowledge (passphrase-sealed, no escrow): the reset got you into
+//               the ACCOUNT, but the DATA still needs your passphrase / recovery file /
+//               code — hand the user to the "I can't get in" recovery flow.
+// (A v1 passphrase vault has no keybox → [] → "open" here; the login path catches that
+// separately — the device won't hold the key, so refreshCloud shows the recover button.)
+function resetRouteForMethods(methods) {
+  if (!Array.isArray(methods) || methods.length === 0) return "open";
+  return methods.indexOf("esc") >= 0 ? "open" : "recover";
+}
+// Should a just-completed login nudge the user toward the "I can't get in" recovery flow?
+// YES only when a vault exists, this device doesn't already hold the key, AND the keybox
+// DEFINITIVELY shows a passphrase-sealed (zero-knowledge) vault. The definitiveness is the
+// whole point: cloudListMethods swallows its own errors and returns [] (it never throws or
+// returns null), so a transient read blip — or an escrow account whose device just dropped the
+// key (logout / expiry / fresh device / right after a reset) — yields []. resetRouteForMethods([])
+// is "open", so this returns false and the scary "sealed by your passphrase" line is never shown
+// to an escrow user (escrow has no passphrase; it opens silently on the next pull). Only a real
+// non-esc method list ("pass"/"file"/"code") routes to "recover". holdsKey = !!cloudKeyGet().
+function resetLoginNeedsRecovery(hasVault, holdsKey, methods) {
+  return !!hasVault && !holdsKey && resetRouteForMethods(methods) === "recover";
+}
 function cloudLogout() {
   const s = cloudState();
   cloudKeySet("");   // drop this device's vault data key (explicit logout is stricter than an expiry)
@@ -6118,6 +6173,17 @@ function openSettings() {
           '<button class="set-btn" id="setCloudSignup">Create account</button>' +
           '<button class="set-btn" id="setCloudLogin">Log in</button>' +
         '</div>' +
+        // Forgot your ACCOUNT password? A quiet link → inline reset field (prefilled with
+        // the typed email) → emails a reset link. The note is honest about the two secrets.
+        '<div class="cloud-forgot" id="cloudForgotWrap">' +
+          '<button type="button" class="cloud-url-edit" id="cloudForgotBtn">Forgot password?</button>' +
+          '<div class="cloud-forgot-panel" id="cloudForgotPanel" style="display:none">' +
+            '<div class="set-hint">We’ll email you a link to set a new password. <b>Heads up:</b> a reset gets you back into your <b>account</b> — if you sealed your cache with a <b>passphrase</b> (zero-knowledge), you’ll still need your <b>recovery file or code</b> to open your data. A password reset can’t unlock that.</div>' +
+            '<label class="set-row"><span>Email</span><input id="cloudForgotEmail" type="email" autocomplete="off" placeholder="you@email.com"></label>' +
+            '<div class="set-bk-row"><button class="set-btn" id="cloudForgotSend">Send reset link</button></div>' +
+            '<div class="set-hint cloud-msg cloud-forgot-msg" id="cloudForgotMsg"></div>' +
+          '</div>' +
+        '</div>' +
         '<div class="set-hint cloud-verify" id="setCloudVerify" style="display:none"></div>' +
       '</div>' +
       '<div class="cloud-step" id="cloudStep2">' +
@@ -6462,6 +6528,52 @@ function openSettings() {
     if (!secret) { clSay("That doesn’t look like a Cache recovery file (.cachekey).", "err"); return; }
     doRecover({ fileKey: secret }, "recovery file");
   });
+  // ── Forgot the account password ────────────────────────────────────────────
+  // A quiet "Forgot password?" link opens an inline email field (prefilled with the
+  // typed email) → emails a reset link. Same calm confirmation whether or not the
+  // account exists (enumeration-safe). A cooldown keeps the send button from being
+  // spammed.
+  const forgotWrap = modal.querySelector("#cloudForgotWrap"),
+        forgotBtn = modal.querySelector("#cloudForgotBtn"),
+        forgotPanel = modal.querySelector("#cloudForgotPanel"),
+        forgotEmail = modal.querySelector("#cloudForgotEmail"),
+        forgotSend = modal.querySelector("#cloudForgotSend"),
+        forgotMsg = modal.querySelector("#cloudForgotMsg");
+  function forgotSay(t, kind) { if (!forgotMsg) return; forgotMsg.textContent = t; forgotMsg.className = "set-hint cloud-msg cloud-forgot-msg" + (kind ? " " + kind : ""); }
+  let _forgotLeft = 0, _forgotTimer = null;
+  function forgotCooldown(secs) {
+    _forgotLeft = secs;
+    if (_forgotTimer) clearInterval(_forgotTimer);
+    const tick = () => {
+      if (!forgotSend) return;
+      if (_forgotLeft <= 0) { clearInterval(_forgotTimer); _forgotTimer = null; forgotSend.disabled = false; forgotSend.textContent = "Send reset link"; return; }
+      forgotSend.disabled = true; forgotSend.textContent = "Resend in " + _forgotLeft + "s"; _forgotLeft--;
+    };
+    tick(); _forgotTimer = setInterval(tick, 1000);
+  }
+  if (forgotBtn) forgotBtn.addEventListener("click", () => {
+    const open = forgotPanel.style.display !== "none";
+    forgotPanel.style.display = open ? "none" : "";
+    if (!open) { forgotEmail.value = (clEmail.value || "").trim(); forgotSay(""); try { forgotEmail.focus(); } catch (e) {} }
+  });
+  if (forgotSend) forgotSend.addEventListener("click", async () => {
+    if (forgotSend.disabled) return;   // mid-cooldown — debounced
+    const em = (forgotEmail.value || "").trim();
+    if (!em || em.indexOf("@") < 0) { forgotSay("Enter the email for your account.", "err"); return; }
+    forgotSend.disabled = true;   // in-flight: block a double-click firing a second request (and the user's own 429)
+    forgotSay("Sending…", "work");
+    try {
+      await cloudRequestReset(em, clUrl.value.trim());
+      forgotSay("If that email has an account, a reset link is on its way. Open it, set a new password, then come back here and log in.", "ok");
+      forgotCooldown(45);   // keeps it disabled + counts down a resend cooldown
+    } catch (e) {
+      forgotSend.disabled = false;   // a transport error — let them retry
+      const m = e && e.message;
+      if (m === "rate") forgotSay("Hold on a moment before requesting another reset link.", "err");
+      else if (m === "offline") forgotSay("Couldn’t reach the cloud — check your connection and try again.", "err");
+      else forgotSay("The cloud had a hiccup — try again in a moment.", "err");
+    }
+  });
   // Repaint the whole stepper: checkmarks, which step is active, the next-step banner, button enabling.
   function refreshCloud() {
     const s = cloudState();
@@ -6491,6 +6603,8 @@ function openSettings() {
     // account buttons
     clSignup.style.display = inAccount ? "none" : "";
     clLogin.style.display = inAccount ? "none" : "";
+    // "Forgot password?" is a signed-OUT affordance — hide it (and collapse its panel) once in
+    if (forgotWrap) { forgotWrap.style.display = inAccount ? "none" : ""; if (inAccount && forgotPanel) forgotPanel.style.display = "none"; }
     // the prominent account row (with log out / switch) leads the panel when signed in
     if (clAccount) clAccount.style.display = inAccount ? "" : "none";
     if (clWho) clWho.textContent = s.email || "your account";
@@ -6560,7 +6674,35 @@ function openSettings() {
   clLogin.addEventListener("click", async () => {
     clSay("Logging in…", "work");
     const before = cloudState().userId;
-    try { await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value); if (reloadIfSwitched(before)) return; refreshCloud(); cloudChip(); cloudAutoPull(); clSay("✓ Logged in as " + cloudState().email + ".", "ok"); maybeCelebrateReset(); }
+    try {
+      await cloudLogin(clUrl.value.trim(), clEmail.value.trim(), clPass.value);
+      if (reloadIfSwitched(before)) return;
+      refreshCloud(); cloudChip(); cloudAutoPull();
+      // Honest TWO-SECRETS routing: getting into the account isn't the same as opening the
+      // data. If this account's vault is passphrase-sealed (zero-knowledge / v1) and this
+      // device doesn't already hold the key, say so plainly and point at the recovery flow —
+      // never let a fresh login (e.g. right after a password reset) imply the data is back.
+      let methods = [];
+      try { methods = await cloudListMethods(); } catch (e) {}
+      const st = cloudState();
+      const hasVault = !!(st.lastPush || st.mode || st.recordId);
+      // Only nudge toward recovery when the read DEFINITIVELY shows a passphrase-sealed
+      // (zero-knowledge, non-escrow) vault. resetRouteForMethods returns "recover" ONLY when
+      // real non-esc methods are present — so an escrow read ("esc"), an EMPTY read, and a
+      // FAILED read (cloudListMethods swallows its own errors and returns [] — it never throws
+      // or returns null) all route to "open" and never show the scary message. That's the whole
+      // point: a transient blip must never tell an escrow user their data is "sealed by your
+      // passphrase" (escrow has none; it opens silently). v1-legacy vaults (no keybox → []) don't
+      // get this extra line, but refreshCloud still shows them the recover button via !holdsKey.
+      const needsKey = resetLoginNeedsRecovery(hasVault, !!cloudKeyGet(), methods);
+      if (needsKey) {
+        clSay("✓ Logged in as " + st.email + ". Your cache is still sealed by your passphrase — unlock it below with your recovery file or code.", "ok");
+        refreshCloud();   // reveal the "I can’t get in — use my recovery file or code" button
+      } else {
+        clSay("✓ Logged in as " + st.email + ".", "ok");
+      }
+      maybeCelebrateReset();   // password-reset confetti fires regardless of the recovery routing above (you DID reset your password)
+    }
     catch (e) { clSay("Login failed: " + (e.message || e), "err"); reloadIfAborted(); }
   });
   clLogout.addEventListener("click", () => {

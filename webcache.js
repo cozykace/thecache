@@ -403,6 +403,67 @@
     if (!r.ok) throw new Error(errMsg(d) || "couldn't create account");
     return login(email, pass);
   }
+  // Forgot the ACCOUNT password — PocketBase mails a reset link (public endpoint).
+  // Mirror of app.js cloudRequestReset: ⚠️ ENUMERATION-SAFE — never branches on whether
+  // the account exists (PocketBase 204s either way, and we fold every 4xx into the same
+  // success). Only TRANSPORT problems (offline / rate-limited / server error) differ,
+  // and none of those reveal existence. This fn never touches the reset TOKEN — that
+  // arrives later in the email link and is handled by the on-brand confirm page below.
+  async function requestReset(email) {
+    var base = cloudUrl(), r;
+    try {
+      r = await realFetch(base + "/api/collections/users/request-password-reset",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email }) });
+    } catch (e) { throw new Error("offline"); }
+    if (r.status === 429) throw new Error("rate");
+    if (r.status >= 500) throw new Error("server");
+    return true;   // 204 OR any 4xx → same calm answer
+  }
+  // ── On-brand confirm landing (email verification + password reset) ───────────
+  // The PocketBase mail templates point their Action URL at THIS app instead of
+  // PocketBase's own admin page: https://thecache.app/#confirm-verification/{TOKEN}
+  // and .../#confirm-password-reset/{TOKEN}. We put the token in the URL HASH, never
+  // a query string, so it never rides to the server in an access log or a Referer
+  // header — and buildConfirmGate strips it from the address bar the instant it reads
+  // it. The token is used ONLY in the POST body to PocketBase; it is never stored,
+  // never logged.
+  var CONFIRM_KINDS = { "confirm-verification": 1, "confirm-password-reset": 1 };
+  // Pure parser (unit-tested): "#confirm-password-reset/eyJ..." → {kind, token}.
+  // Returns null for anything that isn't one of our known confirm links, so a normal
+  // hash (or none) falls straight through to the login gate.
+  function parseConfirmHashStr(hash) {
+    var h = (hash || "").replace(/^#\/?/, "");     // drop the leading # and an optional /
+    var slash = h.indexOf("/");
+    if (slash < 0) return null;
+    var kind = h.slice(0, slash), token = h.slice(slash + 1);
+    if (!token || !CONFIRM_KINDS[kind]) return null;
+    try { token = decodeURIComponent(token); } catch (e) {}   // JWTs are URL-safe already; harmless
+    return { kind: kind, token: token };
+  }
+  function parseConfirmHash() { try { return parseConfirmHashStr(location.hash); } catch (e) { return null; } }
+  async function confirmVerification(token) {
+    var r = await realFetch(cloudUrl() + "/api/collections/users/confirm-verification",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: token }) });
+    if (r.ok || r.status === 204) return true;
+    var d = null; try { d = await r.json(); } catch (e) {}
+    throw new Error(errMsg(d) || "this link is invalid or has expired");
+  }
+  async function confirmPasswordReset(token, password, passwordConfirm) {
+    var r = await realFetch(cloudUrl() + "/api/collections/users/confirm-password-reset",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: token, password: password, passwordConfirm: passwordConfirm }) });
+    if (r.ok || r.status === 204) return true;
+    var d = null; try { d = await r.json(); } catch (e) {}
+    throw new Error(errMsg(d) || "this link is invalid or has expired");
+  }
+  // Best-effort email out of the reset token's JWT payload — ONLY to prefill the
+  // sign-in email after a reset (a convenience, not a secret). Never throws.
+  function confirmTokenEmail(token) {
+    try {
+      var p = (token || "").split(".")[1] || "";
+      var json = atob(p.replace(/-/g, "+").replace(/_/g, "/"));
+      return (JSON.parse(json).email || "") + "";
+    } catch (e) { return ""; }
+  }
   async function pullVault(pass) {
     var s = cloudState();
     if (!s.token) throw new Error("not logged in");
@@ -711,7 +772,10 @@
 
   // ── the login / unlock gate ──────────────────────────────────────────────────
   var _expiredMsg = "";   // set when an expired session rebuilds the gate as a sign-in
-  function buildGate() {
+  var _gateStylesInjected = false;
+  function ensureGateStyles() {
+    if (_gateStylesInjected) return;
+    _gateStylesInjected = true;
     var st = document.createElement("style");
     st.textContent =
       ".wc-gate{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;" +
@@ -738,8 +802,19 @@
       ".wc-paths a{font-size:11.5px;color:rgba(var(--ink-rgb,17,17,17),.55);text-decoration:none;padding:10px 6px}" +
       ".wc-paths a:hover{color:var(--accent,#FFD409);text-decoration:underline}" +
       ".wc-paths span{color:rgba(var(--ink-rgb,17,17,17),.3)}" +
+      ".wc-forgot{text-align:center;margin-top:2px}" +
+      ".wc-forgot-panel{display:flex;flex-direction:column;gap:8px;margin-top:8px;text-align:left;padding-top:10px;border-top:1px solid var(--edge,#ddd)}" +
+      ".wc-forgot-panel .wc-sub{text-align:left;margin:0}" +
+      "#wcForgotSend:disabled{opacity:.55;cursor:default}" +
+      // on-brand confirm page (email verification / password reset landing)
+      ".wc-confirm-mark{font-size:34px;text-align:center;line-height:1;margin-bottom:2px}" +
+      ".wc-confirm-actions{display:flex;flex-direction:column;gap:8px;margin-top:4px}" +
+      ".wc-btn:disabled{opacity:.55;cursor:default}" +
       ".wc-hidden{display:none !important}";
     document.head.appendChild(st);
+  }
+  function buildGate() {
+    ensureGateStyles();
 
     var g = document.createElement("div");
     g.className = "wc-gate";
@@ -774,6 +849,18 @@
         '<button class="wc-btn wc-acct" id="wcSignup"' + (returning ? ' style="display:none"' : '') + '>Create account</button>' +
       '</div>' +
       '<div class="wc-msg" id="wcMsg"></div>' +
+      // Forgot your ACCOUNT password? Rides with the .wc-acct group (hidden on the returning
+      // gate until "Use a different account" reveals the sign-in fields). Honest about the
+      // two secrets: a reset gets you into the account, not into a passphrase-sealed vault.
+      '<div class="wc-forgot wc-acct"' + (returning ? ' style="display:none"' : '') + '>' +
+        '<div class="wc-link" id="wcForgot">Forgot password?</div>' +
+        '<div class="wc-forgot-panel wc-hidden" id="wcForgotPanel">' +
+          '<div class="wc-sub">We’ll email you a link to set a new password. A reset gets you back into your <b>account</b> — if you sealed your cache with a <b>passphrase</b> (zero-knowledge), you’ll still need your <b>recovery file or code</b> to open your data.</div>' +
+          '<div class="wc-field"><label>Email</label><input id="wcForgotEmail" type="email" autocomplete="off" placeholder="you@email.com"></div>' +
+          '<button class="wc-btn" id="wcForgotSend">Send reset link</button>' +
+          '<div class="wc-msg" id="wcForgotMsg"></div>' +
+        '</div>' +
+      '</div>' +
       (returning ? '<div class="wc-link" id="wcSwitch">Use a different account</div>' : '') +
       // paths for the curious — the front door welcomes strangers too
       '<div class="wc-paths">' +
@@ -867,6 +954,46 @@
       try { await signup(email, pass); await enter(val("#wcPhrase")); } catch (e) { fail(e); }
     });
 
+    // ── Forgot the account password ──────────────────────────────────────────
+    var forgot = g.querySelector("#wcForgot"), forgotPanel = g.querySelector("#wcForgotPanel"),
+        forgotEmail = g.querySelector("#wcForgotEmail"), forgotSend = g.querySelector("#wcForgotSend"),
+        forgotMsg = g.querySelector("#wcForgotMsg");
+    function fSay(t, kind) { if (!forgotMsg) return; forgotMsg.textContent = t; forgotMsg.className = "wc-msg" + (kind ? " " + kind : ""); }
+    var _fLeft = 0, _fTimer = null;
+    function fCooldown(secs) {
+      _fLeft = secs; if (_fTimer) clearInterval(_fTimer);
+      function tick() {
+        if (!forgotSend) return;
+        if (_fLeft <= 0) { clearInterval(_fTimer); _fTimer = null; forgotSend.disabled = false; forgotSend.textContent = "Send reset link"; return; }
+        forgotSend.disabled = true; forgotSend.textContent = "Resend in " + _fLeft + "s"; _fLeft--;
+      }
+      tick(); _fTimer = setInterval(tick, 1000);
+    }
+    if (forgot) forgot.addEventListener("click", function () {
+      if (!forgotPanel) return;
+      var open = !forgotPanel.classList.contains("wc-hidden");
+      forgotPanel.classList.toggle("wc-hidden", open);
+      if (!open && forgotEmail) { forgotEmail.value = val("#wcEmail"); fSay(""); try { forgotEmail.focus(); } catch (e) {} }
+    });
+    if (forgotSend) forgotSend.addEventListener("click", async function () {
+      if (forgotSend.disabled) return;   // mid-cooldown — debounced
+      var em = forgotEmail ? forgotEmail.value.trim() : "";
+      if (!em || em.indexOf("@") < 0) { fSay("Enter the email for your account.", "err"); return; }
+      forgotSend.disabled = true;   // in-flight: block a double-click firing a second request (and the user's own 429)
+      fSay("Sending…");
+      try {
+        await requestReset(em);
+        fSay("If that email has an account, a reset link is on its way. Open it, set a new password, then come back and log in.", "ok");
+        fCooldown(45);   // keeps it disabled + counts down a resend cooldown
+      } catch (e) {
+        forgotSend.disabled = false;   // a transport error — let them retry
+        var m = e && e.message;
+        if (m === "rate") fSay("Hold on a moment before requesting another reset link.", "err");
+        else if (m === "offline") fSay("Couldn’t reach the cloud — check your connection and try again.", "err");
+        else fSay("The cloud had a hiccup — try again in a moment.", "err");
+      }
+    });
+
     if (_expiredMsg) { say(_expiredMsg, "err"); _expiredMsg = ""; }
     // returning device: try the silent unlock — escrow vaults (and any device that
     // already holds the data key) open with no typing at all. Zero-knowledge vaults
@@ -878,6 +1005,104 @@
   }
   function esc(s) { return (s + "").replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }   // escapes ' too (single-quoted attrs) — lockstep with app.js escapeHtml
 
-  if (document.body) buildGate();
-  else document.addEventListener("DOMContentLoaded", buildGate);
+  // The on-brand confirm landing — shown INSTEAD of the login gate when the URL carries a
+  // confirm hash. Takes precedence over any returning session, so a reset link always lets
+  // you set a new password even if a stale token is cached on this device.
+  function buildConfirmGate(kind, token) {
+    ensureGateStyles();
+    // Strip the token from the address bar immediately — a reset token is as sensitive as a
+    // password and must not linger in the URL, browser history, or a bookmark. (It was in the
+    // HASH, so it never reached a server log or Referer in the first place; this clears the bar.)
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+
+    var ink = 20;
+    try { ink = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--ink-rgb")) || 20; } catch (e) {}
+    var logo = ink > 127 ? "av%20assets/THECACHE_LOGO_WHITE.png" : "av%20assets/THECACHE_LOGO_BLACK.png";
+    var isReset = kind === "confirm-password-reset";
+
+    var g = document.createElement("div");
+    g.className = "wc-gate";
+    g.innerHTML =
+      '<div class="wc-card">' +
+      '<img class="wc-logo" src="' + logo + '" alt="THE CACHE">' +
+      '<h1 class="wc-h" id="wcCfH">' + (isReset ? "Set a new password" : "Verifying your email…") + '</h1>' +
+      '<div class="wc-sub" id="wcCfSub">' + (isReset
+        ? "Choose a new password for your Cache account. This doesn’t change how your data is sealed — if your cache is zero-knowledge, you still open it with your passphrase, recovery file, or code."
+        : "One moment while we confirm your email address.") + '</div>' +
+      (isReset
+        ? '<div class="wc-field"><label>New password</label><input id="wcCfPass" type="password" autocomplete="new-password" placeholder="at least 8 characters"></div>' +
+          '<div class="wc-field"><label>Confirm new password</label><input id="wcCfPass2" type="password" autocomplete="new-password" placeholder="type it again"></div>'
+        : '') +
+      '<div class="wc-confirm-actions" id="wcCfActions">' +
+        (isReset ? '<button class="wc-btn primary" id="wcCfSubmit">Update password</button>' : '') +
+      '</div>' +
+      '<div class="wc-msg" id="wcCfMsg"></div>' +
+      '<div class="wc-link wc-hidden" id="wcCfBack">Back to sign in</div>' +
+      '</div>';
+    document.body.appendChild(g);
+
+    var msg = g.querySelector("#wcCfMsg");
+    function say(t, k) { msg.textContent = t; msg.className = "wc-msg" + (k ? " " + k : ""); }
+    function showBack() { var b = g.querySelector("#wcCfBack"); if (b) b.classList.remove("wc-hidden"); }
+    function toGate(prefillEmail) {
+      g.remove();
+      buildGate();
+      if (prefillEmail) { var e = document.querySelector("#wcEmail"); if (e && !e.value) e.value = prefillEmail; }
+    }
+    g.querySelector("#wcCfBack").addEventListener("click", function () { toGate(""); });
+
+    if (isReset) {
+      var submit = g.querySelector("#wcCfSubmit");
+      submit.addEventListener("click", async function () {
+        if (submit.disabled) return;
+        var p1 = g.querySelector("#wcCfPass").value || "", p2 = g.querySelector("#wcCfPass2").value || "";
+        if (p1.length < 8) { say("Use at least 8 characters.", "err"); return; }
+        if (p1 !== p2) { say("Those two passwords don’t match.", "err"); return; }
+        submit.disabled = true; say("Updating your password…");
+        try {
+          await confirmPasswordReset(token, p1, p2);
+          g.querySelector("#wcCfPass").value = ""; g.querySelector("#wcCfPass2").value = "";   // don't leave the new password in a field
+          // the reset rotates the account's auth key → any cached session for THIS account is
+          // now dead. If it's the account signed in on this browser, drop its token so the next
+          // screen is a clean sign-in. Never touch a DIFFERENT account logged in here.
+          try { var em = confirmTokenEmail(token), cs = cloudState(); if (em && cs.email && em.toLowerCase() === cs.email.toLowerCase()) cloudSave(Object.assign({}, cs, { token: "" })); } catch (e) {}
+          g.querySelector("#wcCfH").textContent = "Password updated";
+          g.querySelector("#wcCfSub").textContent = "You can sign in with your new password now.";
+          var acts = g.querySelector("#wcCfActions"); acts.innerHTML = '<button class="wc-btn primary" id="wcCfGo">Sign in</button>';
+          say("✓ Done.", "ok");
+          acts.querySelector("#wcCfGo").addEventListener("click", function () { toGate(confirmTokenEmail(token)); });
+        } catch (e) {
+          submit.disabled = false;
+          say((e && e.message) || "That didn’t work — the link may have expired.", "err");
+          showBack();
+        }
+      });
+      try { g.querySelector("#wcCfPass").focus(); } catch (e) {}
+    } else {
+      // verification: nothing to type — confirm the moment the page loads
+      (async function () {
+        try {
+          await confirmVerification(token);
+          g.querySelector("#wcCfH").textContent = "You’re verified";
+          g.querySelector("#wcCfSub").textContent = "Your email address is confirmed — you’re all set.";
+          say("✓ Email verified.", "ok");
+          var acts = g.querySelector("#wcCfActions"); acts.innerHTML = '<button class="wc-btn primary" id="wcCfGo">Continue</button>';
+          acts.querySelector("#wcCfGo").addEventListener("click", function () { toGate(""); });
+        } catch (e) {
+          g.querySelector("#wcCfH").textContent = "Couldn’t verify that link";
+          g.querySelector("#wcCfSub").textContent = "The link may have expired or already been used. You can request a new one after signing in.";
+          say((e && e.message) || "This link is invalid or has expired.", "err");
+          showBack();
+        }
+      })();
+    }
+  }
+
+  function bootGate() {
+    var c = parseConfirmHash();
+    if (c) buildConfirmGate(c.kind, c.token);   // on-brand verify / reset landing
+    else buildGate();                           // normal login / unlock
+  }
+  if (document.body) bootGate();
+  else document.addEventListener("DOMContentLoaded", bootGate);
 })();

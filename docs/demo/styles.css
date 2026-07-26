@@ -1322,6 +1322,11 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .cloud-msg.err { color: #e0533d; font-weight: 600; }
 .cloud-msg.flash { animation: cloudFlash 0.9s ease-out; }
 @keyframes cloudFlash { 0% { background: rgba(46, 193, 107, 0.22); } 100% { background: transparent; } }
+/* Forgot-password: a quiet link that unfolds an inline reset field */
+.cloud-forgot { margin: 6px 0 2px; }
+.cloud-forgot-panel { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--edge-soft); }
+.cloud-forgot-msg { margin-top: 2px; }
+#cloudForgotSend:disabled { opacity: 0.55; cursor: default; }
 .set-themes { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px; }
 .set-stats { display: flex; flex-direction: column; gap: 6px; padding: 2px 0; }
 .set-stats .set-toggle { padding: 7px 10px; flex: 1; }
