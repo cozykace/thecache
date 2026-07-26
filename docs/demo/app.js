@@ -5400,6 +5400,9 @@ async function cloudAutoPull() {
 // The cloud chip — a status pill beside sync. Hidden until an account is connected;
 // after that it always tells the truth: synced ✓ / syncing / needs you.
 let _cloudErr = "";   // last sync error — the account menu surfaces it (the chip is a light, not a sentence)
+// bank-pull freshness (data/balances.json's `updated`, in ms) — stashed by updateSyncHealth so the
+// connection panel can show "last pulled X ago" the instant it opens, no fetch on the critical path.
+let _bankUpdated = null;
 function cloudChip(state, msg) {
   const el = document.getElementById("cloudHealth");
   if (!el) return;
@@ -5454,11 +5457,16 @@ function cloudChip(state, msg) {
   el.title = tip;
   el.setAttribute("aria-label", label + " — tap for your account & cloud settings");
 }
-// ── The account menu — tap the cloud chip while signed in and your account is right
-//    there: cloud settings, log out, or hand the machine to a different account. This is
-//    the two-tap answer to "how do I log out / switch?" (logout used to live only inside
-//    Settings → Cache cloud, and nothing anywhere said "switch"). One-account-at-a-time
-//    stays the rule: a "switch" is a real log-out (parking your cache) + a real log-in. ──
+// ── The connection panel — tap the cloud dot and see, in one honest place, whether your
+//    three lifelines are healthy: cloud sync, your bank (SimpleFIN), and (on desktop) the
+//    local cache server. Each row is a colour+SHAPE light (never colour alone — mono theme
+//    flattens hue, BEAST recolours, and colour-blind users get nothing from hue) with a
+//    plain-English status line. Below: Sync now, then your account (cloud settings, log out,
+//    or hand the machine to a different account). This folds in the retired green "SYNCED"
+//    pill — its freshness + its Sync-now action now live here. One-account-at-a-time stays
+//    the rule: a "switch" is a real log-out (parking your cache) + a real log-in.
+//    Kept named openAccountMenu so both callers (the dot, the profile's "Switch account")
+//    keep working. ──
 const SWITCH_ACCT_FLAG = "cache.switchAcct";   // sessionStorage: survives the logout reload, dies with the tab
 // The one logout everything shares (Settings + Messages have their own message surfaces,
 // the menu uses this). switching=true also routes the reload straight to a blank sign-in.
@@ -5491,40 +5499,116 @@ function closeAccountMenu() {
 function _acctMenuOutside(e) { const m = document.getElementById("acctMenu"); if (m && !m.contains(e.target)) closeAccountMenu(); }
 function openAccountMenu(anchor) {
   if (document.getElementById("acctMenu")) { closeAccountMenu(); return; }   // second tap toggles it shut
-  const s = cloudState();
   const menu = document.createElement("div");
   menu.className = "acct-menu"; menu.id = "acctMenu";
-  menu.innerHTML =
-    '<div class="am-who">Signed in as <b>' + escapeHtml(s.email || "your account") + "</b></div>" +
-    // the sync detail the chip no longer spells out — one honest line, in words
-    '<div class="am-sync' + (_cloudErr ? " bad" : "") + '">' +
-      (_cloudErr ? "Sync needs you — " + escapeHtml(_cloudErr)
-       : cloudPaused() ? "Cloud sync is off — this device only."
-       : s.lastPush ? "Last sync " + escapeHtml(cloudAgo(s.lastPush))
-       : "First backup pending.") + "</div>" +
-    '<button class="am-item" data-act="settings"><i data-lucide="settings-2"></i>Cloud settings</button>' +
-    '<button class="am-item" data-act="switch"><i data-lucide="users"></i>Use a different account…</button>' +
-    '<button class="am-item am-out" data-act="logout"><i data-lucide="log-out"></i>Log out</button>';
   document.body.appendChild(menu);
+
+  const web = !!window.__CACHE_WEB__;
+  let syncing = false;
+  // bank connection: known synchronously on web (device-local credential); on desktop/demo it's an
+  // async /api/connect-status lookup, so start "unknown" and repaint when it lands.
+  let bankConn = web ? sfHasCred() : null;
+  const alive = () => document.getElementById("acctMenu") === menu;
+
+  // one status row: a colour+shape dot, a label, a plain-English line. `act` (optional) makes it a
+  // tappable button that fires that action; informational rows render as a plain div.
+  const csRow = (st, label, sub, act) => {
+    const tag = act ? "button" : "div";
+    return "<" + tag + ' class="cs-row"' + (act ? ' data-act="' + act + '"' : "") + ">" +
+      '<span class="cs-dot" data-s="' + st + '"></span>' +
+      '<span class="cs-body"><span class="cs-label">' + escapeHtml(label) + "</span>" +
+      '<span class="cs-sub">' + escapeHtml(sub) + "</span></span>" +
+      (act ? '<i data-lucide="chevron-right" class="cs-go"></i>' : "") +
+      "</" + tag + ">";
+  };
+  const cloudRow = () => {
+    const s = cloudState();
+    if (syncing) return csRow("sync", "Cloud sync", "Syncing…");
+    if (!s.token) return csRow("na", "Cloud sync", "Not signed in.");
+    if (cloudPaused()) return csRow("off", "Cloud sync", "Off — this device only.");
+    if (_cloudErr) return csRow("err", "Cloud sync", "Needs you — " + _cloudErr);
+    if (s.keyboxMissing) return csRow("warn", "Cloud sync", "Setup note — other devices can't unlock yet.");
+    if (s.lastPush) return csRow("ok", "Cloud sync", "Synced " + cloudAgo(s.lastPush) + ".");
+    return csRow("warn", "Cloud sync", "First backup pending.");
+  };
+  const bankRow = () => {
+    const pulled = _bankUpdated ? "Last pulled " + ageStr(Date.now() - _bankUpdated) + "." : "";
+    if (bankConn === null) return csRow("na", "Bank", "Checking…");
+    if (bankConn === "err") return csRow("na", "Bank", "Couldn't check — is the server running?", "bank");
+    if (bankConn) return csRow("ok", "Bank (SimpleFIN)", pulled || "Connected.", "bank");
+    return csRow("warn", "Bank (SimpleFIN)", "Not linked — tap to connect.", "bank");
+  };
+  const serverRow = () => {
+    // hosted web / demo have no local server — say so plainly, don't fake a "disconnected".
+    if (_noLocalBackend) return csRow("na", "Cache server", "Runs in your browser — nothing to start.");
+    const st = (serverBtn && serverBtn.dataset.state) || "down";
+    if (st === "live") return csRow("ok", "Cache server", "Running on this Mac.");
+    if (st === "stale") return csRow("warn", "Cache server", "Running old code — tap to restart.", "server");
+    return csRow("err", "Cache server", "Not running — tap for help.", "server");
+  };
+  const actions = () => {
+    if (!cloudState().token)   // signed out → one CTA that keeps sign-in discoverable
+      return '<button class="am-item" data-act="setup"><i data-lucide="cloud"></i>Set up cloud sync</button>';
+    return '<button class="am-item" data-act="settings"><i data-lucide="settings-2"></i>Cloud settings</button>' +
+      '<button class="am-item" data-act="switch"><i data-lucide="users"></i>Use a different account…</button>' +
+      '<button class="am-item am-out" data-act="logout"><i data-lucide="log-out"></i>Log out</button>';
+  };
+  const paint = () => {
+    const s = cloudState();
+    const who = s.token
+      ? "Signed in as <b>" + escapeHtml(s.email || "your account") + "</b>"
+      : "<b>Not signed in</b> — set up cloud to back up &amp; sync.";
+    menu.innerHTML =
+      '<div class="am-who">' + who + "</div>" +
+      '<div class="cs-rows">' + cloudRow() + bankRow() + serverRow() + "</div>" +
+      '<div class="am-sep"></div>' +
+      '<button class="am-item" data-act="sync"' + (syncing ? " disabled" : "") + '><i data-lucide="refresh-cw"></i>' +
+        (syncing ? "Syncing…" : "Sync now") + "</button>" +
+      actions();
+    drawIcons();
+  };
+
+  paint();
+  // position ONCE against the first paint. Repaints only grow/shrink height; the menu is anchored by
+  // its bottom (or top when flipped), so it stays hugging the dot without needing to reposition.
   const r = anchor.getBoundingClientRect();
   const mw = menu.offsetWidth, mh = menu.offsetHeight, gap = 6;
-  // RIGHT-align to the anchor and hug it. The cloud chip is now a small dot at the far-right
-  // of the dock, so left-aligning the (much wider) menu to it clamps the menu leftward and it
-  // floats away from the button. Aligning the menu's RIGHT edge to the button's right edge
-  // keeps it visually hanging off the button, then clamp on-screen.
+  // RIGHT-align to the anchor and hug it — the cloud dot is a small light at the far-right of the
+  // dock, so left-aligning the wider panel to it would float it away. Then clamp on-screen.
   const left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
   menu.style.left = left + "px";
   // Open upward, hugging the anchor (the dock sits at the bottom); FLIP below only when there
   // isn't room above (the profile's "Switch account" can sit high in a scrolling panel).
   if (r.top >= mh + gap) menu.style.bottom = (window.innerHeight - r.top + gap) + "px";
   else menu.style.top = Math.min(r.bottom + gap, Math.max(8, window.innerHeight - mh - 8)) + "px";
-  drawIcons();
+
+  // freshen bank-pull age (updateSyncHealth stashes _bankUpdated), then repaint if still open
+  Promise.resolve(updateSyncHealth()).catch(() => {}).then(() => { if (alive()) paint(); });
+  // desktop/demo: the real bank connection state
+  if (!web) {
+    fetch("/api/connect-status").then((r2) => (r2.ok ? r2.json() : null))
+      .then((d) => { bankConn = !!(d && d.connected); if (alive()) paint(); })
+      .catch(() => { bankConn = "err"; if (alive()) paint(); });   // server unreachable — don't claim "not linked"
+  }
+
   menu.addEventListener("click", (e) => {
     const b = e.target.closest("[data-act]"); if (!b) return;
-    const act = b.dataset.act; closeAccountMenu();
-    if (act === "settings") { autoPushNow(); openSettings(); }
+    const act = b.dataset.act;
+    if (act === "sync") {   // stay open, show progress, repaint when it settles (desktop reloads on success)
+      if (syncing) return;
+      syncing = true; paint();
+      Promise.resolve(runSync()).catch(() => {}).then(() => {
+        syncing = false;
+        Promise.resolve(updateSyncHealth()).catch(() => {}).then(() => { if (alive()) paint(); });
+      });
+      return;
+    }
+    closeAccountMenu();
+    if (act === "settings" || act === "setup") { autoPushNow(); openSettings(); }
     else if (act === "logout") accountLogout(false);
     else if (act === "switch") accountLogout(true);
+    else if (act === "bank") { try { openConnect(); } catch (e2) {} }
+    else if (act === "server") { try { if (serverBtn) serverBtn.click(); } catch (e2) {} }   // restart, or help-flash when down
   });
   setTimeout(() => document.addEventListener("pointerdown", _acctMenuOutside), 0);
 }
@@ -7966,17 +8050,20 @@ function ageStr(ms) {
   return d === 1 ? "yesterday" : d + "d ago";
 }
 function updateSyncHealth() {
-  fetch("data/balances.json?t=" + Date.now())
+  // returns the fetch chain so the connection panel can await a freshness refresh, then repaint.
+  return fetch("data/balances.json?t=" + Date.now())
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       if (!d || !d.updated) {
+        _bankUpdated = null;
         if (window.__CACHE_WEB__) { syncDot.style.background = "#8a8a8a"; syncText.textContent = "no money data yet"; syncHealth.title = "⚡ Connect to link your bank (SimpleFIN) or import a bank CSV — right here in your browser"; }
         else { syncDot.style.background = "#c9542e"; syncText.textContent = "no sync"; }
         return;
       }
-      const hrs = (Date.now() - new Date(d.updated).getTime()) / 3600000;
+      _bankUpdated = new Date(d.updated).getTime();
+      const hrs = (Date.now() - _bankUpdated) / 3600000;
       syncDot.style.background = hrs < 12 ? "#3f8f4e" : hrs < 48 ? "#d6920f" : "#c9542e";
-      syncText.textContent = "synced " + ageStr(Date.now() - new Date(d.updated).getTime());
+      syncText.textContent = "synced " + ageStr(Date.now() - _bankUpdated);
     })
     .catch(() => {});
 }
@@ -13321,19 +13408,20 @@ function openClockSettings(anchor) {
     el.setAttribute("draggable", "true");
     dock.appendChild(el);  // re-home it (keeps its event listeners)
   });
-  // sync (the LOCAL-backend one) stays OUTSIDE the dock, pinned bottom-right
+  // The big green "SYNCED" pill is RETIRED — its state folded into the cloud dot's connection
+  // panel (freshness + the Sync-now action live there now). Keep the element ALIVE (re-homed,
+  // just never painted) so runSync / updateSyncHealth / the pull-to-sync gesture never NPE on
+  // syncHealth / syncDot / syncText.
   const sync = document.getElementById("syncHealth");
-  if (sync) bar.appendChild(sync);
+  if (sync) { bar.appendChild(sync); sync.hidden = true; }
   // The cloud chip now lives INSIDE the dock (homed by the DOCK_DEFS loop above) instead of
   // floating beside it — it's a normal draggable/hideable dock item. Only its click stays here.
   const cloud = document.getElementById("cloudHealth");
   if (cloud) {
-    cloud.addEventListener("click", () => {
-      // signed in → the account menu (cloud settings / log out / different account);
-      // signed out → straight to Settings, where the sign-in stepper lives
-      if (cloudState().token) { openAccountMenu(cloud); return; }
-      autoPushNow(); openSettings();
-    });
+    // Always open the connection panel — signed in OR out. Signed out it still shows bank +
+    // server status and carries a "Set up cloud sync" CTA, so a logged-out desktop user can
+    // still see their lifelines and find sign-in (the exact discoverability wall a tester hit).
+    cloud.addEventListener("click", () => openAccountMenu(cloud));
   }
   // finish an account switch: "Use a different account…" logs out (parking the cache),
   // reloads to this clean slate, and left a one-shot flag — take them straight to a
