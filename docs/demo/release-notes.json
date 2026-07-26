@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-25-connection-panel",
+    "date": "2026-07-25",
+    "title": "One calm dot for all your connections",
+    "body": "The big green SYNCED button is gone. Tap the little cloud dot at the bottom of the board and you get one quiet panel that shows, in plain words, whether your three lifelines are healthy: cloud sync, your bank, and (on the desktop) the local cache server. Each has a colour-and-shape light so it reads at a glance even in the black-and-white theme or if you're colour-blind — a green dot means good, an open ring or square means it wants you. Sync now lives right there, and so do your account controls (cloud settings, switch account, log out). Less clutter on the board, and when something needs you, it's obvious where to look."
+  },
+  {
     "id": "2026-07-25-web-recovery-file",
     "date": "2026-07-25",
     "title": "Your recovery file now lands in the browser too",

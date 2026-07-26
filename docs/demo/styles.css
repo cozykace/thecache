@@ -2882,11 +2882,11 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 }
 
 /* period selector popover (opens above the dock) */
-/* ── the account menu — the cloud chip's tap menu while signed in ── */
+/* ── the connection panel — the cloud dot's tap menu (sync / bank / server + account) ── */
 .acct-menu {
   /* Above the full-screen profile/settings surfaces (.daily-space is 100001) so
      "Switch account" opens IN FRONT of the profile, not hidden behind it. */
-  position: fixed; z-index: 100050; min-width: 232px; max-width: min(320px, calc(100vw - 16px));
+  position: fixed; z-index: 100050; min-width: 248px; max-width: min(330px, calc(100vw - 16px));
   background: var(--paper); border: 1px solid var(--edge); border-radius: 14px;
   box-shadow: 0 10px 34px rgba(0, 0, 0, 0.22); padding: 8px;
   display: flex; flex-direction: column; gap: 2px;
@@ -2896,14 +2896,28 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
   border-bottom: 1px solid var(--edge-soft); margin-bottom: 5px; overflow-wrap: anywhere;
 }
 .am-who b { color: var(--ink); font-weight: 600; }
-/* the sync detail, in words, since the dock chip is a silent light now */
-.am-who:has(+ .am-sync) { border-bottom: none; margin-bottom: 0; padding-bottom: 3px; }
-.am-sync {
-  font-size: 11px; color: rgba(var(--ink-rgb), 0.6); padding: 0 10px 9px;
-  border-bottom: 1px solid var(--edge-soft); margin-bottom: 5px;
-  line-height: 1.35; overflow-wrap: anywhere;
+/* the three status rows — each a colour+SHAPE light + a plain-English line */
+.cs-rows { display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px; }
+.cs-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  min-height: 44px; padding: 6px 10px; border-radius: 9px; text-align: left;
 }
-.am-sync.bad { color: var(--accent); }
+button.cs-row { border: 1px solid transparent; background: none; cursor: pointer; font-family: inherit; color: var(--ink); }
+button.cs-row:hover { background: rgba(var(--ink-rgb), 0.06); }
+.cs-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+.cs-label { font-size: 12px; font-weight: 600; color: var(--ink); }
+.cs-sub { font-size: 10.5px; color: rgba(var(--ink-rgb), 0.55); line-height: 1.3; overflow-wrap: anywhere; }
+.cs-go { width: 14px; height: 14px; opacity: 0.4; flex: none; }
+/* the status light — mirrors the cloud dot's shape language so colour is never the only signal:
+   filled dot / haloed dot / square / solid ring / dashed ring / muted dot. No two share geometry. */
+.cs-dot { width: 11px; height: 11px; box-sizing: border-box; border-radius: 50%; flex: none; background: rgba(var(--ink-rgb), 0.3); }
+.cs-dot[data-s="ok"] { background: #3f8f4e; }                                                       /* healthy — green filled dot */
+.cs-dot[data-s="sync"] { background: var(--accent); box-shadow: 0 0 0 2px rgba(var(--ink-rgb), 0.22); animation: cloudbreathe 1.2s ease-in-out infinite; }  /* working — haloed + breathing */
+.cs-dot[data-s="err"] { background: var(--accent); border-radius: 2px; }                            /* needs you — a SQUARE */
+.cs-dot[data-s="warn"] { background: transparent; border: 2px solid var(--accent); }                /* attention — SOLID ring */
+.cs-dot[data-s="off"] { background: transparent; border: 2px dashed rgba(var(--ink-rgb), 0.4); }    /* off by choice — DASHED ring */
+.cs-dot[data-s="na"] { background: rgba(var(--ink-rgb), 0.28); }                                    /* not applicable — muted dot */
+.am-sep { height: 1px; background: var(--edge-soft); margin: 5px 2px; }
 .am-item {
   display: flex; align-items: center; gap: 9px;
   width: 100%; min-height: 44px; text-align: left; padding: 7px 10px;
@@ -3270,6 +3284,16 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
   /* width-based container sizing loses the height brake on cqmin type — cap the
      hero numbers so a nowrap clock can't inflate past the widget edge */
   .widget-body .big { font-size: clamp(20px, 9vw, 40px); }
+}
+
+/* the connection panel becomes a full-width bottom sheet on phones (mobile SOP #7). JS sets
+   inline left/bottom/top against the dot, so override with !important. Tap-outside still dismisses. */
+@media (max-width: 480px) {
+  .acct-menu {
+    left: 8px !important; right: 8px !important; top: auto !important;
+    bottom: calc(10px + env(safe-area-inset-bottom)) !important;
+    min-width: 0; max-width: none; width: auto; border-radius: 16px; padding: 10px;
+  }
 }
 
 /* touch devices of any size: reveal controls desktop only shows on hover */
