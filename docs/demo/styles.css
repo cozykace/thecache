@@ -2417,6 +2417,44 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .pj-taskin:focus { outline: none; border-color: var(--accent); }
 .pj-taskgo { flex: 0 0 auto; width: 40px; min-height: 40px; border: 1px solid var(--edge); border-radius: 9px; background: none; color: var(--ink); font-size: 18px; line-height: 1; cursor: pointer; }
 .pj-taskgo:hover { border-color: var(--accent); }
+/* Session surface — the timer + task checklist + custom stats you tap into from the calendar */
+.sess-timerow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.sess-timenum { font-size: 22px; font-weight: 700; color: var(--ink); }
+.sess-timeu { font-size: 12px; font-weight: 500; color: rgba(var(--ink-rgb), 0.5); }
+.sess-focus { min-height: 40px; padding: 8px 14px; border: 1px solid var(--edge); border-radius: 20px; background: var(--panel); color: rgba(var(--ink-rgb), 0.7); font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.sess-focus.on { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.sess-bar { height: 6px; border-radius: 3px; background: rgba(var(--ink-rgb), 0.09); overflow: hidden; margin-bottom: 10px; }
+.sess-barfill { height: 100%; background: var(--accent); transition: width .3s ease; }
+.sess-timerhost { container-type: size; min-height: 200px; border: 1px solid var(--edge); border-radius: 14px; padding: 10px; margin-bottom: 8px; overflow: hidden; }
+.sess-hint { font-size: 12px; color: rgba(var(--ink-rgb), 0.5); line-height: 1.45; }
+.sess-tasks { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.sess-taskin { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 10px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 14px; }
+.sess-taskin:focus { outline: none; border-color: var(--accent); }
+.sess-taskgo { flex: 0 0 auto; width: 44px; min-height: 44px; border: 1px solid var(--accent); border-radius: 10px; background: none; color: var(--ink); font-size: 20px; line-height: 1; cursor: pointer; }
+.sess-stats { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.sess-stat { display: flex; align-items: center; gap: 6px; }
+.sess-statlabel { flex: 1 1 auto; min-width: 0; border: 1px solid transparent; background: none; color: var(--ink); font-family: inherit; font-size: 13.5px; font-weight: 600; padding: 8px 6px; border-radius: 8px; }
+.sess-statlabel:focus { outline: none; border-color: var(--accent); background: var(--panel); }
+.sess-statctl { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; }
+.sess-statamt { width: 66px; min-height: 40px; padding: 0 8px; border: 1px solid var(--edge); border-radius: 8px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 14px; text-align: right; }
+.sess-statamt:focus { outline: none; border-color: var(--accent); }
+.sess-statunit { font-size: 11px; color: rgba(var(--ink-rgb), 0.5); }
+.sess-statnote { width: 128px; min-height: 40px; padding: 0 8px; border: 1px solid var(--edge); border-radius: 8px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 13px; }
+.sess-statnote:focus { outline: none; border-color: var(--accent); }
+.sess-scale { display: inline-flex; gap: 3px; }
+.sess-scalen { width: 30px; height: 40px; border: 1px solid var(--edge); border-radius: 8px; background: var(--panel); color: rgba(var(--ink-rgb), 0.6); font-family: inherit; font-size: 13px; cursor: pointer; }
+.sess-scalen.on { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.sess-addstatbtn { width: 100%; min-height: 40px; padding: 8px 14px; border: 1px dashed var(--edge); border-radius: 10px; background: none; color: rgba(var(--ink-rgb), 0.6); font-family: inherit; font-size: 13px; cursor: pointer; }
+.sess-addstatbtn:hover { border-color: var(--accent); color: var(--ink); }
+.sess-addstat { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--edge); border-radius: 12px; background: var(--panel); }
+.sess-newstat, .sess-newunit { width: 100%; box-sizing: border-box; min-height: 42px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 10px; background: var(--paper); color: var(--ink); font-family: inherit; font-size: 14px; }
+.sess-newstat:focus, .sess-newunit:focus { outline: none; border-color: var(--accent); }
+.sess-trackpick { display: flex; gap: 4px; flex-wrap: wrap; }
+.sess-trk { flex: 1 1 auto; min-height: 40px; padding: 6px 8px; border: 1px solid var(--edge); border-radius: 9px; background: var(--paper); color: rgba(var(--ink-rgb), 0.7); font-family: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.sess-trk.on { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.sess-addrow2 { display: flex; gap: 8px; }
+.sess-statcreate { flex: 1 1 auto; min-height: 44px; border: none; border-radius: 10px; background: var(--accent); color: var(--paper); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.sess-statcancel { flex: 0 0 auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--edge); border-radius: 10px; background: none; color: rgba(var(--ink-rgb), 0.6); font-family: inherit; font-size: 13px; cursor: pointer; }
 .tk-x { min-width: 44px; min-height: 40px; flex: 0 0 auto; border: none; background: none; color: rgba(var(--ink-rgb), 0.42);
   font-size: 14px; cursor: pointer; transition: transform .1s, color .12s; }
 .tk-x:hover { color: rgba(var(--ink-rgb), 0.75); }
@@ -3399,6 +3437,7 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 .cal-items { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cal-chip { display: flex; align-items: center; gap: 3px; min-width: 0; font-size: 11px; line-height: 1.35; padding: 1px 5px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 15%, transparent); white-space: nowrap; overflow: hidden; }
 .cal-chip.task { background: rgba(var(--ink-rgb), 0.09); }
+.cal-chip.session { background: color-mix(in srgb, var(--accent) 26%, transparent); font-weight: 600; }
 .cal-chip.routine { background: color-mix(in srgb, var(--accent) 9%, transparent); }
 .cal-chip.done { opacity: 0.5; text-decoration: line-through; }
 .cal-chip .ci-em { flex: 0 0 auto; }
@@ -3413,6 +3452,9 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 .cal-day { width: 100%; max-width: 560px; margin: 0 auto; padding-top: 4px; }
 .cal-addevent { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin: 2px 0 10px; padding: 0 18px; border: 1px solid var(--accent); border-radius: 22px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); font-family: inherit; font-size: 13.5px; cursor: pointer; }
 .cal-addevent:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.cal-addrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.cal-addsession { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin: 2px 0 10px; padding: 0 18px; border: 1px solid var(--accent); border-radius: 22px; background: var(--accent); color: var(--paper); font-family: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.cal-addsession:hover { filter: brightness(1.06); }
 .cal-agenda { display: flex; flex-direction: column; gap: 6px; }
 .cal-arow { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; min-height: 52px; padding: 8px 14px; border: 1px solid var(--edge-soft); border-radius: 13px; background: var(--panel); color: var(--ink); font-family: inherit; text-align: left; cursor: pointer; transition: border-color 0.12s; }
 .cal-arow:hover { border-color: var(--accent); }

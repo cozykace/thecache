@@ -188,7 +188,7 @@
   function wLmetaSet(m) { try { localStorage.setItem("money.__lmeta", JSON.stringify(m)); } catch (e) {} }
   // cloud/identity internals + device-ergonomic geometry (never synced — keeps the
   // phone from snapping to desktop-pixel zoom / sidebar / modal layout on unlock)
-  var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.simplefin", "money.deckRev"];   // deckDay siloed per device; dms never rides the vault; simplefin = the browser bank credential (device-local bearer secret, never in the vault); deckRev RETIRED — MUST match app.js DEVICE_LOCAL_KEYS or it'd sync as a generic key and churn
+  var W_INTERNAL = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.simplefin", "money.sessionRun", "money.deckRev"];   // deckDay siloed per device; dms never rides the vault; simplefin = the browser bank credential (device-local bearer secret, never in the vault); deckRev RETIRED — MUST match app.js DEVICE_LOCAL_KEYS or it'd sync as a generic key and churn
   var W_SPECIAL = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs", "money.bugCredits"];   // + forms/formData (reuse wMergeThings) + notifs (per-id newest-wins) + bugCredits (union by report id) — MUST match app.js SPECIAL_MERGE_KEYS
   // ── deck per-item merge — MUST stay byte-identical to app.js mergeDecks/deckCanon/
   //    deckCap, or the phone and desktop settle on different decks. Same rules:
@@ -290,7 +290,7 @@
   var W_PROFILE_PREFIX = "cacheprof.", W_LMETA_KEY = "money.__lmeta";
   function wIsAccountData(k) {
     if (typeof k !== "string" || k.indexOf("money.") !== 0) return false;
-    if (W_INTERNAL.indexOf(k) !== -1) return k === "money.dms" || k === "money.simplefin";   // internals aren't account data — except dms (messages) and simplefin (the account's BANK CREDENTIAL — out of the vault, but siloed per account + cleared on logout; MUST match app.js isAccountDataKey)
+    if (W_INTERNAL.indexOf(k) !== -1) return k === "money.dms" || k === "money.simplefin" || k === "money.sessionRun";   // internals aren't account data — except dms (messages), simplefin (BANK CREDENTIAL), and sessionRun (points at this account's session); MUST match app.js isAccountDataKey
     for (var i = 0; i < W_INTERNAL.length; i++) { if (k.indexOf(W_INTERNAL[i] + ".") === 0) return false; }   // a suffixed device key stays device-scoped (money.settings.w modal geometry)
     return true;
   }

@@ -220,4 +220,32 @@ const visIds = (arr) => thingsVisible(arr).map(x=>x.id).sort().join(",");
   ok("habit: app.js ↔ webcache.js pick byte-identical winners on track+sched", jsWin === wWin);
 }
 
+// ── SESSIONS: a type:"session" with PARENT-linked tasks + stats. The whole point of parent-
+//    linking (vs a `session:` field) is that cascade-delete / liveness / trail come free. ──
+{
+  const now = 100;
+  const sess = { id:"S1", type:"session", title:"Practice", start:"2026-07-25", goalMins:60, updated:now, ord:1, ordAt:now, deleted:0, parent:null, routine:null };
+  const task = { id:"ST1", type:"task", title:"Warm up", parent:"S1", routine:null, done:0, updated:now, ord:1, ordAt:now, deleted:0 };
+  const stat = { id:"SS1", type:"habit", name:"Panels", track:"amount", parent:"S1", routine:null, sched:null, updated:now, ord:1, ordAt:now, deleted:0 };
+  const world = [sess, task, stat];
+  // the session + both children are live and visible (nothing dangling)
+  ok("session + parent-linked task + stat all live/visible", visIds(world) === ["S1","SS1","ST1"].sort().join(","));
+  // deleting the SESSION cascades to its parent-linked task AND stat — the "no orphans" guarantee
+  const after = thingsCascadeDelete(world, "S1", now+1);
+  const liveAfter = thingsVisible(after).map(x=>x.id);
+  ok("deleting a session tombstones it", after.find(x=>x.id==="S1").deleted === 1);
+  ok("cascade tombstones the parent-linked TASK (no orphan)", after.find(x=>x.id==="ST1").deleted === 1);
+  ok("cascade tombstones the parent-linked STAT habit (no orphan)", after.find(x=>x.id==="SS1").deleted === 1);
+  ok("nothing survives the session's deletion as a live child", liveAfter.length === 0);
+  // per-item merge: a peer checking off the session's task wins by newer `updated`, session untouched
+  const peer = mergeThings(world, [Object.assign({}, task, { done:1, updated: now+5 })]);
+  const merged = mergeThings(world, peer);
+  ok("session task check-off merges per-item (newer wins)", merged.find(x=>x.id==="ST1").done === 1);
+  ok("the session itself is untouched by a child edit", merged.find(x=>x.id==="S1").title === "Practice");
+  // app.js ↔ webcache parity on the new type/fields
+  ok("session type/fields: app.js ↔ webcache pick byte-identical winners",
+     JSON.stringify(mergeThings(world,[Object.assign({},stat,{unit:"pages",updated:now+9})])) ===
+     JSON.stringify(wMergeThings(world,[Object.assign({},stat,{unit:"pages",updated:now+9})])));
+}
+
 console.log(`\n${p} passed, ${f} failed`); process.exit(f?1:0);

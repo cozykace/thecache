@@ -4441,7 +4441,7 @@ async function cloudFindVaultId(s) {
 //              a fresher edit and the web app can't blind-adopt on every unlock.
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
-const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.simplefin"];   // + deckDay (calendar) + dms (messages cache) + simplefin (the browser bank credential — a bearer secret; DEVICE-LOCAL so it never rides the vault, same as the desktop's chmod-600 .simplefin file; see WIKI 2026-07-24-bank-credential-device-only)
+const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.simplefin", "money.sessionRun"];   // + sessionRun (which session the timer is focused on — a per-device runtime pointer, like timerRun; never rides the vault, so a running session-timer can't jump devices)   // + deckDay (calendar) + dms (messages cache) + simplefin (the browser bank credential — a bearer secret; DEVICE-LOCAL so it never rides the vault, same as the desktop's chmod-600 .simplefin file; see WIKI 2026-07-24-bank-credential-device-only)
 const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs", "money.bugCredits"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state) + bugCredits (union by report id, like badges)
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
@@ -4462,7 +4462,7 @@ function isGenericKey(k) { return k.indexOf("money.") === 0 && !isInternalKey(k)
 const PROFILE_PREFIX = "cacheprof.", LMETA_KEY = "money.__lmeta";
 function isAccountDataKey(k) {
   if (typeof k !== "string" || k.indexOf("money.") !== 0) return false;
-  if (isInternalKey(k)) return k === "money.dms" || k === "money.simplefin";       // internals aren't account data — except dms (this account's messages) and simplefin (this account's BANK CREDENTIAL: keep it out of the vault, but silo it per account + clear it on logout, so a shared browser never lets one account pull another's bank)
+  if (isInternalKey(k)) return k === "money.dms" || k === "money.simplefin" || k === "money.sessionRun";   // internals aren't account data — except dms (this account's messages), simplefin (this account's BANK CREDENTIAL), and sessionRun (points at THIS account's session — silo + clear on switch so it can't bank another account's timer minutes into a foreign session id)
   if (DEVICE_LOCAL_KEYS.some((dk) => k.indexOf(dk + ".") === 0)) return false;     // a suffixed device key stays device-scoped (e.g. money.settings.w modal geometry)
   return true;
 }
@@ -5864,6 +5864,9 @@ function primeChime() {
 //                    otherwise a block running on the desktop would hijack the phone.
 // One in-memory object still backs the widget; only the persistence is split.
 const TIMER_KEY = "money.timer", TIMERRUN_KEY = "money.timerRun";
+const SESSION_RUN_KEY = "money.sessionRun";   // which session the timer is focused on — a device-local runtime pointer (see DEVICE_LOCAL_KEYS); never rides the vault, so a running session-timer can't jump devices
+function sessionRunGet() { try { return JSON.parse(localStorage.getItem(SESSION_RUN_KEY) || "null"); } catch (e) { return null; } }
+function sessionRunSet(o) { try { if (o && o.id) localStorage.setItem(SESSION_RUN_KEY, JSON.stringify({ id: o.id })); else localStorage.removeItem(SESSION_RUN_KEY); } catch (e) {} try { document.dispatchEvent(new CustomEvent("cache:sessionrun")); } catch (e) {} }
 const TIMER_PRESETS = ["work", "rest", "longRest", "longEvery", "sound"];
 const TIMER_RUNTIME = ["phase", "cycle", "endsAt", "pausedLeft"];
 const timerSt = { work: 25, rest: 5, longRest: 15, longEvery: 4, phase: "work", cycle: 1, endsAt: null, pausedLeft: null, sound: true };
@@ -5911,12 +5914,26 @@ function timerDur() { return timerPhaseMins() * 60000; }
 function timerEmit() { document.dispatchEvent(new CustomEvent("cache:timer")); }
 // move to the next phase; live=true → this block genuinely finished just now
 // (chime + EXP). Skips and stale catch-ups advance silently — no fake rewards.
+// Credit a finished work block's minutes to the focused session (money.sessionRun), if any, as
+// a CUMULATIVE day-value under a SYNTHETIC log id (sessionId+":time") — never a Thing, so it can
+// never collide with the session's own tasks or stats. thingAmountOn is latest-wins (not a sum),
+// so we read prev, add these minutes, and re-log. Called ONLY from timerAdvance's genuine live
+// WORK-block completion, so it banks exactly once per finished block.
+function sessionCreditBlock(mins) {
+  const run = sessionRunGet(); if (!run || !run.id || !(mins > 0)) return;
+  const live = loadThings().find((x) => x && x.id === run.id && x.type === "session" && !x.deleted);
+  if (!live) { sessionRunSet(null); return; }   // focus points at a deleted/foreign session (e.g. after a peer deleted it, or an account switch) → clear it, never bank minutes into a ghost id
+  const day = todayKey(), cur = thingAmountOn(loadLog(), run.id + ":time", day);
+  const q = (cur && cur.qty != null ? +cur.qty : 0) + mins;
+  try { logThingEvent(run.id + ":time", "habit", { value: { done: 1, qty: q, unit: "min" }, ts: day, root: run.id }); } catch (e) {}
+}
 function timerAdvance(live) {
   if (timerSt.phase === "work") {
     if (live) {
       const w = timerPreset("work", 25);
       addExp(2); logChar("log", "Finished a " + w + "-min work block · +2 EXP");
       track("timer_work_done", { mins: w });
+      try { sessionCreditBlock(w); } catch (e) {}   // focused on a session? bank these minutes toward its goal
       if (timerSt.sound !== false) playChime(false); // descending — wind down
     }
     timerSt.phase = (timerSt.cycle % timerEvery() === 0) ? "long" : "rest";
@@ -11523,21 +11540,24 @@ function calMonthGrid(anchorYmd, weekStart) {
 // routine container carries the occurrence. Pass thingsVisible(loadThings()) so tombstoned /
 // dangling subtrees are already filtered (same liveness rule as the Tasks widget).
 function calThingsOnDay(things, ymd) {
-  const tasks = [], events = [], routines = [], habits = [];
+  const tasks = [], events = [], routines = [], habits = [], sessions = [];
   (things || []).forEach((t) => {
     if (!t || t.deleted) return;
     if (t.type === "task" && !t.routine) { if (t.due === ymd) tasks.push(t); }
     else if (t.type === "event") {
       if (t.sched) { if (routineDueOn(t.sched, ymd)) events.push(t); }
       else { const s = t.start, e = t.end || t.start; if (s && ymd >= s && ymd <= e) events.push(t); }
+    } else if (t.type === "session") {   // a session sits on the calendar like an event: one-off on start..end, or recurring via sched
+      if (t.sched) { if (routineDueOn(t.sched, ymd)) sessions.push(t); }
+      else { const s = t.start, e = t.end || t.start; if (s && ymd >= s && ymd <= e) sessions.push(t); }
     } else if (t.type === "routine") { if (routineDueOn(t.sched, ymd)) routines.push(t); }
     // a habit with an EXPLICIT schedule spreads through the same engine as a routine. No
     // sched = a plain daily habit that lives in the deck, NOT on the calendar — otherwise
     // every habit would paint every single day (noise). A routine member's occurrence is
     // carried by its routine, never doubled here.
-    else if (t.type === "habit" && !t.routine) { if (t.sched && routineDueOn(t.sched, ymd)) habits.push(t); }
+    else if (t.type === "habit" && !t.routine && !t.parent) { if (t.sched && routineDueOn(t.sched, ymd)) habits.push(t); }   // !t.parent: a session's child stat-habit (sched:null anyway) never paints standalone
   });
-  return { tasks: tasks, events: events, routines: routines, habits: habits };
+  return { tasks: tasks, events: events, routines: routines, habits: habits, sessions: sessions };
 }
 // the 7 local days of the week (aligned to weekStart) containing anchorYmd.
 function calWeekDays(anchorYmd, weekStart) {
@@ -11597,6 +11617,7 @@ function openCalendar() {
   const chipsOf = (j) => {              // discrete, high-signal items → text chips (events first, then dated tasks)
     const out = [];
     j.events.forEach((e) => out.push({ cls: "event", em: e.emoji || "📌", tx: (!e.allDay && e.startTime ? e.startTime + " " : "") + (e.title || "Event") }));
+    (j.sessions || []).forEach((se) => out.push({ cls: "session", em: se.emoji || "🎯", tx: (!se.allDay && se.startTime ? se.startTime + " " : "") + (se.title || "Session") }));
     j.tasks.forEach((t) => out.push({ cls: "task" + (t.done ? " done" : ""), em: t.emoji || "✅", tx: t.title || "Task" }));
     return out;
   };
@@ -11630,13 +11651,14 @@ function openCalendar() {
   function renderDay() {
     const log = loadLog(), things = thingsVisible(loadThings()), j = calThingsOnDay(things, cursor), rows = [];
     j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime + (e.endTime ? "–" + e.endTime : "") : e.allDay ? "all day" : ""), false, false)));
+    (j.sessions || []).forEach((se) => rows.push(itemRow("session", se.id, se.emoji || "🎯", se.title || "Session", (+se.goalMins ? sessionTimeOn(log, se.id, cursor) + "/" + se.goalMins + " min" : "session"), false, false)));
     j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "due", !!t.done, true)));
     j.habits.forEach((h) => rows.push(itemRow("detail", h.id, "↻", h.title || "Habit", "habit", thingDoneOn(log, h.id, cursor), (h.track || "check") === "check", cursor)));   // scheduled habits — log-derived per day; yes/no checks off in place
     j.routines.forEach((r) => {
       const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, cursor)).length;
       rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length + " done" : "routine", members.length > 0 && doneCt === members.length, false));
     });
-    return '<div class="cal-day"><button class="cal-addevent" data-ymd="' + cursor + '">＋ New event</button>' +
+    return '<div class="cal-day"><div class="cal-addrow"><button class="cal-addevent" data-ymd="' + cursor + '">＋ New event</button><button class="cal-addsession" data-ymd="' + cursor + '">🎯 New session</button></div>' +
       (rows.length ? '<div class="cal-agenda">' + rows.join("") + "</div>" : '<div class="cal-empty sub">Nothing on the calendar for this day yet.</div>') + "</div>";
   }
   function renderWeek() {
@@ -11644,6 +11666,7 @@ function openCalendar() {
     const blocks = days.map((ymd) => {
       const j = calThingsOnDay(things, ymd), d = _ymd2date(ymd), rows = [];
       j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime : e.allDay ? "all day" : ""), false, false)));
+      (j.sessions || []).forEach((se) => rows.push(itemRow("session", se.id, se.emoji || "🎯", se.title || "Session", (+se.goalMins ? sessionTimeOn(log, se.id, ymd) + "/" + se.goalMins + " min" : ""), false, false)));
       j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "", !!t.done, true)));
       j.habits.forEach((h) => rows.push(itemRow("detail", h.id, "↻", h.title || "Habit", "", thingDoneOn(log, h.id, ymd), (h.track || "check") === "check", ymd)));
       j.routines.forEach((r) => { const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, ymd)).length; rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length : "", members.length > 0 && doneCt === members.length, false)); });
@@ -11701,12 +11724,13 @@ function openCalendar() {
     root.querySelectorAll(".cal-wday-head").forEach((h) => h.addEventListener("click", () => { cursor = h.dataset.ymd; view = "day"; render(); }));   // tap a week-day header → its agenda
     root.querySelectorAll(".cal-check").forEach((c) => c.addEventListener("click", (e) => { e.stopPropagation(); try { calToggleTask(c.dataset.check, c.dataset.ymd); } catch (er) {} }));   // check a task/habit off in place (habits per-day); onCache repaints
     root.querySelectorAll(".cal-arow").forEach((r) => {
-      const openRow = () => { const id = r.dataset.id, act = r.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); } catch (e) {} };
+      const openRow = () => { const id = r.dataset.id, act = r.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); else if (act === "session") openSession(id); } catch (e) {} };
       r.addEventListener("click", openRow);
       r.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openRow(); } });
     });
     const inf = root.querySelector("#calInf"); if (inf) inf.addEventListener("click", () => { infinite = !infinite; render(); });   // endless-scroll toggle
     root.querySelectorAll(".cal-addevent").forEach((ae) => ae.addEventListener("click", () => { try { calAddEvent(ae.dataset.ymd || cursor); } catch (e) {} }));   // new event on that day
+    root.querySelectorAll(".cal-addsession").forEach((ae) => ae.addEventListener("click", () => { try { calAddSession(ae.dataset.ymd || cursor); } catch (e) {} }));   // new session on that day
   }
   // ── Endless scroll (∞) ─ stack consecutive periods and append/prepend as you scroll, so the
   //    dates flow continuously. Parameterized by `view`, so one engine covers month/week/day.
@@ -11738,7 +11762,8 @@ function openCalendar() {
     const wh = e.target.closest(".cal-wday-head"); if (wh) { cursor = wh.dataset.ymd; view = "day"; render(); return; }
     const chk = e.target.closest(".cal-check"); if (chk) { e.stopPropagation(); try { calToggleTask(chk.dataset.check, chk.dataset.ymd); } catch (er) {} return; }
     const add = e.target.closest(".cal-addevent"); if (add) { try { calAddEvent(add.dataset.ymd || cursor); } catch (er) {} return; }
-    const arow = e.target.closest(".cal-arow"); if (arow) { const id = arow.dataset.id, act = arow.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); } catch (er) {} }
+    const adds = e.target.closest(".cal-addsession"); if (adds) { try { calAddSession(adds.dataset.ymd || cursor); } catch (er) {} return; }
+    const arow = e.target.closest(".cal-arow"); if (arow) { const id = arow.dataset.id, act = arow.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); else if (act === "session") openSession(id); } catch (er) {} }
   }
   function buildInfinite() {
     const body = root.querySelector("#calBody"); if (!body) return;
@@ -11866,6 +11891,186 @@ function openEventDetail(id) {
   render();
 }
 (function () { const b = document.getElementById("calBtn"); if (b) b.addEventListener("click", openCalendar); })();   // the calendar's OWN launcher — never the action button
+
+// ══ SESSIONS — a scheduled block of focused TIME with flexible progress tracking ═══════════
+//    A session is a money.things object (type:"session") that reuses the event's calendar fields
+//    (start/end/allDay/sched) so scheduling + recurrence are free. Tapping one on the calendar
+//    opens openSession: the work/rest TIMER (minutes auto-bank toward an optional goal when this
+//    session is "focused"), a TASK checklist, and 0..N custom STATS ("hours practiced", "panels
+//    completed"). Tasks + stats are PARENT-linked to the session (parent:<id>), so cascade-delete,
+//    liveness, activity-trail and loose-list exclusion all come free. Stats are child HABIT things,
+//    so they reuse the proven per-day amount/rating/note logging. Rides money.things + money.log —
+//    zero new merge code; the only new key (money.sessionRun) is device-local.
+function sessionTasks(id) { return thingsVisible(loadThings()).filter((x) => x.type === "task" && x.parent === id).sort((a, b) => (!!a.done - !!b.done) || (+a.ord || 0) - (+b.ord || 0) || (a.id < b.id ? -1 : 1)); }
+function sessionStats(id) { return thingsVisible(loadThings()).filter((x) => x.type === "habit" && x.parent === id).sort((a, b) => (+a.ord || 0) - (+b.ord || 0) || (a.id < b.id ? -1 : 1)); }
+function sessionTimeOn(log, id, day) { const v = thingAmountOn(log, id + ":time", day); return v && v.qty != null ? +v.qty : 0; }
+function calAddSession(ymd) {
+  const now = Date.now(), id = thingId();
+  const sibs = thingsVisible(loadThings()).filter((x) => x && x.type === "session");
+  const ord = sibs.reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+  saveThings([{ id: id, type: "session", title: "", emoji: "🎯", start: ymd || todayKey(), end: null, allDay: 1, startTime: null, endTime: null, goalMins: null, area: null, notes: "", sched: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null }]);
+  try { openSession(id); } catch (e) {}
+}
+function openSession(id) {
+  const s0 = loadThings().find((x) => x && x.id === id && x.type === "session");
+  if (!s0 || s0.deleted) return;
+  const ex = document.getElementById("taskDetail"); if (ex) ex.remove();
+  const root = document.createElement("div"); root.id = "taskDetail"; root.className = "daily-space td-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  const get = () => loadThings().find((x) => x && x.id === id) || s0;
+  const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); };
+  const setSched = (p) => { const cur = get(); patch({ sched: Object.assign({}, cur.sched || {}, p) }); };
+  let addStatOpen = false, addStatTrack = "amount", addStatName = "", addStatUnit = "";   // the "add a stat" inline form's state, kept across re-renders (name/unit too, so a track-pick re-render never wipes what you typed)
+  let timerHost = null;   // the mounted timer element — created ONCE and MOVED into the slot each render, so we never re-add its cache:timer listener (leak) or reset a running countdown
+  const onKey = (ev) => { if (ev.key === "Escape") close(); };
+  const cleanup = () => { document.removeEventListener("keydown", onKey); document.removeEventListener("cache:things", onCache); document.removeEventListener("cache:logged", onCache); document.removeEventListener("cache:sessionrun", onCache); };
+  const close = () => { cleanup(); root.remove(); };
+  function onCache() {
+    if (!root.isConnected) { cleanup(); return; }
+    const a = document.activeElement;
+    if (a && a.closest && a.closest("#taskDetail") && /INPUT|TEXTAREA/.test(a.tagName)) return;   // a peer sync / time-credit landed — repaint, but never clobber mid-type
+    render();
+  }
+  document.addEventListener("keydown", onKey);
+  document.addEventListener("cache:things", onCache);
+  document.addEventListener("cache:logged", onCache);
+  document.addEventListener("cache:sessionrun", onCache);
+  const focused = () => { const r = sessionRunGet(); return !!(r && r.id === id); };
+  // task ops (parent-linked to the session)
+  function addTask(title) { title = (title || "").trim(); if (!title) return; const now = Date.now(), ord = sessionTasks(id).reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1; saveThings([{ id: thingId(), type: "task", title: title, done: 0, doneAt: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: id, routine: null }]); }
+  function toggleTask(tid) { const all = loadThings(), t = all.find((x) => x && x.id === tid); if (!t) return; const now = Date.now(), next = t.done ? 0 : 1; saveThings([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]); try { logThingEvent(tid, next ? "done" : "undone", { items: all }); } catch (e) {} if (next) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Task done · +2 EXP"); } catch (e) {} } }
+  function renameChild(cid, field, v) { v = (v || "").trim(); const t = loadThings().find((x) => x && x.id === cid); if (!t || !v || v === t[field]) return; const p = { updated: Date.now() }; p[field] = v; saveThings([Object.assign({}, t, p)]); }
+  function delChild(cid) { const all = loadThings(), now = Date.now(), live = {}; all.forEach((x) => { if (x && !x.deleted) live[x.id] = 1; }); saveThings(thingsCascadeDelete(all, cid, now).filter((x) => x && x.deleted && live[x.id])); }
+  // stat ops (a stat = a child habit; per-day value via the same logging as habits)
+  function addStat(label, track, unit) { const now = Date.now(), ord = sessionStats(id).reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1; saveThings([{ id: thingId(), type: "habit", name: (label || "").trim() || "Stat", track: track || "amount", unit: (unit || "").trim(), parent: id, routine: null, sched: null, updated: now, ord: ord, ordAt: now, deleted: 0 }]); }
+  function logStat(sid, value) { try { logThingEvent(sid, value === null ? "undone" : "habit", value === null ? {} : { value: value }); } catch (e) {} }
+  function render() {
+    const t = get(), log = loadLog(), day = todayKey();
+    const mins = sessionTimeOn(log, id, day), goal = +t.goalMins || 0, pct = goal ? Math.min(100, Math.round((mins / goal) * 100)) : 0;
+    const tasks = sessionTasks(id), stats = sessionStats(id);
+    const allDay = !!t.allDay, s = t.sched, recurring = !!s, freq = s ? (s.freq || "daily") : "daily";
+    const days = s && Array.isArray(s.days) ? s.days.map(String) : [];
+    const FREQS = [["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]];
+    const DOW = [["0", "S"], ["1", "M"], ["2", "T"], ["3", "W"], ["4", "T"], ["5", "F"], ["6", "S"]];
+    const everyUnit = freq === "weekly" ? "week(s)" : freq === "monthly" ? "month(s)" : freq === "yearly" ? "year(s)" : "day(s)";
+    // TIME block: the mounted timer + a "focus this session" toggle + a minutes bar (vs goal if set)
+    const timeBlock =
+      '<div class="td-field"><label>Time</label>' +
+        '<div class="sess-timerow"><div class="sess-timenum">' + mins + ' <span class="sess-timeu">min' + (goal ? " / " + goal : "") + '</span></div>' +
+          '<button class="sess-focus' + (focused() ? " on" : "") + '" id="sessFocus">' + (focused() ? "◉ Focusing" : "◎ Focus timer here") + "</button></div>" +
+        (goal ? '<div class="sess-bar"><div class="sess-barfill" style="width:' + pct + '%"></div></div>' : "") +
+        '<div class="sess-timerhost" id="sessTimerSlot"></div>' +
+        '<div class="sess-hint">' + (focused() ? "Run the timer below — finished work blocks bank minutes here." : "Tap “Focus timer here”, then run the timer — its finished blocks bank minutes toward this session.") + "</div>" +
+      "</div>";
+    // TASKS block
+    const taskRows = tasks.map((tk) =>
+      '<div class="pj-task' + (tk.done ? " done" : "") + '">' +
+        '<button class="pj-check' + (tk.done ? " on" : "") + '" data-act="toggletask" data-id="' + esc(tk.id) + '" aria-label="' + (tk.done ? "mark not done" : "mark done") + '"></button>' +
+        '<input class="pj-ttitle" data-rename="title" data-id="' + esc(tk.id) + '" value="' + esc(tk.title || "") + '" maxlength="200" aria-label="task">' +
+        '<button class="pj-tx" data-act="deltask" data-id="' + esc(tk.id) + '" aria-label="delete task">✕</button>' +
+      "</div>").join("");
+    const tasksBlock =
+      '<div class="td-field"><label>Tasks</label>' +
+        '<div class="sess-tasks">' + taskRows + "</div>" +
+        '<div class="pj-addrow"><input class="sess-taskin" placeholder="add a task…" maxlength="200" aria-label="add a task"><button class="sess-taskgo" aria-label="add task">＋</button></div>' +
+      "</div>";
+    // STATS block — each stat's per-day control mirrors the habit tracks
+    const statRows = stats.map((st) => {
+      const track = st.track || "amount", val = thingAmountOn(log, st.id, day), unit = st.unit ? " " + esc(st.unit) : "";
+      let control;
+      if (track === "scale") control = '<div class="sess-scale">' + [1, 2, 3, 4, 5].map((n) => '<button class="sess-scalen' + (val && +val.rating === n ? " on" : "") + '" data-stat="' + esc(st.id) + '" data-scale="' + n + '">' + n + "</button>").join("") + "</div>";
+      else if (track === "note") control = '<input class="sess-statnote" data-stat="' + esc(st.id) + '" value="' + esc((val && val.text) || "") + '" maxlength="200" placeholder="a few words…" aria-label="log">';
+      else if (track === "check") control = '<button class="pj-check' + (val && val.done ? " on" : "") + '" data-stattoggle="' + esc(st.id) + '" aria-label="log"></button>';
+      else control = '<input class="sess-statamt" type="number" inputmode="decimal" data-stat="' + esc(st.id) + '" value="' + esc(val && val.qty != null ? val.qty : "") + '" placeholder="0" aria-label="log' + unit + '"><span class="sess-statunit">' + esc(st.unit || "") + "</span>";
+      return '<div class="sess-stat"><input class="sess-statlabel" data-rename="name" data-id="' + esc(st.id) + '" value="' + esc(st.name || "Stat") + '" maxlength="60" aria-label="stat name"><span class="sess-statctl">' + control + '</span><button class="pj-tx" data-act="delstat" data-id="' + esc(st.id) + '" aria-label="delete stat">✕</button></div>';
+    }).join("");
+    const TRK = [["amount", "🔢 Number"], ["check", "✓ Yes/no"], ["scale", "★ 1–5"], ["note", "✏️ Words"]];
+    const addForm = addStatOpen
+      ? '<div class="sess-addstat"><input class="sess-newstat" value="' + esc(addStatName) + '" placeholder="what to track (e.g. panels completed)" maxlength="60">' +
+          '<div class="sess-trackpick">' + TRK.map((tr) => '<button class="sess-trk' + (addStatTrack === tr[0] ? " on" : "") + '" data-trk="' + tr[0] + '">' + tr[1] + "</button>").join("") + "</div>" +
+          (addStatTrack === "amount" ? '<input class="sess-newunit" value="' + esc(addStatUnit) + '" placeholder="unit (min, panels, reps… — optional)" maxlength="20">' : "") +
+          '<div class="sess-addrow2"><button class="sess-statcreate">Add stat</button><button class="sess-statcancel">Cancel</button></div></div>'
+      : '<button class="sess-addstatbtn">＋ Add a stat to track</button>';
+    const statsBlock = '<div class="td-field"><label>Stats — put in time / count reps</label><div class="sess-stats">' + statRows + "</div>" + addForm + "</div>";
+    // SCHEDULE block (event fields verbatim) + goal
+    const timeStart = (!allDay ? '<input type="time" class="td-due" id="ssStartTime" value="' + esc(t.startTime) + '" aria-label="start time">' : "");
+    const recurFields = recurring
+      ? '<div class="td-field"><label>Repeats</label><div class="td-seg" id="ssFreq">' + FREQS.map((fq) => '<button data-freq="' + fq[0] + '"' + (freq === fq[0] ? ' class="on"' : "") + ">" + fq[1] + "</button>").join("") + "</div></div>"
+        + (freq === "weekly" ? '<div class="td-field"><label>On these days</label><div class="rd-days" id="ssDays">' + DOW.map((d) => '<button class="rd-day' + (days.indexOf(d[0]) !== -1 ? " on" : "") + '" data-dow="' + d[0] + '">' + d[1] + "</button>").join("") + "</div></div>" : "")
+        + '<div class="td-field"><label>Every</label><div class="rd-every"><input type="number" inputmode="numeric" class="rd-everyin" id="ssEvery" value="' + esc(s.every || 1) + '" min="1"><span class="rd-everylbl">' + everyUnit + "</span></div></div>"
+        + '<div class="td-field"><label>Until (optional)</label><input type="date" class="td-due" id="ssUntil" value="' + esc(s.end) + '" aria-label="repeat until"></div>'
+      : "";
+    const areaChips = TD_AREAS.map((a) => '<button class="td-area' + (t.area === a[1] ? " on" : "") + '" data-area="' + esc(a[1]) + '">' + a[0] + " " + esc(a[1]) + "</button>").join("") + (t.area ? '<button class="td-area td-area-clear" data-area="">✕ clear</button>' : "");
+    root.innerHTML =
+      '<div class="daily-top"><button class="daily-icn" id="ssClose" aria-label="close">✕</button><div class="td-htitle">🎯 Session</div><button class="daily-icn td-del" id="ssDel" aria-label="delete" title="delete">🗑</button></div>' +
+      '<div class="td-scroll">' +
+        '<div class="qd-titlerow"><input class="qd-emoji" id="ssEmoji" value="' + esc(t.emoji) + '" maxlength="4" aria-label="emoji"><input class="td-title" id="ssTitle" value="' + esc(t.title) + '" placeholder="name this session…" aria-label="title"></div>' +
+        timeBlock + tasksBlock + statsBlock +
+        '<div class="td-field"><label>Goal (minutes, optional)</label><input type="number" inputmode="numeric" class="td-due" id="ssGoal" value="' + esc(t.goalMins) + '" placeholder="e.g. 60" min="0" aria-label="goal minutes"></div>' +
+        '<div class="td-field"><label>Kind</label><div class="td-seg" id="ssAllday"><button data-allday="0"' + (!allDay ? ' class="on"' : "") + ">Timed</button><button data-allday=\"1\"" + (allDay ? ' class="on"' : "") + ">All day</button></div></div>" +
+        '<div class="td-field"><label>' + (recurring ? "First on" : "On") + '</label><div class="td-due-row"><input type="date" class="td-due" id="ssStart" value="' + esc(t.start) + '" aria-label="date">' + timeStart + "</div></div>" +
+        '<div class="td-field rd-pausefield"><label class="rd-pauselbl"><input type="checkbox" id="ssRepeat"' + (recurring ? " checked" : "") + "> Repeat this session</label></div>" +
+        recurFields +
+        '<div class="td-field"><label>Area — where it belongs</label><div class="td-areas">' + areaChips + "</div></div>" +
+        '<div class="td-field"><label>Notes</label><textarea class="td-notes" id="ssNotes" placeholder="anything to remember…" aria-label="notes">' + esc(t.notes) + "</textarea></div>" +
+      "</div>";
+    const slot = root.querySelector("#sessTimerSlot");   // mount the real work/rest timer ONCE, then MOVE the same element into each fresh slot (no listener leak, no countdown reset)
+    if (slot) { if (!timerHost) { timerHost = document.createElement("div"); try { if (typeof RENDERERS === "object" && RENDERERS.timer) RENDERERS.timer(timerHost); } catch (e) {} } slot.appendChild(timerHost); }
+    wire();
+  }
+  function wire() {
+    root.querySelector("#ssClose").addEventListener("click", close);
+    root.querySelector("#ssDel").addEventListener("click", () => {
+      const sv = loadThings().find((x) => x && x.id === id);
+      confirmDelete(sv && sv.title ? sv.title : "this session", () => {
+        const all = loadThings(), now = Date.now(), liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+        saveThings(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && liveBefore[x.id]));   // cascade tombstones its tasks + stats too
+        if (focused()) sessionRunSet(null);
+        close();
+      });
+    });
+    const em = root.querySelector("#ssEmoji"); em.addEventListener("change", () => patch({ emoji: em.value }));
+    const ti = root.querySelector("#ssTitle"); ti.addEventListener("change", () => { const v = ti.value.trim(); if (v) patch({ title: v }); });
+    root.querySelector("#sessFocus").addEventListener("click", () => { sessionRunSet(focused() ? null : { id: id }); render(); });
+    // tasks
+    const tin = root.querySelector(".sess-taskin"), tgo = root.querySelector(".sess-taskgo");
+    const doAddTask = () => { if (!tin || !tin.value.trim()) return; addTask(tin.value); render(); const n = root.querySelector(".sess-taskin"); if (n) n.focus(); };
+    if (tgo) tgo.addEventListener("click", doAddTask);
+    if (tin) tin.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doAddTask(); } });
+    root.querySelectorAll("[data-rename]").forEach((inp) => { inp.addEventListener("change", () => renameChild(inp.getAttribute("data-id"), inp.getAttribute("data-rename"), inp.value)); inp.addEventListener("keydown", (e) => { if (e.key === "Enter") inp.blur(); }); });
+    root.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => {
+      const cid = b.getAttribute("data-id"), act = b.getAttribute("data-act");
+      if (act === "toggletask") { toggleTask(cid); render(); }
+      else if (act === "deltask" || act === "delstat") { delChild(cid); render(); }
+    }));
+    // stats: value controls
+    root.querySelectorAll(".sess-statamt").forEach((inp) => inp.addEventListener("change", () => { const v = inp.value.trim(); logStat(inp.getAttribute("data-stat"), v === "" ? null : { done: 1, qty: +v }); }));
+    root.querySelectorAll(".sess-statnote").forEach((inp) => inp.addEventListener("change", () => { const v = inp.value.trim(); logStat(inp.getAttribute("data-stat"), v === "" ? null : { done: 1, text: v }); }));
+    root.querySelectorAll(".sess-scalen").forEach((b) => b.addEventListener("click", () => { const sid = b.getAttribute("data-stat"), n = +b.getAttribute("data-scale"); const cur = thingAmountOn(loadLog(), sid, todayKey()); logStat(sid, cur && +cur.rating === n ? null : { done: 1, rating: n }); render(); }));
+    root.querySelectorAll("[data-stattoggle]").forEach((b) => b.addEventListener("click", () => { const sid = b.getAttribute("data-stattoggle"); const cur = thingAmountOn(loadLog(), sid, todayKey()); logStat(sid, cur && cur.done ? null : { done: 1 }); render(); }));
+    // stats: add form
+    const addBtn = root.querySelector(".sess-addstatbtn"); if (addBtn) addBtn.addEventListener("click", () => { addStatOpen = true; render(); });
+    const cancel = root.querySelector(".sess-statcancel"); if (cancel) cancel.addEventListener("click", () => { addStatOpen = false; addStatName = ""; addStatUnit = ""; render(); });
+    const nsn = root.querySelector(".sess-newstat"); if (nsn) nsn.addEventListener("input", () => { addStatName = nsn.value; });   // live-capture so a track-pick re-render keeps the typed name
+    const nsu = root.querySelector(".sess-newunit"); if (nsu) nsu.addEventListener("input", () => { addStatUnit = nsu.value; });
+    root.querySelectorAll(".sess-trk").forEach((b) => b.addEventListener("click", () => { addStatTrack = b.getAttribute("data-trk"); render(); }));
+    const create = root.querySelector(".sess-statcreate"); if (create) create.addEventListener("click", () => { addStat(addStatName, addStatTrack, addStatUnit); addStatOpen = false; addStatTrack = "amount"; addStatName = ""; addStatUnit = ""; render(); });
+    // goal + schedule (event fields)
+    const goal = root.querySelector("#ssGoal"); goal.addEventListener("change", () => patch({ goalMins: goal.value ? Math.max(0, parseInt(goal.value) || 0) : null }));
+    root.querySelectorAll("#ssAllday button").forEach((b) => b.addEventListener("click", () => { patch({ allDay: b.dataset.allday === "1" ? 1 : 0 }); render(); }));
+    root.querySelector("#ssStart").addEventListener("change", (e) => { const v = e.target.value || todayKey(), cur = get(), p = { start: v }; if (cur.sched) p.sched = Object.assign({}, cur.sched, { start: v }); patch(p); });
+    const sst = root.querySelector("#ssStartTime"); if (sst) sst.addEventListener("change", (e) => patch({ startTime: e.target.value || null }));
+    const rep = root.querySelector("#ssRepeat"); rep.addEventListener("change", () => { if (rep.checked) { const t = get(), d = _ymd2date(t.start) || new Date(); patch({ sched: { freq: "weekly", every: 1, days: [d.getDay()], start: t.start } }); } else patch({ sched: null }); render(); });
+    root.querySelectorAll("#ssFreq button").forEach((b) => b.addEventListener("click", () => { setSched({ freq: b.dataset.freq }); render(); }));
+    root.querySelectorAll("#ssDays .rd-day").forEach((b) => b.addEventListener("click", () => { const s = get().sched || {}, days = Array.isArray(s.days) ? s.days.map(Number) : [], d = +b.dataset.dow, i = days.indexOf(d); if (i === -1) days.push(d); else days.splice(i, 1); setSched({ days: days.sort((x, y) => x - y) }); render(); }));
+    const ev = root.querySelector("#ssEvery"); if (ev) ev.addEventListener("change", () => setSched({ every: Math.max(1, parseInt(ev.value) || 1) }));
+    const un = root.querySelector("#ssUntil"); if (un) un.addEventListener("change", (e) => setSched({ end: e.target.value || null }));
+    root.querySelectorAll(".td-area").forEach((b) => b.addEventListener("click", () => { patch({ area: b.dataset.area || null }); render(); }));
+    const nt = root.querySelector("#ssNotes"); nt.addEventListener("change", () => patch({ notes: nt.value }));
+  }
+  render();
+}
 
 // ══ SOCIAL MESSAGES (Community area #7 · P5 social layer) ═══════════════════════════════
 //    End-to-end-encrypted DMs between Cache accounts, found by a public @username. The three
