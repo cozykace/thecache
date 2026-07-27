@@ -85,7 +85,7 @@
   --ink-rgb: 18, 42, 80;            /* deep ocean blue — the darks */
   --paper: #cbddf1;                 /* soft water blue — the board */
   --panel: #dbe8f7;                 /* shallow water — inputs / inner surfaces */
-  --widget-bg: #eef5fd;             /* pale blue-white surface cards; still clearly blue, they read against the board */
+  --widget-bg: #f3f9ff;             /* brighter surface cards — lifted toward white but still clearly blue */
   --accent: rgb(var(--ink-rgb));    /* buttons + accents = the deep blue ink */
   --edge: rgba(var(--ink-rgb), 0.20);        /* blue hairline that draws every widget/input */
   --edge-soft: rgba(var(--ink-rgb), 0.11);   /* internal dividers (title-bar underline, rows) */
