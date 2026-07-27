@@ -352,11 +352,18 @@
   function cloudSave(s) { localStorage.setItem("money.cloud", JSON.stringify(s)); }
   function cloudUrl() { return ((cloudState().url || CLOUD_DEFAULT) + "").replace(/\/+$/, ""); }
   function errMsg(d) { if (!d) return ""; try { var f = Object.values(d.data || {})[0]; if (f && f.message) return f.message; } catch (e) {} return d.message || ""; }
+  // Read a JSON body DEFENSIVELY. A hibernating / suspended PocketHost instance answers with a
+  // NON-JSON body (e.g. HTTP 500 "Error: Instances will not run until you upgrade"), and a bare
+  // r.json() turns that into a cryptic "Unexpected token … is not valid JSON" that looks like an
+  // app bug and blocks login. Returning null lets callers show an honest "cloud is down" message.
+  async function readJson(r) { try { return await r.json(); } catch (e) { return null; } }
+  var CLOUD_DOWN = "The Cache cloud isn’t responding right now — the sync server may be down or waking up. Nothing is lost; your data is safe. Try again in a minute.";
   async function login(email, pass) {
     var base = cloudUrl();
     var r = await realFetch(base + "/api/collections/users/auth-with-password",
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identity: email, password: pass }) });
-    var d = await r.json();
+    var d = await readJson(r);
+    if (!d) throw new Error(CLOUD_DOWN);
     if (!r.ok || !d.token) throw new Error(errMsg(d) || "login failed");
     var prev = cloudState();
     var newUid = d.record && d.record.id;
@@ -475,9 +482,9 @@
     // request." on a dead Unlock button). `id` always exists and is the same on every device.
     var r = await realFetch(cloudUrl() + "/api/collections/vaults/records?perPage=1&sort=id&filter=" +
       encodeURIComponent("owner='" + s.userId + "'"), { headers: { Authorization: s.token } });
-    var d = await r.json();
+    var d = await readJson(r);
     if (r.status === 401 || r.status === 403) throw new Error("AUTH");        // token expired → re-login
-    if (!r.ok) throw new Error(errMsg(d) || "couldn't reach your cloud vault");
+    if (!r.ok || !d) throw new Error((d && errMsg(d)) || CLOUD_DOWN);        // suspended/hibernating PocketHost answers with a non-JSON body — say so honestly, don't crash on JSON.parse
     var rec = d.items && d.items[0];
     if (!rec || !rec.blob) { FILES = {}; API = {}; return { empty: true }; }   // account exists, nothing synced yet
     // v2: adopt the data key from the keybox if this device doesn't hold it yet
