@@ -79,27 +79,31 @@
   --panel: #211e12;
   --accent: #FFD409;
 }
-:root[data-theme="mono"] {         /* DEFAULT — minimal greyscale; accent collapses to ink so the UI reads black-and-white. Light base = clean pure white. */
-  --ink-rgb: 26, 26, 24;
-  --paper: #ffffff;
-  --panel: #fafafa;
+:root[data-theme="mono"] {         /* DEFAULT — a soft light-TAN canvas (not pure white) on purpose: warm, and it gives the debossed soft-UI widgets headroom to cast BOTH a light highlight and a darker shadow (pure white can't). */
+  --ink-rgb: 40, 36, 28;
+  --paper: #e9e2d2;
+  --panel: #efe9dc;
   --accent: rgb(var(--ink-rgb));
   --edge: rgba(var(--ink-rgb), 0.22);
   --edge-soft: rgba(var(--ink-rgb), 0.10);
 }
 @media (prefers-color-scheme: dark) {   /* AUTO mode: invert to white-on-black with the system setting (forced light/dark opt out) */
   :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) {
-    --ink-rgb: 235, 235, 232;
-    --paper: #0d0d0c;
-    --panel: #121210;
-    --widget-bg: var(--paper);   /* widgets sit flush with the canvas (like light mono), defined only by the border */
+    --ink-rgb: 232, 228, 218;
+    --paper: #1b1a16;   /* lifted off pure black so the debossed rim has headroom */
+    --panel: #232019;
+  }
+  :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) .widget {
+    box-shadow: inset 6px 6px 13px #000, inset -6px -6px 12px color-mix(in srgb, var(--paper) 82%, #fff);
   }
 }
 :root[data-theme="mono"][data-monomode="dark"] {   /* DARK forced — ignore the system setting */
-  --ink-rgb: 235, 235, 232;
-  --paper: #0d0d0c;
-  --panel: #121210;
-  --widget-bg: var(--paper);   /* widgets sit flush with the canvas (like light mono), defined only by the border */
+  --ink-rgb: 232, 228, 218;
+  --paper: #1b1a16;
+  --panel: #232019;
+}
+:root[data-theme="mono"][data-monomode="dark"] .widget {   /* dark: a black rim + a SUBTLE lift (a mid-grey highlight would read as a bright edge on dark) */
+  box-shadow: inset 6px 6px 13px #000, inset -6px -6px 12px color-mix(in srgb, var(--paper) 82%, #fff);
 }
 :root[data-theme="mono"] body { background-image: none; }   /* drop the dotted paper texture — calmer, less early-internet */
 html { background: var(--paper); }
@@ -174,12 +178,14 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   flex-direction: column;
   background: var(--paper);   /* the widget IS the board surface — deformed, not a card floating on it */
   border: none;
-  border-radius: 15px;
+  border-radius: 20px;
   overflow: hidden;
-  /* debossed / pressed-IN: a dark rim top-left, a light rim bottom-right, both derived from the
-     theme's own --paper via color-mix so it re-tones per theme (light, dark, red room, acid…). */
-  box-shadow: inset 4px 4px 9px color-mix(in srgb, var(--paper) 80%, #000),
-              inset -4px -4px 9px color-mix(in srgb, var(--paper) 62%, #fff);
+  /* debossed / pressed-IN (soft-UI): a real dark rim top-left + a strong light rim bottom-right,
+     both derived from the theme's own --paper via color-mix so it re-tones per theme. The LIGHT
+     side is the one that sells the pillow — it must be clearly lighter than the surface, not a
+     whisper. Tunable: raise the offset/blur for deeper, lower the black/white % for softer. */
+  box-shadow: inset 6px 6px 13px color-mix(in srgb, var(--paper) 74%, #000),
+              inset -6px -6px 12px color-mix(in srgb, var(--paper) 48%, #fff);
   transition: box-shadow 0.18s ease;
   container-type: size;
   perspective: 1500px;

@@ -8171,9 +8171,11 @@ function monoSegHtml() {
     "</div>";
 }
 function themeUIHtml() {
-  const cur = document.documentElement.getAttribute("data-theme") || "mono";
-  return monoSegHtml() +
-    '<div class="theme-chips-grid">' + THEMES.filter((t) => t.id !== "mono").map((t) => themeChipHtml(t, cur)).join("") + "</div>";
+  // MONO-ONLY for now: the other themes stay fully defined (THEMES + their CSS) but are disconnected
+  // from the picker while we perfect the soft-UI mono look. To bring them back, append the grid again:
+  //   const cur = document.documentElement.getAttribute("data-theme") || "mono";
+  //   return monoSegHtml() + '<div class="theme-chips-grid">' + THEMES.filter((t) => t.id !== "mono").map((t) => themeChipHtml(t, cur)).join("") + "</div>";
+  return monoSegHtml();
 }
 function wireThemeUI(container, onPick) {
   container.querySelectorAll(".mono-btn").forEach((b) => b.addEventListener("click", () => {
