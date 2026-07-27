@@ -8110,7 +8110,7 @@ document.getElementById("sidebarClose").addEventListener("click", () => setSideb
 // ── Theme (color profiles) ─────────────────────────────────
 const THEME_KEY = "money.theme";
 const THEMES = [
-  { id: "mono", label: "Mono (auto)", bg: "#f3f2ef", accent: "#1c1c1a" },
+  { id: "mono", label: "Water (auto)", bg: "#d9e8ec", accent: "#162c37" },
   { id: "cache", label: "The Cache", bg: "#16140c", accent: "#FFD409" },
   { id: "light", label: "Oat Milk", bg: "#ece6d6", accent: "#c9542e" },
   { id: "dark", label: "Beast Mode", bg: "#1c0307", accent: "#ff3a46" },
@@ -8166,7 +8166,7 @@ function monoSegHtml() {
   const m = monoMode();
   const btn = (id, label) => '<button class="mono-btn' + (onMono && m === id ? " on" : "") + '" data-mono="' + id + '" type="button">' + label + "</button>";
   return '<div class="mono-tier">' +
-      '<div class="mono-tier-top"><span class="mono-tier-name">Mono</span><span class="mono-tier-sub">black &amp; white · follows your system</span></div>' +
+      '<div class="mono-tier-top"><span class="mono-tier-name">Water</span><span class="mono-tier-sub">cool &amp; elemental · follows your system</span></div>' +
       '<div class="mono-seg">' + btn("light", "Light") + btn("auto", "Auto") + btn("dark", "Dark") + "</div>" +
     "</div>";
 }

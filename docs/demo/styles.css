@@ -79,29 +79,30 @@
   --panel: #211e12;
   --accent: #FFD409;
 }
-:root[data-theme="mono"] {         /* DEFAULT — minimal greyscale WITH real definition: white cards on a soft light-grey
-                                      board, drawn by a clear (not faded) hairline. Accent collapses to ink → black-and-white. */
-  --ink-rgb: 26, 26, 24;
-  --paper: #ebeae5;                 /* soft light-grey board, so the white cards actually read against it */
-  --panel: #f5f4f1;                 /* inputs / inner surfaces — a subtle step down from white */
-  --widget-bg: #ffffff;             /* white cards stand out off the grey board */
+:root[data-theme="mono"] {         /* "WATER" (internal key stays `mono`) — cool + elemental. Pale water by day:
+                                      light surface-water cards on a soft cool board, drawn by a clear cool hairline.
+                                      Ink is a deep slate-teal so the whole UI reads calm and watery, not techy. */
+  --ink-rgb: 22, 44, 55;
+  --paper: #d9e8ec;                 /* pale cool water — the board */
+  --panel: #e7f2f5;                 /* inputs / inner surfaces — a shade of shallow water */
+  --widget-bg: #f4fbfc;             /* light surface-water cards; cool-white, they read against the board */
   --accent: rgb(var(--ink-rgb));
-  --edge: rgba(var(--ink-rgb), 0.22);        /* the hairline that draws every widget/input — clearly visible */
-  --edge-soft: rgba(var(--ink-rgb), 0.12);   /* internal dividers (title-bar underline, rows) */
+  --edge: rgba(var(--ink-rgb), 0.20);        /* the cool hairline that draws every widget/input */
+  --edge-soft: rgba(var(--ink-rgb), 0.11);   /* internal dividers (title-bar underline, rows) */
 }
-@media (prefers-color-scheme: dark) {   /* AUTO mode: invert to white-on-black with the system setting (forced light/dark opt out) */
+@media (prefers-color-scheme: dark) {   /* AUTO — DEEP water: deep ocean board, lifted teal cards, pale cyan text */
   :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) {
-    --ink-rgb: 235, 235, 232;
-    --paper: #0c0c0b;
-    --panel: #161615;
-    --widget-bg: #1b1b19;   /* cards lifted a clear step off the near-black board */
+    --ink-rgb: 208, 230, 238;
+    --paper: #07161f;              /* deep ocean */
+    --panel: #0d232c;
+    --widget-bg: #0f2831;          /* cards lifted a clear step off the deep water */
   }
 }
-:root[data-theme="mono"][data-monomode="dark"] {   /* DARK forced — ignore the system setting */
-  --ink-rgb: 235, 235, 232;
-  --paper: #0c0c0b;
-  --panel: #161615;
-  --widget-bg: #1b1b19;
+:root[data-theme="mono"][data-monomode="dark"] {   /* DARK forced — deep water regardless of system */
+  --ink-rgb: 208, 230, 238;
+  --paper: #07161f;
+  --panel: #0d232c;
+  --widget-bg: #0f2831;
 }
 :root[data-theme="mono"] body { background-image: none; }   /* drop the dotted paper texture — calmer, flatter, more minimal */
 html { background: var(--paper); }
