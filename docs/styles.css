@@ -16,6 +16,15 @@
   --accent: #c9542e;
   --edge: rgba(var(--ink-rgb), 0.30);
   --edge-soft: rgba(var(--ink-rgb), 0.14);
+  /* NEUMORPHISM tokens (soft UI) — one material, shaped by light from the TOP-LEFT.
+     --sh-convex = extruded (raised: cards, widgets, resting buttons).
+     --sh-concave = sunken (pressed buttons, inputs, checked toggles).
+     Each theme overrides --neu-dark / --neu-light for its own material; these defaults
+     derive from --ink so every non-mono palette still gets a usable soft shadow. */
+  --neu-dark: var(--ink-rgb);
+  --neu-light: 255, 255, 255;
+  --sh-convex: 8px 8px 16px rgba(var(--neu-dark), 0.16), -8px -8px 16px rgba(var(--neu-light), 0.6);
+  --sh-concave: inset 3px 3px 7px rgba(var(--neu-dark), 0.18), inset -3px -3px 7px rgba(var(--neu-light), 0.55);
 }
 :root[data-theme="dark"] {        /* BEAST MODE — fully red, feral */
   --ink-rgb: 255, 211, 206;              /* light warm-red text */
@@ -79,34 +88,39 @@
   --panel: #211e12;
   --accent: #FFD409;
 }
-:root[data-theme="mono"] {         /* DEFAULT — a soft light-TAN canvas (not pure white) on purpose: warm, and it gives the debossed soft-UI widgets headroom to cast BOTH a light highlight and a darker shadow (pure white can't). */
+:root[data-theme="mono"] {         /* DEFAULT — ONE uniform soft-tan material. Everything (board, widgets,
+                                      buttons, inputs) is this single colour, shaped only by light: a warm-tan
+                                      shadow bottom-right + a white highlight top-left (neumorphism / soft UI). */
   --ink-rgb: 40, 36, 28;
-  --paper: #e9e2d2;
-  --panel: #efe9dc;
-  --widget-bg: #f9f5ee;   /* whiter than the tan canvas, so widgets read as soft cards floating on it */
+  --paper: #e6ddc9;
+  --panel: #e6ddc9;                 /* same material as the board — hierarchy comes from shadow, not fill */
   --accent: rgb(var(--ink-rgb));
-  --edge: rgba(var(--ink-rgb), 0.22);
-  --edge-soft: rgba(var(--ink-rgb), 0.10);
+  --edge: rgba(var(--ink-rgb), 0.16);
+  --edge-soft: rgba(var(--ink-rgb), 0.07);
+  --neu-dark: 178, 162, 130;        /* warm tan-grey — the shadow the tan surface casts */
+  --neu-light: 255, 255, 255;       /* white highlight where the light hits */
+  --sh-convex: 8px 8px 17px rgba(var(--neu-dark), 0.55), -8px -8px 15px rgba(var(--neu-light), 0.85);
+  --sh-concave: inset 3px 3px 7px rgba(var(--neu-dark), 0.6), inset -3px -3px 6px rgba(var(--neu-light), 0.75);
 }
-@media (prefers-color-scheme: dark) {   /* AUTO mode: invert to white-on-black with the system setting (forced light/dark opt out) */
+@media (prefers-color-scheme: dark) {   /* AUTO mode: invert to a warm-dark material (forced light/dark opt out) */
   :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) {
     --ink-rgb: 232, 228, 218;
-    --paper: #1b1a16;
-    --panel: #232019;
-    --widget-bg: #2a2720;   /* a lifted warm-dark card floated on the dark canvas */
-  }
-  :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) .widget {
-    box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.4), 0 18px 40px -10px rgba(0, 0, 0, 0.5), 0 0 10px 1px color-mix(in srgb, var(--widget-bg, var(--paper)) 55%, transparent);
+    --paper: #201d17;
+    --panel: #201d17;
+    --neu-dark: 0, 0, 0;            /* on a dark material the shadow is near-black; the highlight barely lifts */
+    --neu-light: 255, 255, 255;
+    --sh-convex: 8px 8px 17px rgba(0, 0, 0, 0.5), -7px -7px 14px rgba(var(--neu-light), 0.045);
+    --sh-concave: inset 3px 3px 7px rgba(0, 0, 0, 0.55), inset -3px -3px 6px rgba(var(--neu-light), 0.045);
   }
 }
 :root[data-theme="mono"][data-monomode="dark"] {   /* DARK forced — ignore the system setting */
   --ink-rgb: 232, 228, 218;
-  --paper: #1b1a16;
-  --panel: #232019;
-  --widget-bg: #2a2720;
-}
-:root[data-theme="mono"][data-monomode="dark"] .widget {   /* dark: a black drop shadow (--ink is light here) + a subtle top lift */
-  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.4), 0 18px 40px -10px rgba(0, 0, 0, 0.5), 0 0 10px 1px color-mix(in srgb, var(--widget-bg, var(--paper)) 55%, transparent);
+  --paper: #201d17;
+  --panel: #201d17;
+  --neu-dark: 0, 0, 0;
+  --neu-light: 255, 255, 255;
+  --sh-convex: 8px 8px 17px rgba(0, 0, 0, 0.5), -7px -7px 14px rgba(var(--neu-light), 0.045);
+  --sh-concave: inset 3px 3px 7px rgba(0, 0, 0, 0.55), inset -3px -3px 6px rgba(var(--neu-light), 0.045);
 }
 :root[data-theme="mono"] body { background-image: none; }   /* drop the dotted paper texture — calmer, less early-internet */
 html { background: var(--paper); }
@@ -179,24 +193,16 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   position: absolute;
   display: flex;
   flex-direction: column;
-  /* a soft, WHITER card floating on the warm tan canvas — a gentle 140° DOME gradient (lighter
-     top-left → widget-bg → a touch darker bottom-right, ~7% total) bends the big flat face into a
-     soft curve so it reads as a pillow, not a slab. ~7% is invisible under body text. */
-  background: linear-gradient(140deg,
-    color-mix(in srgb, var(--widget-bg, var(--paper)) 86%, #fff) 0%,
-    var(--widget-bg, var(--paper)) 50%,
-    color-mix(in srgb, var(--widget-bg, var(--paper)) 93%, #000) 100%);
+  /* NEUMORPHISM (soft UI): the widget is the SAME material as the board, EXTRUDED — it emerges from
+     the surface, shaped ONLY by light: a warm shadow bottom-right + a white highlight top-left
+     (light source top-left). No border, no separate fill, no blur-halo. The exact dual-shadow token
+     lives in the theme (--sh-convex) so buttons/inputs can reuse it. */
+  background: var(--paper);
   border: none;
-  border-radius: 24px;
+  border-radius: 22px;
   overflow: hidden;
-  /* soft FADING edge — no crisp highlight line and no hard rim. A diffuse warm drop shadow floats
-     the card, and a faint same-colour feather (last layer, 0-offset blur in the card's own colour)
-     melts the card's edge softly into the tan instead of cutting a sharp line. Shadow tone from
-     --ink so it re-tones per theme. Tunable: the feather blur/alpha for more/less edge-melt. */
-  box-shadow: 0 4px 12px -2px rgba(var(--ink-rgb), 0.06),
-              0 18px 40px -10px rgba(var(--ink-rgb), 0.16),
-              0 0 10px 1px color-mix(in srgb, var(--widget-bg, var(--paper)) 55%, transparent);
-  transition: box-shadow 0.18s ease;
+  box-shadow: var(--sh-convex);
+  transition: box-shadow 0.2s ease;
   container-type: size;
   perspective: 1500px;
 }
@@ -225,7 +231,9 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .flip-back { border: none; background: none; cursor: pointer; padding: 2px 7px; border-radius: 5px;
   font-size: 14px; line-height: 1; color: rgba(var(--ink-rgb), 0.5); }
 .flip-back:hover { color: var(--accent); background: rgba(var(--ink-rgb), 0.06); }
-.widget.dragging { box-shadow: 0 14px 40px -12px rgba(var(--ink-rgb), 0.35); }
+.widget.dragging {   /* picked up — extrude HIGHER off the surface (same top-left light, bigger throw) */
+  box-shadow: 16px 16px 32px rgba(var(--neu-dark), 0.55), -13px -13px 28px rgba(var(--neu-light), 0.85);
+}
 .widget.tidying, .sticker.tidying { transition: left 0.45s cubic-bezier(0.16, 1, 0.3, 1), top 0.45s cubic-bezier(0.16, 1, 0.3, 1), width 0.45s cubic-bezier(0.16, 1, 0.3, 1), height 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* bare mode — strip border, background, shadow down to just content */
