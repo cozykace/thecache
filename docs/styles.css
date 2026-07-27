@@ -16,16 +16,6 @@
   --accent: #c9542e;
   --edge: rgba(var(--ink-rgb), 0.30);
   --edge-soft: rgba(var(--ink-rgb), 0.14);
-  /* NEUMORPHISM tokens (soft UI) — one material, shaped by light from the TOP-LEFT.
-     --sh-convex = extruded (raised: cards, widgets, resting buttons).
-     --sh-concave = sunken (pressed buttons, inputs, checked toggles).
-     Each theme overrides --neu-shadow / --neu-glow with SOLID colours tuned to its own
-     material (per the neumorphism.io reference — opaque, not alpha). These defaults keep
-     alpha so every non-mono palette still gets a usable soft shadow. */
-  --neu-shadow: rgba(var(--ink-rgb), 0.16);
-  --neu-glow: rgba(255, 255, 255, 0.6);
-  --sh-convex: 8px 8px 16px var(--neu-shadow), -8px -8px 16px var(--neu-glow);
-  --sh-concave: inset 3px 3px 7px var(--neu-shadow), inset -3px -3px 7px var(--neu-glow);
 }
 :root[data-theme="dark"] {        /* BEAST MODE — fully red, feral */
   --ink-rgb: 255, 211, 206;              /* light warm-red text */
@@ -89,63 +79,30 @@
   --panel: #211e12;
   --accent: #FFD409;
 }
-:root[data-theme="mono"] {         /* DEFAULT — ONE warm-tan material (neumorphism.io reference). The card is the
-                                      SAME tan as the board; solid opaque shadows alone make it a raised pillow —
-                                      no lighter fill, so there's no color-edge to blur out of focus. */
-  --ink-rgb: 40, 36, 28;
-  --paper: #e6ddc9;                 /* the tan board / canvas */
-  --panel: #e6ddc9;
-  --widget-bg: #e6ddc9;             /* same material as the board — the shadow does all the lifting */
+:root[data-theme="mono"] {         /* DEFAULT — minimal greyscale. Clean white base, accent collapses to ink so the
+                                      UI reads black-and-white. Widgets are defined by a single delicate hairline, nothing else. */
+  --ink-rgb: 26, 26, 24;
+  --paper: #ffffff;
+  --panel: #fbfbfa;
   --accent: rgb(var(--ink-rgb));
-  --edge: rgba(var(--ink-rgb), 0.16);
-  --edge-soft: rgba(var(--ink-rgb), 0.07);
-  --neu-shadow: #c4bba7;            /* the tan surface darkened ~15% (ref: #e0e0e0 → #bebebe) — SOLID, not alpha */
-  --neu-glow: #fffdf7;              /* warm white highlight — SOLID */
-  --neu-accent: #b8791f;            /* the ONE vibrant warm accent — active toggles, checks, focus rings */
-  --sh-convex: 15px 15px 34px var(--neu-shadow), -13px -13px 28px var(--neu-glow);
-  --sh-concave: inset 5px 5px 13px var(--neu-shadow), inset -5px -5px 12px var(--neu-glow);
+  --edge: rgba(var(--ink-rgb), 0.12);        /* the hairline that draws every widget/input — kept delicate on purpose */
+  --edge-soft: rgba(var(--ink-rgb), 0.06);   /* even fainter internal dividers (title-bar underline, rows) */
 }
-@media (prefers-color-scheme: dark) {   /* AUTO mode: invert to a warm-dark material (forced light/dark opt out) */
+@media (prefers-color-scheme: dark) {   /* AUTO mode: invert to white-on-black with the system setting (forced light/dark opt out) */
   :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) {
-    --ink-rgb: 232, 228, 218;
-    --paper: #201d17;
-    --panel: #201d17;
-    --widget-bg: #201d17;          /* same dark material as the board */
-    --neu-shadow: #100e0a;         /* board darkened — SOLID */
-    --neu-glow: #2e2a21;           /* board lifted a touch — SOLID (a dark material can't take a white highlight) */
-    --neu-accent: #e0a94a;
-    --sh-convex: 15px 15px 34px var(--neu-shadow), -13px -13px 28px var(--neu-glow);
-    --sh-concave: inset 5px 5px 13px var(--neu-shadow), inset -5px -5px 12px var(--neu-glow);
+    --ink-rgb: 235, 235, 232;
+    --paper: #0d0d0c;
+    --panel: #131312;
+    --widget-bg: var(--paper);   /* widgets sit flush with the canvas, defined only by the hairline */
   }
 }
 :root[data-theme="mono"][data-monomode="dark"] {   /* DARK forced — ignore the system setting */
-  --ink-rgb: 232, 228, 218;
-  --paper: #201d17;
-  --panel: #201d17;
-  --widget-bg: #201d17;
-  --neu-shadow: #100e0a;
-  --neu-glow: #2e2a21;
-  --neu-accent: #e0a94a;
-  --sh-convex: 15px 15px 34px var(--neu-shadow), -13px -13px 28px var(--neu-glow);
-  --sh-concave: inset 5px 5px 13px var(--neu-shadow), inset -5px -5px 12px var(--neu-glow);
+  --ink-rgb: 235, 235, 232;
+  --paper: #0d0d0c;
+  --panel: #131312;
+  --widget-bg: var(--paper);
 }
-:root[data-theme="mono"] body { background-image: none; }   /* drop the dotted paper texture — calmer, less early-internet */
-
-/* ── SOFT-UI CONTROLS (mono) ──────────────────────────────────────────────
-   Text inputs / textareas / selects SINK into the material (concave), keeping
-   their own radius+padding. Checkboxes/radios adopt the warm accent. Keyboard
-   focus gets an explicit accent ring (soft shadows alone aren't an a11y cue). */
-:root[data-theme="mono"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) {
-  background: var(--widget-bg, var(--paper));   /* same cream as the card it sits in, pressed IN */
-  border-color: transparent;
-  box-shadow: var(--sh-concave);
-}
-:root[data-theme="mono"] input[type="checkbox"],
-:root[data-theme="mono"] input[type="radio"] { accent-color: var(--neu-accent); }
-:root[data-theme="mono"] :is(input, textarea, select, button, [tabindex]:not([tabindex="-1"])):focus-visible {
-  outline: 2px solid var(--neu-accent);
-  outline-offset: 2px;
-}
+:root[data-theme="mono"] body { background-image: none; }   /* drop the dotted paper texture — calmer, flatter, more minimal */
 html { background: var(--paper); }
 
 * { box-sizing: border-box; }
@@ -216,17 +173,14 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   position: absolute;
   display: flex;
   flex-direction: column;
-  /* NEUMORPHISM (soft UI): the widget is the SAME material as the board, EXTRUDED — it emerges from
-     the surface, shaped ONLY by light: a warm shadow bottom-right + a white highlight top-left
-     (light source top-left). No border, no separate fill, no blur-halo. The exact dual-shadow token
-     lives in the theme (--sh-convex) so buttons/inputs can reuse it. The face is --widget-bg (the SAME
-     material as the board in mono) — the opaque dual shadow alone lifts it into a pillow. */
+  /* Minimal: a widget is just a clean panel drawn by ONE delicate hairline. No drop shadow, no fill
+     gradient — flat and quiet. The border (--edge) is intentionally faint; the only lift is a subtle
+     shadow while dragging. */
   background: var(--widget-bg, var(--paper));
-  border: none;
-  border-radius: 22px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: var(--sh-convex);
-  transition: box-shadow 0.2s ease;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
   container-type: size;
   perspective: 1500px;
 }
@@ -255,8 +209,8 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .flip-back { border: none; background: none; cursor: pointer; padding: 2px 7px; border-radius: 5px;
   font-size: 14px; line-height: 1; color: rgba(var(--ink-rgb), 0.5); }
 .flip-back:hover { color: var(--accent); background: rgba(var(--ink-rgb), 0.06); }
-.widget.dragging {   /* picked up — extrude HIGHER off the surface (same light, bigger throw) */
-  box-shadow: 26px 26px 56px var(--neu-shadow), -20px -20px 44px var(--neu-glow);
+.widget.dragging {   /* picked up — the one moment a widget lifts off the flat board */
+  box-shadow: 0 14px 40px -12px rgba(var(--ink-rgb), 0.35);
 }
 .widget.tidying, .sticker.tidying { transition: left 0.45s cubic-bezier(0.16, 1, 0.3, 1), top 0.45s cubic-bezier(0.16, 1, 0.3, 1), width 0.45s cubic-bezier(0.16, 1, 0.3, 1), height 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
 
