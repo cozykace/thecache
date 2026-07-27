@@ -11250,6 +11250,32 @@ function openRoutineDetail(id) {
   const get = () => loadThings().find((x) => x && x.id === id) || r0;
   const patch = (p) => { const t = get(); saveThings([Object.assign({}, t, p, { updated: Date.now() })]); try { flash("Saved"); } catch (e) {} };   // a quick bottom toast so autosave is never silent
   const sched = (p) => { const t = get(); patch({ sched: Object.assign({}, t.sched || {}, p) }); };
+  // ── Steps live here now (not only on the deck card). A step is a Thing carrying routine:<id>
+  //    — minted IDENTICALLY to the tasks-widget addMember() so the two entry points can never
+  //    fork: stable id from thingId(), real ord/ordAt/updated stamps, tombstone-delete. ──
+  const steps = () => thingsVisible(loadThings()).filter((x) => x && x.routine === id && x.type !== "routine").sort((a, b) => (+a.ord || 0) - (+b.ord || 0));
+  const getStep = (sid) => loadThings().find((x) => x && x.id === sid) || null;
+  function addStep(title) {
+    title = (title || "").trim(); if (!title) return;
+    const now = Date.now(), ord = steps().reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+    saveThings([{ id: thingId(), type: "task", title: title, done: 0, doneAt: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: id }]);
+  }
+  function renameStep(sid, v) {
+    v = (v || "").trim(); const s = getStep(sid); if (!s || !v || v === s.title) return;
+    saveThings([Object.assign({}, s, { title: v, updated: Date.now() })]);
+  }
+  function delStep(sid) {
+    const all = loadThings(), now = Date.now(), liveBefore = {}; all.forEach((x) => { if (x && !x.deleted) liveBefore[x.id] = 1; });
+    saveThings(thingsCascadeDelete(all, sid, now).filter((x) => x && x.deleted && liveBefore[x.id]));   // tombstone the step (and any subtasks under it)
+  }
+  function moveStep(sid, dir) {
+    const list = steps(), i = list.findIndex((s) => s.id === sid); if (i < 0) return;
+    const j = dir < 0 ? i - 1 : i + 1; if (j < 0 || j >= list.length) return;
+    const target = list[j], beyond = dir < 0 ? list[j - 1] : list[j + 1];
+    // fractional ord → a reorder touches exactly ONE item (deck merge contract); ordAt on its own clock
+    const newOrd = beyond ? ((+target.ord || 0) + (+beyond.ord || 0)) / 2 : (+target.ord || 0) + (dir < 0 ? -1 : 1);
+    const s = getStep(sid); if (s) saveThings([Object.assign({}, s, { ord: newOrd, ordAt: Date.now() })]);
+  }
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { root.remove(); document.removeEventListener("keydown", onKey); };
   document.addEventListener("keydown", onKey);
@@ -11260,7 +11286,21 @@ function openRoutineDetail(id) {
       '<div class="td-scroll">' +
         '<div class="qd-titlerow"><input class="qd-emoji" id="rdEmoji" value="' + esc(r.emoji) + '" maxlength="4" aria-label="emoji"><input class="td-title" id="rdName" value="' + esc(r.name) + '" placeholder="routine name…" aria-label="name"></div>' +
         schedPickerHtml(r.sched, esc) +   // the SHARED recurrence picker (habits use the same one)
-        '<div class="td-field td-soon"><label>Steps</label><div class="td-soon-txt">Add steps with the ＋ on the routine card in your deck.</div></div>' +
+        '<div class="td-field"><label>Steps</label>' +
+          (function () {
+            const ss = steps();
+            const rows = ss.map((s, i) =>
+              '<div class="rd-step">' +
+                '<span class="rd-ord" aria-hidden="true">' + (i + 1) + '</span>' +
+                '<input class="rd-stitle" data-id="' + esc(s.id) + '" value="' + esc(s.title) + '" maxlength="200" aria-label="step name">' +
+                '<button class="rd-mv" data-act="up" data-id="' + esc(s.id) + '" aria-label="move step up"' + (i === 0 ? " disabled" : "") + ">↑</button>" +
+                '<button class="rd-mv" data-act="down" data-id="' + esc(s.id) + '" aria-label="move step down"' + (i === ss.length - 1 ? " disabled" : "") + ">↓</button>" +
+                '<button class="rd-sx" data-act="del" data-id="' + esc(s.id) + '" aria-label="delete step">✕</button>' +
+              "</div>").join("");
+            return '<div class="rd-steps">' + (rows || '<div class="rd-empty">No steps yet — add the things this routine walks you through, in order.</div>') + "</div>" +
+              '<div class="rd-addstep"><input class="rd-stepin" placeholder="add a step…" maxlength="200" aria-label="add a step"><button class="rd-stepgo" aria-label="add step">＋</button></div>';
+          })() +
+        "</div>" +
       "</div>";
     wire();
   }
@@ -11277,6 +11317,20 @@ function openRoutineDetail(id) {
     const em = root.querySelector("#rdEmoji"); em.addEventListener("change", () => patch({ emoji: em.value }));
     const nm = root.querySelector("#rdName"); nm.addEventListener("change", () => { const v = nm.value.trim(); if (v) patch({ name: v }); });
     schedPickerWire(root, () => get().sched, sched, render);
+    // ── Steps: add / rename / reorder / delete ──
+    const stepIn = root.querySelector(".rd-stepin"), stepGo = root.querySelector(".rd-stepgo");
+    const doAdd = () => { if (!stepIn || !stepIn.value.trim()) return; addStep(stepIn.value); render(); const ni = root.querySelector(".rd-stepin"); if (ni) ni.focus(); };
+    if (stepGo) stepGo.addEventListener("click", doAdd);
+    if (stepIn) stepIn.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doAdd(); } });
+    root.querySelectorAll(".rd-stitle").forEach((inp) => {
+      inp.addEventListener("change", () => renameStep(inp.getAttribute("data-id"), inp.value));   // save on blur — no re-render, so the caret isn't yanked mid-edit
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") inp.blur(); });
+    });
+    root.querySelectorAll(".rd-step [data-act]").forEach((b) => b.addEventListener("click", () => {
+      const sid = b.getAttribute("data-id"), act = b.getAttribute("data-act");
+      if (act === "del") delStep(sid); else moveStep(sid, act === "up" ? -1 : 1);
+      render();
+    }));
   }
   render();
 }

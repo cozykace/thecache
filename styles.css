@@ -2524,6 +2524,22 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .td-notes { width: 100%; box-sizing: border-box; min-height: 84px; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 12px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 15px; line-height: 1.5; resize: vertical; }
 .td-notes:focus { outline: none; border-color: var(--accent); }
 .td-soon .td-soon-txt { font-size: 13px; color: rgba(var(--ink-rgb), 0.45); padding: 11px 12px; border: 1px dashed var(--edge); border-radius: 12px; }
+/* routine-detail steps editor — add / rename / reorder / delete a routine's steps in place */
+.rd-steps { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.rd-empty { font-size: 13px; color: rgba(var(--ink-rgb), 0.45); padding: 11px 12px; border: 1px dashed var(--edge); border-radius: 12px; }
+.rd-step { display: flex; align-items: center; gap: 4px; }
+.rd-ord { flex: 0 0 auto; width: 18px; text-align: center; font-size: 11px; color: rgba(var(--ink-rgb), 0.4); font-variant-numeric: tabular-nums; }
+.rd-stitle { flex: 1 1 auto; min-width: 0; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 10px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 14px; box-sizing: border-box; }
+.rd-stitle:focus { outline: none; border-color: var(--accent); }
+.rd-mv, .rd-sx { flex: 0 0 auto; width: 40px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: rgba(var(--ink-rgb), 0.5); font-size: 15px; cursor: pointer; border-radius: 8px; }
+.rd-mv:hover, .rd-sx:hover { color: var(--ink); background: rgba(var(--ink-rgb), 0.06); }
+.rd-mv:disabled { opacity: 0.25; cursor: default; }
+.rd-sx:hover { color: #e0533d; }
+.rd-addstep { display: flex; gap: 6px; }
+.rd-stepin { flex: 1 1 auto; min-width: 0; padding: 11px 12px; border: 1px solid var(--edge); border-radius: 10px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 14px; box-sizing: border-box; }
+.rd-stepin:focus { outline: none; border-color: var(--accent); }
+.rd-stepgo { flex: 0 0 auto; width: 44px; height: 44px; border: none; border-radius: 10px; background: var(--accent); color: var(--paper); font-size: 20px; line-height: 1; cursor: pointer; }
+.rd-stepgo:hover { filter: brightness(1.06); }
 .td-trail { display: flex; flex-direction: column; gap: 2px; }
 
 .daily-input { margin-top: auto; }
