@@ -1283,7 +1283,7 @@ const RENDERERS = {
         if (t.routine && t.type !== "routine") { (byRoutine[t.routine] = byRoutine[t.routine] || []).push(t); return; }   // routine MEMBERS group under their routine
         const p = t.parent || "_root"; (byParent[p] = byParent[p] || []).push(t);
       });
-      const roots = sortSibs((byParent._root || []).filter((t) => (t.type === "task" || t.type === "habit" || t.type === "routine") && !t.parent && !t.routine));
+      const roots = sortSibs((byParent._root || []).filter((t) => (t.type === "task" || t.type === "habit" || t.type === "routine") && !t.parent && !t.routine && !t.project));   // project-linked tasks live in the Projects widget, not the loose list
       return { byParent, byRoutine, roots };
     }
     function render() {
@@ -1583,6 +1583,127 @@ const RENDERERS = {
     document.addEventListener("cache:things", onThings);
     function onDeckDay() { if (!el.isConnected) { document.removeEventListener("cache:deckday", onDeckDay); return; } if (el.closest(".deck-space")) render(); }   // date-nav: repaint for the newly-selected day (deck only)
     document.addEventListener("cache:deckday", onDeckDay);
+    render();
+  },
+  projects(el) {
+    // Projects v1 — group related tasks into a project with rolled-up progress. A project is a
+    // money.things object (type:"project"); its tasks are things carrying project:<id>. Pure
+    // client-side through the SAME per-item merge as tasks/routines (mergeThings) — so it syncs
+    // with ZERO new engine code, and every object obeys the deck contract (stable thingId(),
+    // tombstone-delete, per-item merge). An accordion, mirroring how routines render in Tasks.
+    el.classList.add("is-projects");
+    let selfSaving = false;
+    let open = {}; try { open = JSON.parse(localStorage.getItem("projOpen") || "{}") || {}; } catch (e) { open = {}; }
+    const esc = (s) => escapeHtml(s || "");
+    const save = (items) => { selfSaving = true; try { saveThings(items); } finally { selfSaving = false; } };
+    const byOrd = (a, b) => (+a.ord || 0) - (+b.ord || 0) || (a.id < b.id ? -1 : 1);
+    const projs = () => thingsVisible(loadThings()).filter((x) => x.type === "project").sort(byOrd);
+    const tasksOf = (pid) => thingsVisible(loadThings()).filter((x) => x.type === "task" && x.project === pid)
+      .sort((a, b) => (!!a.done - !!b.done) || (+a.ord || 0) - (+b.ord || 0) || (a.id < b.id ? -1 : 1));   // done sinks, then ord
+    const setOpen = (id, o) => { open[id] = o; try { localStorage.setItem("projOpen", JSON.stringify(open)); } catch (e) {} };
+    function newProject(name) {
+      name = (name || "").trim(); if (!name) return;
+      const now = Date.now(), id = thingId(), ord = projs().reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+      save([{ id: id, type: "project", name: name, emoji: "📁", updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null, project: null }]);
+      setOpen(id, true);
+    }
+    function addTask(pid, title) {
+      title = (title || "").trim(); if (!title) return;
+      const now = Date.now(), ord = tasksOf(pid).reduce((m, x) => Math.max(m, +x.ord || 0), 0) + 1;
+      save([{ id: thingId(), type: "task", title: title, done: 0, doneAt: null, updated: now, ord: ord, ordAt: now, deleted: 0, parent: null, routine: null, project: pid }]);
+    }
+    function toggleTask(id) {
+      const all = loadThings(), t = all.find((x) => x && x.id === id); if (!t) return;
+      const now = Date.now(), next = t.done ? 0 : 1;   // a project task is a plain task: done is a flag ON the object (persistent, not daily-reset)
+      save([Object.assign({}, t, { done: next, doneAt: next ? now : null, updated: now })]);
+      try { logThingEvent(id, next ? "done" : "undone", { items: all }); } catch (e) {}
+      if (next) { try { if (typeof addExp === "function") addExp(2); } catch (e) {} try { if (typeof logChar === "function") logChar("log", "Task done · +2 EXP"); } catch (e) {} }
+    }
+    function rename(id, field, v) {
+      v = (v || "").trim(); const t = loadThings().find((x) => x && x.id === id); if (!t || !v || v === t[field]) return;
+      const p = { updated: Date.now() }; p[field] = v; save([Object.assign({}, t, p)]);
+    }
+    function delTask(id) {
+      const all = loadThings(), now = Date.now(), live = {}; all.forEach((x) => { if (x && !x.deleted) live[x.id] = 1; });
+      save(thingsCascadeDelete(all, id, now).filter((x) => x && x.deleted && live[x.id]));
+    }
+    function delProject(pid) {
+      const all = loadThings(), now = Date.now(), live = {}; all.forEach((x) => { if (x && !x.deleted) live[x.id] = 1; });
+      // a project's tasks link by `project` (not `parent`), so the parent-cascade misses them —
+      // tombstone the project AND each of its tasks explicitly, or they'd orphan (invisible undead)
+      const ids = [pid].concat(all.filter((x) => x && !x.deleted && x.project === pid).map((x) => x.id));
+      let out = all; ids.forEach((tid) => { out = thingsCascadeDelete(out, tid, now); });
+      save(out.filter((x) => x && x.deleted && live[x.id]));
+    }
+    function render() {
+      const ps = projs();
+      const rows = ps.map((p) => {
+        const op = open[p.id] === true, ts = tasksOf(p.id), total = ts.length, done = ts.filter((t) => !!t.done).length;
+        const pct = total ? Math.round((done / total) * 100) : 0;
+        const head =
+          '<div class="pj-prow">' +
+            '<button class="pj-caret' + (op ? "" : " col") + '" data-act="caret" data-id="' + esc(p.id) + '" aria-label="' + (op ? "collapse" : "expand") + '">▾</button>' +
+            '<span class="pj-emoji" aria-hidden="true">' + esc(p.emoji || "📁") + "</span>" +
+            '<input class="pj-name" data-id="' + esc(p.id) + '" value="' + esc(p.name || "Project") + '" maxlength="120" aria-label="project name">' +
+            '<span class="pj-prog">' + done + "/" + total + "</span>" +
+            '<button class="pj-addt" data-act="addt" data-id="' + esc(p.id) + '" aria-label="add a task" title="add a task">＋</button>' +
+            '<button class="pj-x" data-act="delp" data-id="' + esc(p.id) + '" aria-label="delete project">✕</button>' +
+          "</div>" +
+          '<div class="pj-bar"><div class="pj-bar-fill" style="width:' + pct + '%"></div></div>';
+        let body = "";
+        if (op) {
+          body = ts.map((t) =>
+            '<div class="pj-task' + (t.done ? " done" : "") + '">' +
+              '<button class="pj-check' + (t.done ? " on" : "") + '" data-act="toggle" data-id="' + esc(t.id) + '" aria-label="' + (t.done ? "mark not done" : "mark done") + '"></button>' +
+              '<input class="pj-ttitle" data-id="' + esc(t.id) + '" value="' + esc(t.title || "") + '" maxlength="200" aria-label="task">' +
+              '<button class="pj-tx" data-act="delt" data-id="' + esc(t.id) + '" aria-label="delete task">✕</button>' +
+            "</div>").join("") +
+            '<div class="pj-addrow"><input class="pj-taskin" data-pid="' + esc(p.id) + '" placeholder="add a task…" maxlength="200" aria-label="add a task"><button class="pj-taskgo" aria-label="add task">＋</button></div>';
+        }
+        return '<div class="pj-proj">' + head + (op ? '<div class="pj-body">' + body + "</div>" : "") + "</div>";
+      }).join("");
+      el.innerHTML =
+        '<div class="pj-head"><span class="pj-htitle">Projects</span><span class="pj-count">' + (ps.length || "") + "</span></div>" +
+        '<div class="pj-new"><input class="pj-newin" placeholder="new project…" maxlength="120" aria-label="new project"><button class="pj-newgo" aria-label="create project">＋</button></div>' +
+        (rows ? '<div class="pj-list">' + rows + "</div>" : '<div class="sub pj-empty">Group related tasks into a project and watch it fill up. Name one above.</div>');
+      wire();
+    }
+    function wire() {
+      const ni = el.querySelector(".pj-newin"), ng = el.querySelector(".pj-newgo");
+      const addProj = () => { if (!ni || !ni.value.trim()) return; newProject(ni.value); render(); const x = el.querySelector(".pj-newin"); if (x) x.focus(); };
+      if (ng) ng.addEventListener("click", addProj);
+      if (ni) ni.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addProj(); } });
+      el.querySelectorAll(".pj-name").forEach((inp) => {
+        inp.addEventListener("change", () => rename(inp.getAttribute("data-id"), "name", inp.value));
+        inp.addEventListener("keydown", (e) => { if (e.key === "Enter") inp.blur(); });
+      });
+      el.querySelectorAll(".pj-ttitle").forEach((inp) => {
+        inp.addEventListener("change", () => rename(inp.getAttribute("data-id"), "title", inp.value));
+        inp.addEventListener("keydown", (e) => { if (e.key === "Enter") inp.blur(); });
+      });
+      el.querySelectorAll(".pj-addrow").forEach((row) => {
+        const inp = row.querySelector(".pj-taskin"), btn = row.querySelector(".pj-taskgo");
+        const go = () => { if (!inp || !inp.value.trim()) return; addTask(inp.getAttribute("data-pid"), inp.value); render(); };
+        if (btn) btn.addEventListener("click", go);
+        if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
+      });
+      el.querySelectorAll(".pj-proj [data-act]").forEach((b) => b.addEventListener("click", () => {
+        const id = b.getAttribute("data-id"), act = b.getAttribute("data-act");
+        if (act === "caret") { setOpen(id, !(open[id] === true)); render(); }
+        else if (act === "addt") { setOpen(id, true); render(); el.querySelectorAll(".pj-taskin").forEach((f) => { if (f.getAttribute("data-pid") === id) f.focus(); }); }
+        else if (act === "delp") { const p = loadThings().find((x) => x && x.id === id); confirmDelete(p && p.name ? p.name : "this project", () => { delProject(id); render(); }); }
+        else if (act === "toggle") { toggleTask(id); render(); }
+        else if (act === "delt") { delTask(id); render(); }
+      }));
+    }
+    function onThings() {
+      if (!el.isConnected) { document.removeEventListener("cache:things", onThings); return; }
+      if (selfSaving) return;   // our own save already re-rendered
+      const a = document.activeElement;
+      if (a && (a.classList.contains("pj-name") || a.classList.contains("pj-ttitle") || a.classList.contains("pj-newin") || a.classList.contains("pj-taskin"))) return;   // a peer's sync landed — repaint, but never clobber mid-type
+      render();
+    }
+    document.addEventListener("cache:things", onThings);
     render();
   },
   safe(el) {
@@ -7217,6 +7338,7 @@ const LIBRARY = [
   { type: "timer", title: "Work / rest timer", w: 300, h: 300 },
   { type: "bucket", title: "Brain Bucket", w: 300, h: 300 },
   { type: "tasks", title: "Tasks", w: 300, h: 340 },
+  { type: "projects", title: "Projects", w: 300, h: 340 },
   { type: "forms", title: "Forms", w: 300, h: 320 },
   { type: "safe", title: "Safe to spend", w: 300, h: 220 },
   { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
@@ -7514,6 +7636,7 @@ const WIDGET_INFO = {
   energy: "<p><b>Your energy pattern</b> — every ⚡ answer from the Daily check-in, one bar per day for the last 14 days (1–5).</p><p>The point: your executive-function energy <i>varies</i>, and that's not a flaw — seeing the pattern lets you plan around it instead of fighting it. A missing bar just means no log that day; that's information, never a failure.</p>",
   bucket: "<p><b>Your actively-held working memory</b> — notes and links you deliberately drop here so your brain doesn't have to hold them. Lives in your cache, syncs across your devices, and rides your backups + encrypted vault.</p><p>Toss anything with one tap — no shame. A gentle monthly cleanout prompt is a coming brick.</p>",
   tasks: "<p><b>The things you need to do and remember.</b> Add a task, check it off (it's logged), or delete it — with a one-tap undo, no shame. Break any task into <b>subtasks</b>, as deep as you need (＋ on a row), and collapse a big one to tidy it away. <b>Tap a task's title</b> to see its activity trail — everything you checked off across it and its subtasks.</p><p>Turn a task into a <b>habit</b> (⋯ → Make a habit) and it becomes something you track: because habits repeat, they reset each day, and you can track a plain yes/no or a number (minutes, reps…). Every task, subtask, and habit syncs on its own, so edits on your phone and laptop both survive.</p>",
+  projects: "<p><b>Group related tasks into a project</b> and watch the whole thing move. Name a project, open it, and add the tasks it takes — check them off and the project's progress bar fills. A project's tasks live here, not in your loose Tasks list, so a big effort stays together instead of scattering.</p><p>Everything syncs on its own, task by task, so edits on your phone and laptop both survive. This is v1 — due dates, habits, and areas per project are coming.</p>",
   timer: "<p><b>Work a block, rest a block</b> — with a longer rest every few blocks. The visible countdown does the time-keeping so your head doesn't have to.</p><p>All four numbers are yours — tap <i>presets</i>. The defaults are just a starting point, not a prescription. Pausing, skipping, or ending early is always one tap and never punished. Finishing a work block earns +2 EXP.</p>",
 };
 

@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-25-projects-v1",
+    "date": "2026-07-25",
+    "title": "Projects — group the work and watch it move",
+    "body": "A new Projects widget, for the bigger efforts that don't fit in a flat to-do list. Add it from the Widget Library, name a project, open it, and add the tasks it takes — check them off and the project's progress bar fills up. A project's tasks live inside the project instead of scattering through your loose Tasks list, and everything syncs task by task across your devices. This is v1 — progress is a simple task count for now; due dates, habits inside a project, and projects that span more than one area of your life are on the way."
+  },
+  {
     "id": "2026-07-25-routine-steps-editor",
     "date": "2026-07-25",
     "title": "Build your routine right where you edit it",
