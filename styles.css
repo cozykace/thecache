@@ -88,26 +88,29 @@
   --panel: #211e12;
   --accent: #FFD409;
 }
-:root[data-theme="mono"] {         /* DEFAULT — ONE uniform soft-tan material. Everything (board, widgets,
-                                      buttons, inputs) is this single colour, shaped only by light: a warm-tan
-                                      shadow bottom-right + a white highlight top-left (neumorphism / soft UI). */
+:root[data-theme="mono"] {         /* DEFAULT — a warm-tan board with soft raised CREAM cards. The board is the
+                                      darker tan (--paper); widgets sit a step lighter (--widget-bg) at the SAME
+                                      tone as the highlight the shadow throws, so a widget's face melts into its
+                                      own glow and down into the board — one continuous fade, no mismatched halo. */
   --ink-rgb: 40, 36, 28;
-  --paper: #e6ddc9;
-  --panel: #e6ddc9;                 /* same material as the board — hierarchy comes from shadow, not fill */
+  --paper: #e6ddc9;                 /* the tan board / canvas */
+  --panel: #e6ddc9;
+  --widget-bg: #f4efe3;             /* the raised card face — the light-cream tone at the bright edge of the fade */
   --accent: rgb(var(--ink-rgb));
   --edge: rgba(var(--ink-rgb), 0.16);
   --edge-soft: rgba(var(--ink-rgb), 0.07);
-  --neu-dark: 178, 162, 130;        /* warm tan-grey — the shadow the tan surface casts */
-  --neu-light: 255, 255, 255;       /* white highlight where the light hits */
+  --neu-dark: 178, 162, 130;        /* warm tan-grey — the shadow the surface casts down-right */
+  --neu-light: 255, 255, 255;       /* white highlight where the light hits up-left */
   --neu-accent: #b8791f;            /* the ONE vibrant warm accent — active toggles, checks, focus rings */
-  --sh-convex: 8px 8px 17px rgba(var(--neu-dark), 0.55), -8px -8px 15px rgba(var(--neu-light), 0.85);
-  --sh-concave: inset 3px 3px 7px rgba(var(--neu-dark), 0.6), inset -3px -3px 6px rgba(var(--neu-light), 0.75);
+  --sh-convex: 8px 8px 17px rgba(var(--neu-dark), 0.5), -8px -8px 15px rgba(var(--neu-light), 0.8);
+  --sh-concave: inset 3px 3px 7px rgba(var(--neu-dark), 0.55), inset -3px -3px 6px rgba(var(--neu-light), 0.7);
 }
 @media (prefers-color-scheme: dark) {   /* AUTO mode: invert to a warm-dark material (forced light/dark opt out) */
   :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) {
     --ink-rgb: 232, 228, 218;
     --paper: #201d17;
     --panel: #201d17;
+    --widget-bg: #2b2721;          /* a step lighter than the dark board — the raised card face */
     --neu-dark: 0, 0, 0;            /* on a dark material the shadow is near-black; the highlight barely lifts */
     --neu-light: 255, 255, 255;
     --neu-accent: #e0a94a;
@@ -119,6 +122,7 @@
   --ink-rgb: 232, 228, 218;
   --paper: #201d17;
   --panel: #201d17;
+  --widget-bg: #2b2721;
   --neu-dark: 0, 0, 0;
   --neu-light: 255, 255, 255;
   --neu-accent: #e0a94a;
@@ -132,7 +136,7 @@
    their own radius+padding. Checkboxes/radios adopt the warm accent. Keyboard
    focus gets an explicit accent ring (soft shadows alone aren't an a11y cue). */
 :root[data-theme="mono"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) {
-  background: var(--paper);
+  background: var(--widget-bg, var(--paper));   /* same cream as the card it sits in, pressed IN */
   border-color: transparent;
   box-shadow: var(--sh-concave);
 }
@@ -215,8 +219,9 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   /* NEUMORPHISM (soft UI): the widget is the SAME material as the board, EXTRUDED — it emerges from
      the surface, shaped ONLY by light: a warm shadow bottom-right + a white highlight top-left
      (light source top-left). No border, no separate fill, no blur-halo. The exact dual-shadow token
-     lives in the theme (--sh-convex) so buttons/inputs can reuse it. */
-  background: var(--paper);
+     lives in the theme (--sh-convex) so buttons/inputs can reuse it. The face is --widget-bg (a step
+     lighter than the board, matched to the highlight) so the card melts into its own glow, not a halo. */
+  background: var(--widget-bg, var(--paper));
   border: none;
   border-radius: 22px;
   overflow: hidden;
