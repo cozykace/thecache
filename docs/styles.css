@@ -79,15 +79,15 @@
   --panel: #211e12;
   --accent: #FFD409;
 }
-:root[data-theme="mono"] {         /* "WATER" (internal key stays `mono`) — cool + elemental. Pale water by day:
-                                      light surface-water cards on a soft cool board, drawn by a clear cool hairline.
-                                      Ink is a deep slate-teal so the whole UI reads calm and watery, not techy. */
-  --ink-rgb: 22, 44, 55;
-  --paper: #d9e8ec;                 /* pale cool water — the board */
-  --panel: #e7f2f5;                 /* inputs / inner surfaces — a shade of shallow water */
-  --widget-bg: #f4fbfc;             /* light surface-water cards; cool-white, they read against the board */
-  --accent: rgb(var(--ink-rgb));
-  --edge: rgba(var(--ink-rgb), 0.20);        /* the cool hairline that draws every widget/input */
+:root[data-theme="mono"] {         /* "WATER" (internal key stays `mono`) — cool + elemental, fully in BLUE. Day water:
+                                      deep ocean-blue ink, a clearly-blue water board, pale blue-white surface cards.
+                                      Everything — text, borders, buttons (accent = ink), lights — lives in blue. */
+  --ink-rgb: 18, 42, 80;            /* deep ocean blue — the darks */
+  --paper: #cbddf1;                 /* soft water blue — the board */
+  --panel: #dbe8f7;                 /* shallow water — inputs / inner surfaces */
+  --widget-bg: #eef5fd;             /* pale blue-white surface cards; still clearly blue, they read against the board */
+  --accent: rgb(var(--ink-rgb));    /* buttons + accents = the deep blue ink */
+  --edge: rgba(var(--ink-rgb), 0.20);        /* blue hairline that draws every widget/input */
   --edge-soft: rgba(var(--ink-rgb), 0.11);   /* internal dividers (title-bar underline, rows) */
 }
 @media (prefers-color-scheme: dark) {   /* AUTO — DEEP water: deep ocean board, lifted teal cards, pale cyan text */
