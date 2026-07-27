@@ -5697,31 +5697,33 @@ function openAccountMenu(anchor) {
       (act ? '<i data-lucide="chevron-right" class="cs-go"></i>' : "") +
       "</" + tag + ">";
   };
-  const cloudRow = () => {
+  // Each connection's live status as ONE object → drives both its triad dot and its text row (same code → same colour).
+  const cloudInfo = () => {
     const s = cloudState();
-    if (syncing) return csRow("sync", "Cloud sync", "Syncing…");
-    if (!s.token) return csRow("na", "Cloud sync", "Not signed in.");
-    if (cloudPaused()) return csRow("off", "Cloud sync", "Off — this device only.");
-    if (_cloudErr) return csRow("err", "Cloud sync", "Needs you — " + _cloudErr);
-    if (s.keyboxMissing) return csRow("warn", "Cloud sync", "Setup note — other devices can't unlock yet.");
-    if (s.lastPush) return csRow("ok", "Cloud sync", "Synced " + cloudAgo(s.lastPush) + ".");
-    return csRow("warn", "Cloud sync", "First backup pending.");
+    if (syncing) return { s: "sync", label: "Cloud sync", sub: "Syncing…" };
+    if (!s.token) return { s: "na", label: "Cloud sync", sub: "Not signed in." };
+    if (cloudPaused()) return { s: "off", label: "Cloud sync", sub: "Off — this device only." };
+    if (_cloudErr) return { s: "err", label: "Cloud sync", sub: "Needs you — " + _cloudErr };
+    if (s.keyboxMissing) return { s: "warn", label: "Cloud sync", sub: "Setup note — other devices can't unlock yet." };
+    if (s.lastPush) return { s: "ok", label: "Cloud sync", sub: "Synced " + cloudAgo(s.lastPush) + "." };
+    return { s: "warn", label: "Cloud sync", sub: "First backup pending." };
   };
-  const bankRow = () => {
+  const bankInfo = () => {
     const pulled = _bankUpdated ? "Last pulled " + ageStr(Date.now() - _bankUpdated) + "." : "";
-    if (bankConn === null) return csRow("na", "Bank", "Checking…");
-    if (bankConn === "err") return csRow("na", "Bank", "Couldn't check — is the server running?", "bank");
-    if (bankConn) return csRow("ok", "Bank (SimpleFIN)", pulled || "Connected.", "bank");
-    return csRow("warn", "Bank (SimpleFIN)", "Not linked — tap to connect.", "bank");
+    if (bankConn === null) return { s: "na", label: "Bank", sub: "Checking…" };
+    if (bankConn === "err") return { s: "na", label: "Bank", sub: "Couldn't check — is the server running?", act: "bank" };
+    if (bankConn) return { s: "ok", label: "Bank (SimpleFIN)", sub: pulled || "Connected.", act: "bank" };
+    return { s: "warn", label: "Bank (SimpleFIN)", sub: "Not linked — tap to connect.", act: "bank" };
   };
-  const serverRow = () => {
+  const serverInfo = () => {
     // hosted web / demo have no local server — say so plainly, don't fake a "disconnected".
-    if (_noLocalBackend) return csRow("na", "Cache server", "Runs in your browser — nothing to start.");
+    if (_noLocalBackend) return { s: "na", label: "Cache server", sub: "Runs in your browser — nothing to start." };
     const st = (serverBtn && serverBtn.dataset.state) || "down";
-    if (st === "live") return csRow("ok", "Cache server", "Running on this Mac.");
-    if (st === "stale") return csRow("warn", "Cache server", "Running old code — tap to restart.", "server");
-    return csRow("err", "Cache server", "Not running — tap for help.", "server");
+    if (st === "live") return { s: "ok", label: "Cache server", sub: "Running on this Mac." };
+    if (st === "stale") return { s: "warn", label: "Cache server", sub: "Running old code — tap to restart.", act: "server" };
+    return { s: "err", label: "Cache server", sub: "Not running — tap for help.", act: "server" };
   };
+  const rowOf = (i) => csRow(i.s, i.label, i.sub, i.act);
   const actions = () => {
     if (!cloudState().token)   // signed out → one CTA that keeps sign-in discoverable
       return '<button class="am-item" data-act="setup"><i data-lucide="cloud"></i>Set up cloud sync</button>';
@@ -5729,20 +5731,35 @@ function openAccountMenu(anchor) {
       '<button class="am-item" data-act="switch"><i data-lucide="users"></i>Use a different account…</button>' +
       '<button class="am-item am-out" data-act="logout"><i data-lucide="log-out"></i>Log out</button>';
   };
+  // The triad is built ONCE (so its spin plays once, on open); repaints only RECOLOUR its three dots.
+  const updateTriad = () => {
+    const set = (cls, code) => { const el = menu.querySelector(".cs-tdot." + cls); if (el) el.dataset.s = code; };
+    set("t-cloud", cloudInfo().s); set("t-bank", bankInfo().s); set("t-server", serverInfo().s);
+  };
   const paint = () => {
     const s = cloudState();
     const who = s.token
       ? "Signed in as <b>" + escapeHtml(s.email || "your account") + "</b>"
       : "<b>Not signed in</b> — set up cloud to back up &amp; sync.";
-    menu.innerHTML =
+    bodyWrap.innerHTML =
       '<div class="am-who">' + who + "</div>" +
-      '<div class="cs-rows">' + cloudRow() + bankRow() + serverRow() + "</div>" +
+      '<div class="cs-rows">' + rowOf(cloudInfo()) + rowOf(bankInfo()) + rowOf(serverInfo()) + "</div>" +
       '<div class="am-sep"></div>' +
       '<button class="am-item" data-act="sync"' + (syncing ? " disabled" : "") + '><i data-lucide="refresh-cw"></i>' +
         (syncing ? "Syncing…" : "Sync now") + "</button>" +
       actions();
+    updateTriad();
     drawIcons();
   };
+
+  // build the persistent shell ONCE: the animated triad on top, then the body region paint() owns
+  menu.innerHTML =
+    '<div class="am-triad"><div class="am-triad-spin">' +
+      '<span class="cs-dot cs-tdot t-cloud" data-s="na"></span>' +
+      '<span class="cs-dot cs-tdot t-bank" data-s="na"></span>' +
+      '<span class="cs-dot cs-tdot t-server" data-s="na"></span>' +
+    '</div></div><div class="am-bodywrap"></div>';
+  const bodyWrap = menu.querySelector(".am-bodywrap");
 
   paint();
   // position ONCE against the first paint. Repaints only grow/shrink height; the menu is anchored by

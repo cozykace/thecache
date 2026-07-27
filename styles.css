@@ -3021,6 +3021,32 @@ button.cs-row:hover { background: rgba(var(--ink-rgb), 0.06); }
 .cs-dot[data-s="warn"] { background: transparent; border: 2px solid var(--accent); }                /* attention — SOLID ring */
 .cs-dot[data-s="off"] { background: transparent; border: 2px dashed rgba(var(--ink-rgb), 0.4); }    /* off by choice — DASHED ring */
 .cs-dot[data-s="na"] { background: rgba(var(--ink-rgb), 0.28); }                                    /* not applicable — muted dot */
+
+/* ── The status TRIAD — the connection panel's hero. On open, three status lights (cloud/bank/server)
+      spin around a centre point and ease into a still triangle. Each dot reuses the .cs-dot colour+shape,
+      so it reads the SAME language as the rows below. Recoloured in place on repaint (never re-spun). */
+.am-triad { position: relative; width: 78px; height: 66px; margin: 4px auto 12px; }
+.am-triad-spin { position: absolute; inset: 0; transform-origin: 50% 50%;
+  animation: triadIn 0.9s cubic-bezier(0.2, 0.72, 0.3, 1) both; }
+.cs-tdot { position: absolute; width: 14px; height: 14px; }        /* reuses .cs-dot colours; just bigger + placed */
+.cs-tdot.t-cloud  { top: 0;      left: 50%; margin-left: -7px; }   /* apex */
+.cs-tdot.t-bank   { bottom: 3px; left: 9px; }                      /* base-left */
+.cs-tdot.t-server { bottom: 3px; right: 9px; }                     /* base-right */
+/* faint hairline triangle connecting them, so the three read as ONE constellation */
+.am-triad::before { content: ""; position: absolute; inset: 7px 9px 10px; border: 1px solid var(--edge-soft);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%); opacity: 0.5; pointer-events: none;
+  animation: triadWebIn 0.9s ease both; }
+@keyframes triadIn {
+  0%   { transform: rotate(-410deg) scale(0.12); opacity: 0; }
+  55%  { opacity: 1; }
+  82%  { transform: rotate(7deg) scale(1.05); }
+  100% { transform: rotate(0deg) scale(1); opacity: 1; }
+}
+@keyframes triadWebIn { 0%, 60% { opacity: 0; } 100% { opacity: 0.5; } }
+/* accessibility — no spin when motion is reduced; the triad just appears, static and accurate */
+@media (prefers-reduced-motion: reduce) { .am-triad-spin, .am-triad::before { animation: none; } }
+html[data-reduce-motion="1"] .am-triad-spin, html[data-reduce-motion="1"] .am-triad::before { animation: none; }
+
 .am-sep { height: 1px; background: var(--edge-soft); margin: 5px 2px; }
 .am-item {
   display: flex; align-items: center; gap: 9px;
