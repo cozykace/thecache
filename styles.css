@@ -19,12 +19,13 @@
   /* NEUMORPHISM tokens (soft UI) — one material, shaped by light from the TOP-LEFT.
      --sh-convex = extruded (raised: cards, widgets, resting buttons).
      --sh-concave = sunken (pressed buttons, inputs, checked toggles).
-     Each theme overrides --neu-dark / --neu-light for its own material; these defaults
-     derive from --ink so every non-mono palette still gets a usable soft shadow. */
-  --neu-dark: var(--ink-rgb);
-  --neu-light: 255, 255, 255;
-  --sh-convex: 8px 8px 16px rgba(var(--neu-dark), 0.16), -8px -8px 16px rgba(var(--neu-light), 0.6);
-  --sh-concave: inset 3px 3px 7px rgba(var(--neu-dark), 0.18), inset -3px -3px 7px rgba(var(--neu-light), 0.55);
+     Each theme overrides --neu-shadow / --neu-glow with SOLID colours tuned to its own
+     material (per the neumorphism.io reference — opaque, not alpha). These defaults keep
+     alpha so every non-mono palette still gets a usable soft shadow. */
+  --neu-shadow: rgba(var(--ink-rgb), 0.16);
+  --neu-glow: rgba(255, 255, 255, 0.6);
+  --sh-convex: 8px 8px 16px var(--neu-shadow), -8px -8px 16px var(--neu-glow);
+  --sh-concave: inset 3px 3px 7px var(--neu-shadow), inset -3px -3px 7px var(--neu-glow);
 }
 :root[data-theme="dark"] {        /* BEAST MODE — fully red, feral */
   --ink-rgb: 255, 211, 206;              /* light warm-red text */
@@ -88,46 +89,45 @@
   --panel: #211e12;
   --accent: #FFD409;
 }
-:root[data-theme="mono"] {         /* DEFAULT — a warm-tan board with soft raised CREAM cards. The board is the
-                                      darker tan (--paper); widgets sit a step lighter (--widget-bg) at the SAME
-                                      tone as the highlight the shadow throws, so a widget's face melts into its
-                                      own glow and down into the board — one continuous fade, no mismatched halo. */
+:root[data-theme="mono"] {         /* DEFAULT — ONE warm-tan material (neumorphism.io reference). The card is the
+                                      SAME tan as the board; solid opaque shadows alone make it a raised pillow —
+                                      no lighter fill, so there's no color-edge to blur out of focus. */
   --ink-rgb: 40, 36, 28;
   --paper: #e6ddc9;                 /* the tan board / canvas */
   --panel: #e6ddc9;
-  --widget-bg: #f4efe3;             /* the raised card face — the light-cream tone at the bright edge of the fade */
+  --widget-bg: #e6ddc9;             /* same material as the board — the shadow does all the lifting */
   --accent: rgb(var(--ink-rgb));
   --edge: rgba(var(--ink-rgb), 0.16);
   --edge-soft: rgba(var(--ink-rgb), 0.07);
-  --neu-dark: 178, 162, 130;        /* warm tan-grey — the shadow the surface casts down-right */
-  --neu-light: 255, 255, 255;       /* white highlight where the light hits up-left */
+  --neu-shadow: #c4bba7;            /* the tan surface darkened ~15% (ref: #e0e0e0 → #bebebe) — SOLID, not alpha */
+  --neu-glow: #fffdf7;              /* warm white highlight — SOLID */
   --neu-accent: #b8791f;            /* the ONE vibrant warm accent — active toggles, checks, focus rings */
-  --sh-convex: 8px 8px 17px rgba(var(--neu-dark), 0.5), -8px -8px 15px rgba(var(--neu-light), 0.8);
-  --sh-concave: inset 3px 3px 7px rgba(var(--neu-dark), 0.55), inset -3px -3px 6px rgba(var(--neu-light), 0.7);
+  --sh-convex: 15px 15px 34px var(--neu-shadow), -13px -13px 28px var(--neu-glow);
+  --sh-concave: inset 5px 5px 13px var(--neu-shadow), inset -5px -5px 12px var(--neu-glow);
 }
 @media (prefers-color-scheme: dark) {   /* AUTO mode: invert to a warm-dark material (forced light/dark opt out) */
   :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) {
     --ink-rgb: 232, 228, 218;
     --paper: #201d17;
     --panel: #201d17;
-    --widget-bg: #2b2721;          /* a step lighter than the dark board — the raised card face */
-    --neu-dark: 0, 0, 0;            /* on a dark material the shadow is near-black; the highlight barely lifts */
-    --neu-light: 255, 255, 255;
+    --widget-bg: #201d17;          /* same dark material as the board */
+    --neu-shadow: #100e0a;         /* board darkened — SOLID */
+    --neu-glow: #2e2a21;           /* board lifted a touch — SOLID (a dark material can't take a white highlight) */
     --neu-accent: #e0a94a;
-    --sh-convex: 8px 8px 17px rgba(0, 0, 0, 0.5), -7px -7px 14px rgba(var(--neu-light), 0.045);
-    --sh-concave: inset 3px 3px 7px rgba(0, 0, 0, 0.55), inset -3px -3px 6px rgba(var(--neu-light), 0.045);
+    --sh-convex: 15px 15px 34px var(--neu-shadow), -13px -13px 28px var(--neu-glow);
+    --sh-concave: inset 5px 5px 13px var(--neu-shadow), inset -5px -5px 12px var(--neu-glow);
   }
 }
 :root[data-theme="mono"][data-monomode="dark"] {   /* DARK forced — ignore the system setting */
   --ink-rgb: 232, 228, 218;
   --paper: #201d17;
   --panel: #201d17;
-  --widget-bg: #2b2721;
-  --neu-dark: 0, 0, 0;
-  --neu-light: 255, 255, 255;
+  --widget-bg: #201d17;
+  --neu-shadow: #100e0a;
+  --neu-glow: #2e2a21;
   --neu-accent: #e0a94a;
-  --sh-convex: 8px 8px 17px rgba(0, 0, 0, 0.5), -7px -7px 14px rgba(var(--neu-light), 0.045);
-  --sh-concave: inset 3px 3px 7px rgba(0, 0, 0, 0.55), inset -3px -3px 6px rgba(var(--neu-light), 0.045);
+  --sh-convex: 15px 15px 34px var(--neu-shadow), -13px -13px 28px var(--neu-glow);
+  --sh-concave: inset 5px 5px 13px var(--neu-shadow), inset -5px -5px 12px var(--neu-glow);
 }
 :root[data-theme="mono"] body { background-image: none; }   /* drop the dotted paper texture — calmer, less early-internet */
 
@@ -219,8 +219,8 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   /* NEUMORPHISM (soft UI): the widget is the SAME material as the board, EXTRUDED — it emerges from
      the surface, shaped ONLY by light: a warm shadow bottom-right + a white highlight top-left
      (light source top-left). No border, no separate fill, no blur-halo. The exact dual-shadow token
-     lives in the theme (--sh-convex) so buttons/inputs can reuse it. The face is --widget-bg (a step
-     lighter than the board, matched to the highlight) so the card melts into its own glow, not a halo. */
+     lives in the theme (--sh-convex) so buttons/inputs can reuse it. The face is --widget-bg (the SAME
+     material as the board in mono) — the opaque dual shadow alone lifts it into a pillow. */
   background: var(--widget-bg, var(--paper));
   border: none;
   border-radius: 22px;
@@ -255,8 +255,8 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .flip-back { border: none; background: none; cursor: pointer; padding: 2px 7px; border-radius: 5px;
   font-size: 14px; line-height: 1; color: rgba(var(--ink-rgb), 0.5); }
 .flip-back:hover { color: var(--accent); background: rgba(var(--ink-rgb), 0.06); }
-.widget.dragging {   /* picked up — extrude HIGHER off the surface (same top-left light, bigger throw) */
-  box-shadow: 16px 16px 32px rgba(var(--neu-dark), 0.55), -13px -13px 28px rgba(var(--neu-light), 0.85);
+.widget.dragging {   /* picked up — extrude HIGHER off the surface (same light, bigger throw) */
+  box-shadow: 26px 26px 56px var(--neu-shadow), -20px -20px 44px var(--neu-glow);
 }
 .widget.tidying, .sticker.tidying { transition: left 0.45s cubic-bezier(0.16, 1, 0.3, 1), top 0.45s cubic-bezier(0.16, 1, 0.3, 1), width 0.45s cubic-bezier(0.16, 1, 0.3, 1), height 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
 
