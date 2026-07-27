@@ -83,6 +83,7 @@
   --ink-rgb: 40, 36, 28;
   --paper: #e9e2d2;
   --panel: #efe9dc;
+  --widget-bg: #f9f5ee;   /* whiter than the tan canvas, so widgets read as soft cards floating on it */
   --accent: rgb(var(--ink-rgb));
   --edge: rgba(var(--ink-rgb), 0.22);
   --edge-soft: rgba(var(--ink-rgb), 0.10);
@@ -90,20 +91,22 @@
 @media (prefers-color-scheme: dark) {   /* AUTO mode: invert to white-on-black with the system setting (forced light/dark opt out) */
   :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) {
     --ink-rgb: 232, 228, 218;
-    --paper: #1b1a16;   /* lifted off pure black so the debossed rim has headroom */
+    --paper: #1b1a16;
     --panel: #232019;
+    --widget-bg: #2a2720;   /* a lifted warm-dark card floated on the dark canvas */
   }
   :root[data-theme="mono"]:not([data-monomode="light"]):not([data-monomode="dark"]) .widget {
-    box-shadow: inset 6px 6px 13px #000, inset -6px -6px 12px color-mix(in srgb, var(--paper) 82%, #fff);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4), 0 12px 26px -8px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
 }
 :root[data-theme="mono"][data-monomode="dark"] {   /* DARK forced — ignore the system setting */
   --ink-rgb: 232, 228, 218;
   --paper: #1b1a16;
   --panel: #232019;
+  --widget-bg: #2a2720;
 }
-:root[data-theme="mono"][data-monomode="dark"] .widget {   /* dark: a black rim + a SUBTLE lift (a mid-grey highlight would read as a bright edge on dark) */
-  box-shadow: inset 6px 6px 13px #000, inset -6px -6px 12px color-mix(in srgb, var(--paper) 82%, #fff);
+:root[data-theme="mono"][data-monomode="dark"] .widget {   /* dark: a black drop shadow (--ink is light here) + a subtle top lift */
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4), 0 12px 26px -8px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 :root[data-theme="mono"] body { background-image: none; }   /* drop the dotted paper texture — calmer, less early-internet */
 html { background: var(--paper); }
@@ -176,16 +179,22 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   position: absolute;
   display: flex;
   flex-direction: column;
-  background: var(--paper);   /* the widget IS the board surface — deformed, not a card floating on it */
+  /* a soft, WHITER card floating on the warm tan canvas — a gentle 140° DOME gradient (lighter
+     top-left → widget-bg → a touch darker bottom-right, ~7% total) bends the big flat face into a
+     soft curve so it reads as a pillow, not a slab. ~7% is invisible under body text. */
+  background: linear-gradient(140deg,
+    color-mix(in srgb, var(--widget-bg, var(--paper)) 86%, #fff) 0%,
+    var(--widget-bg, var(--paper)) 50%,
+    color-mix(in srgb, var(--widget-bg, var(--paper)) 93%, #000) 100%);
   border: none;
   border-radius: 20px;
   overflow: hidden;
-  /* debossed / pressed-IN (soft-UI): a real dark rim top-left + a strong light rim bottom-right,
-     both derived from the theme's own --paper via color-mix so it re-tones per theme. The LIGHT
-     side is the one that sells the pillow — it must be clearly lighter than the surface, not a
-     whisper. Tunable: raise the offset/blur for deeper, lower the black/white % for softer. */
-  box-shadow: inset 6px 6px 13px color-mix(in srgb, var(--paper) 74%, #000),
-              inset -6px -6px 12px color-mix(in srgb, var(--paper) 48%, #fff);
+  /* the float: a soft warm drop shadow lifts the card off the tan (the -8px spread keeps it from
+     bleeding onto packed neighbours), a tight contact shadow grounds it, a 1px top highlight crisps
+     the edge. Shadow tone from --ink so it re-tones per theme. Tunable via the -8px layer's alpha. */
+  box-shadow: 0 2px 5px rgba(var(--ink-rgb), 0.07),
+              0 12px 26px -8px rgba(var(--ink-rgb), 0.20),
+              inset 0 1px 0 rgba(255, 255, 255, 0.7);
   transition: box-shadow 0.18s ease;
   container-type: size;
   perspective: 1500px;
