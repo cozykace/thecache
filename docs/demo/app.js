@@ -7362,7 +7362,7 @@ const LIBRARY = [
   { type: "months", title: "Months", w: 320, h: 340 },
   { type: "clock", title: "Local time", w: 260, h: 160 },
   { type: "date", title: "Today", w: 220, h: 150 },
-  { type: "note", title: "Note", w: 280, h: 200 },
+  { type: "note", title: "Post-it note", w: 280, h: 200 },
 ];
 const libByType = Object.fromEntries(LIBRARY.map((l) => [l.type, l]));
 
@@ -7649,7 +7649,7 @@ const WIDGET_INFO = {
     "<p>The dashed line marks today's cash. It opens on the hours that break even — slide up from there to watch your cushion grow.</p>",
   clock: "<p>Your device's local time, formatted however you set it in the dock’s date/time popover.</p>",
   date: "<p>Today's date from your device. No financial data.</p>",
-  note: "<p>A free-text note you type — saved locally in your browser. No financial data.</p>",
+  note: "<p>A <b>post-it note</b> — free-text you jot on your board, saved locally in your browser. (Separate from the notes inside your deck.) No financial data.</p>",
   energy: "<p><b>Your energy pattern</b> — every ⚡ answer from the Daily check-in, one bar per day for the last 14 days (1–5).</p><p>The point: your executive-function energy <i>varies</i>, and that's not a flaw — seeing the pattern lets you plan around it instead of fighting it. A missing bar just means no log that day; that's information, never a failure.</p>",
   bucket: "<p><b>Your actively-held working memory</b> — notes and links you deliberately drop here so your brain doesn't have to hold them. Lives in your cache, syncs across your devices, and rides your backups + encrypted vault.</p><p>Toss anything with one tap — no shame. A gentle monthly cleanout prompt is a coming brick.</p>",
   tasks: "<p><b>The things you need to do and remember.</b> Add a task, check it off (it's logged), or delete it — with a one-tap undo, no shame. Break any task into <b>subtasks</b>, as deep as you need (＋ on a row), and collapse a big one to tidy it away. <b>Tap a task's title</b> to see its activity trail — everything you checked off across it and its subtasks.</p><p>Turn a task into a <b>habit</b> (⋯ → Make a habit) and it becomes something you track: because habits repeat, they reset each day, and you can track a plain yes/no or a number (minutes, reps…). Every task, subtask, and habit syncs on its own, so edits on your phone and laptop both survive.</p>",
@@ -11627,7 +11627,7 @@ function openCalendar() {
     const cellHtml = cells.map((c) => {
       const j = calThingsOnDay(things, c.ymd), et = chipsOf(j);   // events + dated tasks → chips
       const rec = j.routines.concat(j.habits);   // the recurring layer — routines + scheduled habits, one visual family
-      const chips = density === "chips" ? et.concat(rec.map((r) => ({ cls: "routine", em: r.emoji || (r.type === "habit" ? "↻" : "🔁"), tx: r.name || r.title || "Routine" }))) : et;
+      const chips = density === "chips" ? et.concat(rec.map((r) => ({ cls: r.type === "habit" ? "habit" : "routine", em: r.emoji || (r.type === "habit" ? "↻" : "🔁"), tx: r.name || r.title || "Routine" }))) : et;
       const shown = chips.slice(0, 3), extra = chips.length - shown.length;
       const chipsH = shown.map((ch) => '<span class="cal-chip ' + ch.cls + '"><span class="ci-em" aria-hidden="true">' + ch.em + '</span><span class="ci-tx">' + esc(ch.tx) + "</span></span>").join("");
       const rdots = density === "dots" ? rec.slice(0, 5).map((r) => '<span class="cal-dot" title="' + esc(r.name || r.title || "routine") + '"></span>').join("") : "";
@@ -11641,11 +11641,15 @@ function openCalendar() {
     return '<div class="cal-month"><div class="cal-dow">' + dow + '</div><div class="cal-grid">' + cellHtml + "</div></div>";
   }
   function itemRow(act, id, em, tx, sub, done, checkable, ymd) {
-    return '<div class="cal-arow' + (done ? " done" : "") + '" data-act="' + act + '" data-id="' + esc(id) + '" role="button" tabindex="0">' +
+    // the item's TYPE drives its colour + label. act routes the tap; "detail" covers both tasks
+    // and habits, told apart by the habit's ↻ glyph.
+    var type = act === "event" ? "event" : act === "session" ? "session" : act === "rdetail" ? "routine" : (em === "↻" ? "habit" : "task");
+    return '<div class="cal-arow' + (done ? " done" : "") + '" data-act="' + act + '" data-type="' + type + '" data-id="' + esc(id) + '" role="button" tabindex="0">' +
       (checkable
         ? '<button class="cal-check' + (done ? " on" : "") + '" data-check="' + esc(id) + '"' + (ymd ? ' data-ymd="' + esc(ymd) + '"' : "") + ' aria-label="' + (done ? "mark not done" : "mark done") + '"></button>'
         : '<span class="cal-arow-em" aria-hidden="true">' + em + "</span>") +
       '<span class="cal-arow-tx">' + esc(tx) + (sub ? '<span class="cal-arow-sub">' + esc(sub) + "</span>" : "") + "</span>" +
+      '<span class="cal-type" data-type="' + type + '">' + type + "</span>" +
       '<span class="cal-arow-go" aria-hidden="true">›</span></div>';
   }
   function renderDay() {

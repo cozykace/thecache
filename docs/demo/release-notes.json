@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-25-ui-polish",
+    "date": "2026-07-25",
+    "title": "Colour-coded calendar, softer board, clearer names",
+    "body": "A few looks-and-feel passes. Your calendar now colour-codes every item by kind and labels it — event, session, task, routine, habit — so a glance tells you what's what, in month, week, and day views. Widgets on your board are now pressed gently into the surface (a soft, tactile, embossed feel) instead of floating as glass cards — and it re-tones itself to every theme. And the Note widget is now called Post-it note, so it's no longer confused with the notes inside your deck."
+  },
+  {
     "id": "2026-07-25-sessions-v1",
     "date": "2026-07-25",
     "title": "Sessions — schedule focused time and track it your way",

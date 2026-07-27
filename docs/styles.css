@@ -172,10 +172,14 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   position: absolute;
   display: flex;
   flex-direction: column;
-  background: var(--widget-bg, rgba(255, 255, 255, 0.18));
-  border: 1px solid var(--edge);
-  border-radius: 14px;
+  background: var(--paper);   /* the widget IS the board surface — deformed, not a card floating on it */
+  border: none;
+  border-radius: 15px;
   overflow: hidden;
+  /* debossed / pressed-IN: a dark rim top-left, a light rim bottom-right, both derived from the
+     theme's own --paper via color-mix so it re-tones per theme (light, dark, red room, acid…). */
+  box-shadow: inset 4px 4px 9px color-mix(in srgb, var(--paper) 80%, #000),
+              inset -4px -4px 9px color-mix(in srgb, var(--paper) 62%, #fff);
   transition: box-shadow 0.18s ease;
   container-type: size;
   perspective: 1500px;
@@ -209,7 +213,7 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .widget.tidying, .sticker.tidying { transition: left 0.45s cubic-bezier(0.16, 1, 0.3, 1), top 0.45s cubic-bezier(0.16, 1, 0.3, 1), width 0.45s cubic-bezier(0.16, 1, 0.3, 1), height 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* bare mode — strip border, background, shadow down to just content */
-.widget.bare { background: transparent; border-color: transparent; }
+.widget.bare { background: transparent; border-color: transparent; box-shadow: none; }   /* frameless widgets stay frameless — no debossed rim */
 .widget.bare.dragging { box-shadow: none; }
 .widget.bare .widget-bar { border-bottom-color: transparent; }
 
@@ -3436,9 +3440,11 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 .cal-cell.today .cal-daynum { background: var(--accent); color: var(--paper); }
 .cal-items { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cal-chip { display: flex; align-items: center; gap: 3px; min-width: 0; font-size: 11px; line-height: 1.35; padding: 1px 5px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 15%, transparent); white-space: nowrap; overflow: hidden; }
-.cal-chip.task { background: rgba(var(--ink-rgb), 0.09); }
-.cal-chip.session { background: color-mix(in srgb, var(--accent) 26%, transparent); font-weight: 600; }
-.cal-chip.routine { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.cal-chip.event { background: color-mix(in srgb, var(--cal-event) 16%, transparent); }
+.cal-chip.session { background: color-mix(in srgb, var(--cal-session) 22%, transparent); font-weight: 600; }
+.cal-chip.task { background: color-mix(in srgb, var(--cal-task) 15%, transparent); }
+.cal-chip.routine { background: color-mix(in srgb, var(--cal-routine) 14%, transparent); }
+.cal-chip.habit { background: color-mix(in srgb, var(--cal-habit) 15%, transparent); }
 .cal-chip.done { opacity: 0.5; text-decoration: line-through; }
 .cal-chip .ci-em { flex: 0 0 auto; }
 .cal-chip .ci-tx { overflow: hidden; text-overflow: ellipsis; }
@@ -3464,6 +3470,19 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 .cal-arow-tx { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 14.5px; }
 .cal-arow-sub { font-size: 11.5px; color: rgba(var(--ink-rgb), 0.55); }
 .cal-arow-go { flex: 0 0 auto; color: var(--accent); font-size: 18px; }
+/* Calendar item TYPES — one colour + a text label per kind (fixed hues so they read on every theme) */
+:root { --cal-event: #4a86c9; --cal-session: #d18b2c; --cal-task: #4fa05e; --cal-routine: #8a6fc9; --cal-habit: #3fa79b; }
+.cal-type { flex: 0 0 auto; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; padding: 2px 7px; border-radius: 5px; }
+.cal-type[data-type="event"]   { background: color-mix(in srgb, var(--cal-event) 16%, transparent);   color: var(--cal-event); }
+.cal-type[data-type="session"] { background: color-mix(in srgb, var(--cal-session) 18%, transparent); color: var(--cal-session); }
+.cal-type[data-type="task"]    { background: color-mix(in srgb, var(--cal-task) 16%, transparent);    color: var(--cal-task); }
+.cal-type[data-type="routine"] { background: color-mix(in srgb, var(--cal-routine) 16%, transparent); color: var(--cal-routine); }
+.cal-type[data-type="habit"]   { background: color-mix(in srgb, var(--cal-habit) 16%, transparent);   color: var(--cal-habit); }
+.cal-arow[data-type="event"]   { box-shadow: inset 3px 0 0 var(--cal-event); }
+.cal-arow[data-type="session"] { box-shadow: inset 3px 0 0 var(--cal-session); }
+.cal-arow[data-type="task"]    { box-shadow: inset 3px 0 0 var(--cal-task); }
+.cal-arow[data-type="routine"] { box-shadow: inset 3px 0 0 var(--cal-routine); }
+.cal-arow[data-type="habit"]   { box-shadow: inset 3px 0 0 var(--cal-habit); }
 .cal-empty { padding: 40px 16px; text-align: center; }
 /* check a task off in place (day + week agendas) — a 40px tap target around a 22px circle */
 .cal-check { position: relative; width: 40px; height: 40px; min-width: 40px; border: none; background: none; cursor: pointer; flex: 0 0 auto; padding: 0; }
