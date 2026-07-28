@@ -16,7 +16,10 @@
   --accent: #c9542e;
   --edge: rgba(var(--ink-rgb), 0.30);
   --edge-soft: rgba(var(--ink-rgb), 0.14);
+  --board-glow: 130, 195, 240;   /* the colour of the living-water light that follows the pointer */
 }
+/* the living-water background canvas — sits BEHIND every widget, never eats a click */
+#ambientFx { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
 :root[data-theme="dark"] {        /* BEAST MODE — fully red, feral */
   --ink-rgb: 255, 211, 206;              /* light warm-red text */
   --paper: #1c0307;                      /* deep blood red */
@@ -86,6 +89,7 @@
   --paper: #cbddf1;                 /* soft water blue — the board */
   --panel: #dbe8f7;                 /* shallow water — inputs / inner surfaces */
   --widget-bg: #f3f9ff;             /* brighter surface cards — lifted toward white but still clearly blue */
+  --board-glow: 96, 168, 236;       /* day-water light — a soft blue that reads on the pale board */
   --accent: rgb(var(--ink-rgb));    /* buttons + accents = the deep blue ink */
   --edge: rgba(var(--ink-rgb), 0.20);        /* blue hairline that draws every widget/input */
   --edge-soft: rgba(var(--ink-rgb), 0.11);   /* internal dividers (title-bar underline, rows) */
@@ -96,6 +100,7 @@
     --paper: #07161f;              /* deep ocean */
     --panel: #0d232c;
     --widget-bg: #0f2831;          /* cards lifted a clear step off the deep water */
+    --board-glow: 78, 196, 224;    /* deep-water bioluminescence */
   }
 }
 :root[data-theme="mono"][data-monomode="dark"] {   /* DARK forced — deep water regardless of system */
@@ -103,6 +108,7 @@
   --paper: #07161f;
   --panel: #0d232c;
   --widget-bg: #0f2831;
+  --board-glow: 78, 196, 224;
 }
 :root[data-theme="mono"] body { background-image: none; }   /* drop the dotted paper texture — calmer, flatter, more minimal */
 html { background: var(--paper); }

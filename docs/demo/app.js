@@ -5667,6 +5667,74 @@ function spinDockTriad() {   // the little ceremony on tap — spin the three do
     { duration: 780, easing: "cubic-bezier(0.2, 0.72, 0.3, 1)" }
   );
 }
+
+// ── Living water background ──────────────────────────────────────────────────
+//    A calm, nourishing board backdrop: a soft POOL of light follows the pointer, and a gentle
+//    RIPPLE blooms where you tap the open water. A screen-space canvas that sits BEHIND every widget
+//    and never eats a click. Deliberately lightweight — the render loop SLEEPS the moment the light
+//    has settled and no ripple is live, and wakes on the next move/tap. Fully off under reduce-motion,
+//    and skippable with localStorage money.waterfx = "0". Colour = the theme's --board-glow.
+function initAmbientBackground() {
+  try { if (localStorage.getItem("money.waterfx") === "0") return; } catch (e) {}
+  if (typeof reduceMotion === "function" && reduceMotion()) return;
+  if (!document.body) return;
+  let cv = document.getElementById("ambientFx");
+  if (!cv) {
+    cv = document.createElement("canvas");
+    cv.id = "ambientFx"; cv.setAttribute("aria-hidden", "true");
+    document.body.insertBefore(cv, document.body.firstChild);   // first child → paints behind the board + widgets
+  }
+  const ctx = cv.getContext("2d");
+  if (!ctx) return;
+  const DPR = Math.min(2, window.devicePixelRatio || 1);
+  const nowMs = () => (window.performance && performance.now()) || Date.now();
+  let W = 0, H = 0;
+  let tx = window.innerWidth / 2, ty = window.innerHeight / 2, px = tx, py = ty;
+  const ripples = [];
+  let running = false, lastMove = 0;
+  const glow = () => (getComputedStyle(document.documentElement).getPropertyValue("--board-glow").trim() || "130,195,240");
+  function size() {
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + "px"; cv.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  function wake() {
+    if (typeof reduceMotion === "function" && reduceMotion()) return;
+    lastMove = nowMs();
+    if (!running) { running = true; requestAnimationFrame(frame); }
+  }
+  function frame() {
+    if (typeof reduceMotion === "function" && reduceMotion()) { ctx.clearRect(0, 0, W, H); running = false; return; }
+    const c = glow();
+    ctx.clearRect(0, 0, W, H);
+    px += (tx - px) * 0.10; py += (ty - py) * 0.10;
+    const R = 300;
+    const g = ctx.createRadialGradient(px, py, 0, px, py, R);
+    g.addColorStop(0, "rgba(" + c + ",0.16)"); g.addColorStop(1, "rgba(" + c + ",0)");
+    ctx.fillStyle = g; ctx.fillRect(px - R, py - R, R * 2, R * 2);
+    const now = nowMs();
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const rp = ripples[i], age = (now - rp.t0) / 1150;
+      if (age >= 1) { ripples.splice(i, 1); continue; }
+      const rad = 14 + age * Math.max(W, H) * 0.42;
+      ctx.beginPath(); ctx.arc(rp.x, rp.y, rad, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(" + c + "," + (0.45 * (1 - age)) + ")"; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    if (Math.abs(tx - px) < 0.5 && Math.abs(ty - py) < 0.5 && ripples.length === 0 && now - lastMove > 1400) { running = false; return; }
+    requestAnimationFrame(frame);
+  }
+  size();
+  window.addEventListener("resize", () => { size(); wake(); });
+  window.addEventListener("pointermove", (e) => { tx = e.clientX; ty = e.clientY; wake(); }, { passive: true });
+  window.addEventListener("pointerdown", (e) => {
+    tx = e.clientX; ty = e.clientY;
+    // ripple only on the OPEN water — never when tapping a widget, the dock, a control or a surface
+    const onChrome = e.target && e.target.closest &&
+      e.target.closest(".widget, .dock, .sidebar, .stats-bar, button, input, textarea, select, a, .sticker, .cat-modal, .daily-space, .acct-menu");
+    if (!onChrome) ripples.push({ x: e.clientX, y: e.clientY, t0: nowMs() });
+    wake();
+  }, { passive: true });
+}
 // ── The connection panel — tap the cloud dot and see, in one honest place, whether your
 //    three lifelines are healthy: cloud sync, your bank (SimpleFIN), and (on desktop) the
 //    local cache server. Each row is a colour+SHAPE light (never colour alone — mono theme
@@ -13990,6 +14058,7 @@ function openClockSettings(anchor) {
     // still see their lifelines and find sign-in (the exact discoverability wall a tester hit).
     cloud.addEventListener("click", () => { spinDockTriad(); openAccountMenu(cloud); });
     try { paintDockConn(); } catch (e) {}   // populate the triad's bank + server dots on load
+    try { initAmbientBackground(); } catch (e) {}   // the living-water board backdrop
     // desktop: one connect-status read so the bank dot isn't stuck on "checking" until the panel opens
     if (!window.__CACHE_WEB__ && !window.__CACHE_DEMO__) {
       fetch("/api/connect-status").then((r) => (r.ok ? r.json() : null))
