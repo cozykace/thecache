@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-28-honest-burn",
+    "date": "2026-07-28",
+    "title": "Your burn rate tells the truth now",
+    "body": "Moving money between your own accounts — and paying your credit card — is not spending, and the app now agrees everywhere. Before this, the board's headline numbers (burn per day, spending total, the trend, Safe to spend) quietly counted your own transfers as money spent, which could inflate them badly if you move money around a lot. And hand-categorizing a transaction as a transfer removed it from the category list but left the totals stale until your next bank sync. One rule now, on every path and every device: money leaving your life counts, money moving between your own pockets never does — with the excluded amount shown honestly as a footnote in Where it's going."
+  },
+  {
     "id": "2026-07-28-beta-bug-sweep",
     "date": "2026-07-28",
     "title": "Your bug reports, squashed — bucket on phones, saner sessions, chimes that chime",
