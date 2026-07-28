@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-28-beta-bug-sweep",
+    "date": "2026-07-28",
+    "title": "Your bug reports, squashed — bucket on phones, saner sessions, chimes that chime",
+    "body": "A whole pass driven by beta reports (thank you — every one earned its keep). Brain Bucket now works on your phone: it used to live only on the desktop server, so the web app couldn't store a thought — now it lives in your synced, encrypted cache on every device, and your existing items migrate in on their own. Sessions grew up: the screen stops jumping to the top on every tap, it says which day you're logging, and stats + minutes belong to the day you tapped on the calendar — so the calendar row and the open session finally tell the same story. Ending or skipping a work block early now banks the minutes you actually put in. The work/rest chime rings on iPhones again (iOS quietly mutes audio when an app backgrounds; we now wake it first). Friend requests you've already seen stop lighting up the message badge. And tapping a text box on your phone no longer zooms the whole page."
+  },
+  {
     "id": "2026-07-25-ui-polish",
     "date": "2026-07-25",
     "title": "Colour-coded calendar, softer board, clearer names",

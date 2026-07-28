@@ -301,6 +301,7 @@ The insight Cache exists to produce: your executive-function energy varies day t
 - [x] Commit income tagger + SOPs to git — pushed to github.com/cozykace/thecache (data stays gitignored) (2026-06-23)
 
 ## Shipped
+- [x] **Beta bug sweep from the feedback inbox** (2026-07-28) — Brain Bucket rebuilt onto the synced cache so it finally works on phones/web (was server-only; desktop items migrate in automatically, deterministic ids so devices can't fork) · Sessions: no more jump-to-top on every tap, the surface names the day you're logging, and stats + minutes belong to the day you tapped (calendar row and session agree now) · ending/skipping a work block early banks the real minutes · the work/rest chime rings after iOS suspends audio · friend requests you've seen stop badging · tapping a text box on iPhone no longer zooms the page
 - [x] Fix: your other devices could throw a surprise "you reset your password!" celebration — the one-shot reset flag synced through the vault instead of staying on the device that actually did the reset (2026-07-28)
 - [x] Fix: the living-water board background was wired to the cloud status chip, so it vanished entirely on any build without it — and once you turned motion back on it never came back without a reload (2026-07-28)
 - [x] Fix: in the demo, the dock's bank dot stayed grey while the connection panel right below it said "connected" (2026-07-28)
