@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-28-category-rules-survive",
+    "date": "2026-07-28",
+    "title": "Your categories survive the bank changing its mind",
+    "body": "Banks quietly reformat transaction descriptions — a Zelle payment gets masked, fields get shuffled — and when that happened, a category you'd taught the app could silently stop applying. One month your rent is there, the next it's gone from the picture entirely, and nothing told you. Now the app matches on the part that never changes — the actual merchant words — with the throwaway reference codes stripped out. Every category you've already taught keeps working exactly as before; this only catches the ones a format change would have dropped. One more brick in making the numbers trustworthy enough to run your life on."
+  },
+  {
     "id": "2026-07-28-web-categorize",
     "date": "2026-07-28",
     "title": "Categorize your money right from your phone",
