@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-28-web-categorize",
+    "date": "2026-07-28",
+    "title": "Categorize your money right from your phone",
+    "body": "The web app can finally do the money-sorting work itself. If you use the Cache in a browser (or on your phone's home screen), the categorize tools used to say 'no data — sync first' even with your bank connected, and every tag was desktop-only. Now the merchant and deposit lists come straight from your own encrypted cache, and tagging works right there: assign categories in Money Map, define what counts as income in What makes money, and watch the numbers recompute on the spot. Your tags seal into your encrypted vault and sync to every device — and if you tag the same thing on two devices, the newest edit wins cleanly."
+  },
+  {
     "id": "2026-07-28-honest-burn",
     "date": "2026-07-28",
     "title": "Your burn rate tells the truth now",
