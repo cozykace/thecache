@@ -23,6 +23,15 @@
 }
 /* the living-water background canvas — sits BEHIND every widget, never eats a click */
 #ambientFx { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+
+/* iOS auto-zooms the whole page when a focused input's font-size is under 16px — the "tapping
+   the report box zooms the UI slightly" bug. On touch devices every text input renders ≥16px;
+   desktop keeps each control's designed size. (Mobile SOP: thumb-friendly inputs.) */
+@media (hover: none) and (pointer: coarse) {
+  input[type="text"], input[type="number"], input[type="email"], input[type="password"],
+  input[type="search"], input[type="url"], input[type="date"], input[type="time"],
+  input:not([type]), textarea, select { font-size: 16px; }
+}
 :root[data-theme="dark"] {        /* BEAST MODE — fully red, feral */
   --ink-rgb: 255, 211, 206;              /* light warm-red text */
   --paper: #1c0307;                      /* deep blood red */
