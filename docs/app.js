@@ -13932,7 +13932,7 @@ const DOCK_DEFS = [
   { id: "daily", label: "The deck (daily check-in)" },
   { id: "cal", label: "Calendar" },
   { id: "base", label: "The Base" },
-  { id: "ledger", label: "Visit your cache" },
+  { id: "ledger", label: "Visualizer" },
   { id: "status", label: "Status" },
   { id: "soundtrack", label: "Soundtrack" },
   { id: "roadmap", label: "Roadmap" },
