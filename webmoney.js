@@ -162,15 +162,39 @@
     while (remap && Object.prototype.hasOwnProperty.call(remap, cat) && seen < 12) { cat = remap[cat]; seen++; }
     return cat;
   }
+  // the rot-proof matching form (mirror store._norm_match): drop reference-code tokens,
+  // then _clean to merchant words — two bank formats of the SAME counterparty normalize alike
+  function _normMatch(s) {
+    var toks = (s || "").toLowerCase().split(/\s+/).filter(function (t) { return t && !_isRefcode(t); });
+    return _clean(toks.join(" "));
+  }
+  var _NORMKEY_MEMO = Object.create(null);   // override-key → normalized words (categorize runs per-txn in hot loops; null-proto so a key named "constructor" can't poison it)
+
   function categorize(desc, overrides, remap) {
     var d = (desc || "").toLowerCase();
     var cat = "other", matched = false, k;
     if (overrides) {
       var subs = Object.keys(overrides);
+      // pass 1 — RAW substring match (legacy keys keep working forever, byte-for-byte)
       for (var si = 0; si < subs.length; si++) {
         var sub = subs[si];
         var words = sub.split(/\s+/).filter(function (w) { return w.length >= 3; });
         if (words.length && words.every(function (w) { return d.indexOf(w) !== -1; })) { cat = overrides[sub]; matched = true; break; }
+      }
+      if (!matched) {
+        // pass 2 — NORMALIZED fallback (Money Truth Brick 2; mirror store.categorize):
+        // survives the bank reformatting descriptions mid-year. Read-time only.
+        var dn = _normMatch(d);
+        if (dn) {
+          for (var ni = 0; ni < subs.length; ni++) {
+            var sub2 = subs[ni];
+            var key = _NORMKEY_MEMO[sub2];
+            if (key === undefined) {
+              key = _NORMKEY_MEMO[sub2] = _normMatch(sub2).split(" ").filter(function (w) { return w.length >= 3; });
+            }
+            if (key.length && key.every(function (w) { return dn.indexOf(w) !== -1; })) { cat = overrides[sub2]; matched = true; break; }
+          }
+        }
       }
     }
     if (!matched) {

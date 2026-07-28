@@ -606,16 +606,46 @@ INCOME_HINTS = ("instacart", "shipt", "dasher", "doordash", "payroll",
                 "direct dep", "gusto", "deel", "adp ")
 
 
+def _norm_match(s):
+    """The rot-proof matching form of a description or override key: drop reference-code
+    tokens (digits / gibberish the bank rotates per-txn or per-format), then _clean the
+    rest down to merchant words. Two formats of the SAME counterparty normalize alike."""
+    toks = [t for t in (s or "").lower().split() if not _is_refcode(t)]
+    return _clean(" ".join(toks))
+
+
+_NORMKEY_MEMO = {}   # override-key string → tuple of normalized words (categorize runs per-txn in hot loops)
+
+
 def categorize(desc, overrides=None, remap=None):
     d = (desc or "").lower()
     cat = "other"
     matched = False
     if overrides:
+        # pass 1 — RAW substring match. Legacy keys keep working forever, byte-for-byte
+        # (the migration rule: never rewrite, never break what already matches).
         for sub, c in overrides.items():
             words = [w for w in sub.split() if len(w) >= 3]
             if words and all(w in d for w in words):
                 cat, matched = c, True
                 break
+        if not matched:
+            # pass 2 — NORMALIZED fallback (Money Truth Brick 2). When the bank reformats a
+            # description mid-year (masked Zelle, reshuffled fields), a raw key that embedded a
+            # reference code stops matching and the txn silently falls to the auto rules — the
+            # founder's rent vanished from a whole month this way. Compare refcode-stripped,
+            # cleaned KEY words against the refcode-stripped, cleaned DESCRIPTION instead: the
+            # merchant words survive any format the bank invents. Read-time only — the stored
+            # key is never rewritten, so old vaults/maps merge unchanged.
+            dn = _norm_match(d)
+            if dn:
+                for sub, c in overrides.items():
+                    key = _NORMKEY_MEMO.get(sub)
+                    if key is None:
+                        key = _NORMKEY_MEMO[sub] = tuple(w for w in _norm_match(sub).split() if len(w) >= 3)
+                    if key and all(w in dn for w in key):
+                        cat, matched = c, True
+                        break
     if not matched:
         for c, keys in CATEGORY_RULES:
             if any(k in d for k in keys):
