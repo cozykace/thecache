@@ -4441,7 +4441,7 @@ async function cloudFindVaultId(s) {
 //              a fresher edit and the web app can't blind-adopt on every unlock.
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
-const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.simplefin", "money.sessionRun"];   // + sessionRun (which session the timer is focused on — a per-device runtime pointer, like timerRun; never rides the vault, so a running session-timer can't jump devices)   // + deckDay (calendar) + dms (messages cache) + simplefin (the browser bank credential — a bearer secret; DEVICE-LOCAL so it never rides the vault, same as the desktop's chmod-600 .simplefin file; see WIKI 2026-07-24-bank-credential-device-only)
+const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.simplefin", "money.sessionRun", "money.justReset", "money.waterfx"];   // + justReset (a ONE-SHOT password-reset confetti flag, consumed on the next login — as a generic key it rode the vault and threw a "you reset your password!" party on devices that never reset anything) + waterfx (the living-water background opt-out — a per-device rendering choice, like dockMobile: a low-power phone can turn it off without darkening the desktop)   // + sessionRun (which session the timer is focused on — a per-device runtime pointer, like timerRun; never rides the vault, so a running session-timer can't jump devices)   // + deckDay (calendar) + dms (messages cache) + simplefin (the browser bank credential — a bearer secret; DEVICE-LOCAL so it never rides the vault, same as the desktop's chmod-600 .simplefin file; see WIKI 2026-07-24-bank-credential-device-only)
 const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs", "money.bugCredits"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state) + bugCredits (union by report id, like badges)
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
@@ -5674,10 +5674,13 @@ function spinDockTriad() {   // the little ceremony on tap — spin the three do
 //    and never eats a click. Deliberately lightweight — the render loop SLEEPS the moment the light
 //    has settled and no ripple is live, and wakes on the next move/tap. Fully off under reduce-motion,
 //    and skippable with localStorage money.waterfx = "0". Colour = the theme's --board-glow.
+let _ambientInit = false;
 function initAmbientBackground() {
+  if (_ambientInit) return;   // idempotent — re-called when motion is turned back on; must not stack listeners
   try { if (localStorage.getItem("money.waterfx") === "0") return; } catch (e) {}
   if (typeof reduceMotion === "function" && reduceMotion()) return;
   if (!document.body) return;
+  _ambientInit = true;
   let cv = document.getElementById("ambientFx");
   if (!cv) {
     cv = document.createElement("canvas");
@@ -6353,6 +6356,9 @@ function applyA11y() {
   r.setAttribute("data-contrast", a11yGet("contrast"));
   r.setAttribute("data-text", a11yGet("text"));
   r.setAttribute("data-cb", a11yGet("colorblind") === "on" ? "1" : "0");
+  // Turning motion back ON should restore the living-water background without a reload. (It bails
+  // out early when motion is reduced, so it never got built — and nothing re-ran it afterwards.)
+  try { if (!reduceMotion() && typeof initAmbientBackground === "function") initAmbientBackground(); } catch (e) {}
 }
 function colorBlindMode() { return document.documentElement.getAttribute("data-cb") === "1"; }
 applyA11y();
@@ -14088,9 +14094,10 @@ function openClockSettings(anchor) {
     // still see their lifelines and find sign-in (the exact discoverability wall a tester hit).
     cloud.addEventListener("click", () => { spinDockTriad(); openAccountMenu(cloud); });
     try { paintDockConn(); } catch (e) {}   // populate the triad's bank + server dots on load
-    try { initAmbientBackground(); } catch (e) {}   // the living-water board backdrop
-    // desktop: one connect-status read so the bank dot isn't stuck on "checking" until the panel opens
-    if (!window.__CACHE_WEB__ && !window.__CACHE_DEMO__) {
+    // one connect-status read so the bank dot isn't stuck muted until the panel is opened. Matches
+    // openAccountMenu's own rule: only the hosted web app skips it (there sfHasCred() is synchronous
+    // and authoritative) — the demo DOES fetch, because demo-data.js intercepts the route.
+    if (!window.__CACHE_WEB__) {
       fetch("/api/connect-status").then((r) => (r.ok ? r.json() : null))
         .then((d) => { _bankConn = !!(d && d.connected); paintDockConn(); }).catch(() => {});
     }
@@ -14109,6 +14116,10 @@ function openClockSettings(anchor) {
   }
   const oldBar = document.querySelector(".status-bar");
   if (oldBar) oldBar.remove();
+
+  // the living-water board backdrop — independent of the dock's cloud chip (it used to be nested
+  // inside `if (cloud)`, so a build without that chip lost the background entirely)
+  try { initAmbientBackground(); } catch (e) {}
 
   applyDockConfig(dock);
   updateViewToggle();  // set the toggle icon (grid = Widgets on load) + the dock view name
