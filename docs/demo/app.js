@@ -7441,32 +7441,47 @@ function openIncomeTagger(onDone) {
 }
 
 // ── Single-instance widgets (the Widget Library) ───────────
+// The widget library, grouped so a 25-item wall reads as a few short, scannable lists instead
+// of one long scroll (executive-function first: less to hold in your head at once). `cat` keys
+// into LIB_CATS below; a widget with no cat falls into "everyday" so a new one can never vanish.
+const LIB_CATS = [
+  { key: "money",    label: "Money" },
+  { key: "work",     label: "Work & time" },
+  { key: "focus",    label: "Focus & energy" },
+  { key: "everyday", label: "Everyday" },
+  { key: "cache",    label: "Your Cache" },
+];
 const LIBRARY = [
-  { type: "balance", title: "Total balance", w: 320, h: 190 },
-  { type: "income", title: "What makes money", w: 300, h: 240 },
-  { type: "plan", title: "Budget", w: 360, h: 360 },
-  { type: "whatsnext", title: "What’s next", w: 320, h: 256 },
-  { type: "gap", title: "The gap", w: 300, h: 230 },
-  { type: "coreflex", title: "Core vs flex", w: 300, h: 300 },
-  { type: "subscriptions", title: "Money Map", w: 320, h: 340 },
-  { type: "accountflow", title: "Money flow", w: 320, h: 380 },
-  { type: "incomeforecast", title: "Income forecast", w: 340, h: 340 },
-  { type: "work", title: "Work planner", w: 300, h: 210 },
-  { type: "averages", title: "Statistics", w: 330, h: 300 },
-  { type: "devtree", title: "Dev Tree", w: 340, h: 380 },
-  { type: "worklog", title: "Time worked", w: 300, h: 270 },
-  { type: "energy", title: "Energy", w: 300, h: 230 },
-  { type: "timer", title: "Work / rest timer", w: 300, h: 300 },
-  { type: "bucket", title: "Brain Bucket", w: 300, h: 300 },
-  { type: "tasks", title: "Tasks", w: 300, h: 340 },
-  { type: "projects", title: "Projects", w: 300, h: 340 },
-  { type: "forms", title: "Forms", w: 300, h: 320 },
-  { type: "safe", title: "Safe to spend", w: 300, h: 220 },
-  { type: "breakdown", title: "Where it’s going", w: 300, h: 280 },
-  { type: "months", title: "Months", w: 320, h: 340 },
-  { type: "clock", title: "Local time", w: 260, h: 160 },
-  { type: "date", title: "Today", w: 220, h: 150 },
-  { type: "note", title: "Post-it note", w: 280, h: 200 },
+  // ── Money ──
+  { type: "balance", title: "Total balance", w: 320, h: 190, cat: "money" },
+  { type: "safe", title: "Safe to spend", w: 300, h: 220, cat: "money" },
+  { type: "gap", title: "The gap", w: 300, h: 230, cat: "money" },
+  { type: "plan", title: "Budget", w: 360, h: 360, cat: "money" },
+  { type: "whatsnext", title: "What’s next", w: 320, h: 256, cat: "money" },
+  { type: "breakdown", title: "Where it’s going", w: 300, h: 280, cat: "money" },
+  { type: "coreflex", title: "Core vs flex", w: 300, h: 300, cat: "money" },
+  { type: "income", title: "What makes money", w: 300, h: 240, cat: "money" },
+  { type: "incomeforecast", title: "Income forecast", w: 340, h: 340, cat: "money" },
+  { type: "subscriptions", title: "Money Map", w: 320, h: 340, cat: "money" },
+  { type: "accountflow", title: "Money flow", w: 320, h: 380, cat: "money" },
+  { type: "months", title: "Months", w: 320, h: 340, cat: "money" },
+  { type: "averages", title: "Statistics", w: 330, h: 300, cat: "money" },
+  // ── Work & time ──
+  { type: "work", title: "Work planner", w: 300, h: 210, cat: "work" },
+  { type: "worklog", title: "Time worked", w: 300, h: 270, cat: "work" },
+  { type: "timer", title: "Work / rest timer", w: 300, h: 300, cat: "work" },
+  // ── Focus & energy ──
+  { type: "tasks", title: "Tasks", w: 300, h: 340, cat: "focus" },
+  { type: "projects", title: "Projects", w: 300, h: 340, cat: "focus" },
+  { type: "bucket", title: "Brain Bucket", w: 300, h: 300, cat: "focus" },
+  { type: "forms", title: "Forms", w: 300, h: 320, cat: "focus" },
+  { type: "energy", title: "Energy", w: 300, h: 230, cat: "focus" },
+  // ── Everyday ──
+  { type: "clock", title: "Local time", w: 260, h: 160, cat: "everyday" },
+  { type: "date", title: "Today", w: 220, h: 150, cat: "everyday" },
+  { type: "note", title: "Post-it note", w: 280, h: 200, cat: "everyday" },
+  // ── Your Cache ──
+  { type: "devtree", title: "Dev Tree", w: 340, h: 380, cat: "cache" },
 ];
 const libByType = Object.fromEntries(LIBRARY.map((l) => [l.type, l]));
 
@@ -8123,10 +8138,9 @@ function autoPinOn() { return localStorage.getItem(AUTOPIN_KEY) !== "0"; }  // d
 function renderLibrary() {
   library.innerHTML = "";
   const f = favs();
-  const defs = LIBRARY.slice();
-  if (autoPinOn()) defs.sort((a, b) => (f.has("widget:" + b.type) ? 1 : 0) - (f.has("widget:" + a.type) ? 1 : 0));
-  defs.forEach((def) => {
-    const on = !!layout[def.type], fav = f.has("widget:" + def.type);
+  const isFav = (d) => f.has("widget:" + d.type);
+  const row = (def) => {
+    const on = !!layout[def.type], fav = isFav(def);
     const item = document.createElement("button");
     item.className = "lib-item" + (on ? " active" : "") + (fav ? " fav" : "");
     item.innerHTML =
@@ -8135,8 +8149,24 @@ function renderLibrary() {
       '<span class="lib-state">' + (on ? "on" : "add") + "</span>";
     item.querySelector(".lib-star").addEventListener("click", (e) => { e.stopPropagation(); toggleFav("widget:" + def.type); renderLibrary(); });
     item.addEventListener("click", () => (on ? removeWidget(def.type) : addSingleton(def.type)));
-    library.appendChild(item);
-  });
+    return item;
+  };
+  const section = (label, defs) => {
+    if (!defs.length) return;                     // never print an empty heading
+    const h = document.createElement("div");
+    h.className = "lib-cat"; h.textContent = label;
+    library.appendChild(h);
+    defs.forEach((d) => library.appendChild(row(d)));
+  };
+  // Starred widgets lift OUT of their category into one pinned group at the top (the long-standing
+  // auto-pin behaviour), so a favourite is never listed twice. Off → everything sits in its category.
+  const pinned = autoPinOn() ? LIBRARY.filter(isFav) : [];
+  const rest = LIBRARY.filter((d) => !pinned.includes(d));
+  section("★ Favorites", pinned);
+  LIB_CATS.forEach((c) => section(c.label, rest.filter((d) => (d.cat || "everyday") === c.key)));
+  // safety net: a widget whose cat doesn't match any category still shows up rather than vanishing
+  const known = LIB_CATS.map((c) => c.key);
+  section("More", rest.filter((d) => !known.includes(d.cat || "everyday")));
 }
 
 // ── Sidebar: icon library ──────────────────────────────────

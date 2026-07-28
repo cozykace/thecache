@@ -134,7 +134,7 @@ body {
    labels, section headers, and the numeric readouts (monospace keeps digits
    tabular/aligned). If a new widget adds a label that should be mono, add its
    class here. Purely presentational — nothing reads data. */
-.dock-label, .stat-label, .stat-tile-lbl, .widget-title, .section-title, .cp-title,
+.dock-label, .stat-label, .stat-tile-lbl, .widget-title, .section-title, .lib-cat, .cp-title,
 .base-eyebrow, .lg-eyebrow, .bal-head, .bal-total-label, .bal-line-label, .avg-label,
 .bd-head, .bg-sec, .bs-head, .bs-sec, .bs-title, .cal-inf-sec, .cal-title, .cal-wday-head,
 .cat-head, .char-sec, .deck-ci-head, .deck-ci-label, .deck-ci-sec, .deck-sec, .deck-title,
@@ -1877,6 +1877,14 @@ body.sidebar-open .sidebar { transform: none; }
 .section-body-inner { overflow: hidden; min-height: 0; }
 
 .library { display: flex; flex-direction: column; gap: 6px; }
+/* widget-library category heading — a quieter sibling of .section-title, so the groups read as
+   dividers inside the list rather than competing with the panel's own header */
+.lib-cat {
+  text-transform: uppercase; letter-spacing: 0.16em; font-size: 9px;
+  color: rgba(var(--ink-rgb), 0.38);
+  margin: 6px 0 1px; padding-left: 2px;
+}
+.lib-cat:first-child { margin-top: 0; }
 .lib-item {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 11px; border: 1px solid transparent; border-radius: 10px;
