@@ -1722,10 +1722,35 @@ def period_summary(kind="mtd", ym=None, now=None, start_d=None, end_d=None):
     }
 
 
+def is_interest_txn(desc, amt):
+    """A charge that is INTEREST (the cost of carrying debt) — outgoing only, so a
+    savings account's 'interest paid to you' (a positive amount) never counts.
+    Deterministic keyword detection; the Debt widget reads what this finds."""
+    if not (amt < 0):
+        return False
+    d = (desc or "").lower()
+    return "interest" in d
+
+
+def is_card_payment_txn(desc, amt):
+    """An outgoing CARD PAYMENT (money moving to a card issuer from the checking side) —
+    the phrases banks actually print, mirroring the transfer rule's card-payment keys.
+    Used for the payments-vs-interest pace; deliberately conservative (a missed payment
+    understates the pace and shows a LATER payoff date — honest in the safe direction)."""
+    if not (amt < 0):
+        return False
+    d = (desc or "").lower()
+    return any(k in d for k in ("card payment", "credit card payment", "crd autopay",
+                                "card autopay", "payment thank you", "epayment", "e-payment",
+                                "credit crd", "cardmember"))
+
+
 def monthly_history(limit=24):
     """Bucket the full permanent ledger by calendar month — income, spending
     (transfers excluded), net, and category split. Powers the Months view so
-    you can see every backlogged month, not just the last 30 days."""
+    you can see every backlogged month, not just the last 30 days. Also carries
+    per-month `interest` (what debt cost) + `ccpay` (card payments made) for the
+    Debt widget — both ride monthly.json so every surface reads one truth."""
     led = load_ledger()
     txns = list(led.values()) if isinstance(led, dict) else []
     overrides = load_overrides()
@@ -1739,11 +1764,15 @@ def monthly_history(limit=24):
         m = months.get(ym)
         if m is None:
             m = months[ym] = {"income": 0.0, "spending": 0.0, "cats": {}, "count": 0,
-                              "live": 0, "imported": 0}
+                              "live": 0, "imported": 0, "interest": 0.0, "ccpay": 0.0}
         m["count"] += 1
         m["imported" if str(t.get("id", "")).startswith("csv:") else "live"] += 1
         amt = t.get("amount", 0) or 0
         desc = t.get("description", "")
+        if is_interest_txn(desc, amt):
+            m["interest"] += -amt
+        if is_card_payment_txn(desc, amt):
+            m["ccpay"] += -amt
         if amt < 0:
             c = categorize(desc, overrides)
             if c != "transfer":
@@ -1767,6 +1796,8 @@ def monthly_history(limit=24):
             "live": m["live"],
             "imported": m["imported"],
             "categories": cats,
+            "interest": round(m["interest"], 2),   # what carrying debt cost this month (Debt widget)
+            "ccpay": round(m["ccpay"], 2),         # card payments made this month (pace for the payoff ETA)
         })
     rows.sort(key=lambda r: r["ym"], reverse=True)
     return rows[:limit]

@@ -466,6 +466,11 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   padding: clamp(10px, 4cqmin, 16px) clamp(14px, 5cqmin, 20px);
 }
 .is-months .bd-head { padding: 0 2px; }
+/* Debt cost — the pace line is the widget's point: readable, calm, room to breathe */
+.widget-body.is-debt { display: flex; flex-direction: column; align-items: stretch; text-align: left;
+  padding: clamp(10px, 4cqmin, 16px) clamp(14px, 5cqmin, 20px); }
+.is-debt .dbt-pace { margin-top: auto; font-size: clamp(12px, 5cqmin, 13.5px); line-height: 1.5;
+  color: rgba(var(--ink-rgb), 0.75); padding-top: 8px; border-top: 1px solid var(--edge-soft); }
 .is-months .mo-list,
 .is-months .mo-row,
 .is-months .mo-top,

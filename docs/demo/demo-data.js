@@ -110,12 +110,12 @@
   var monthly = {
     updated: iso,
     months: [
-      { ym: "2026-01", label: "Jan", income: 2800, spending: 2100, net: 700,  count: 128, live: 128, imported: 0, categories: [{ key: "groceries", amount: 560 }, { key: "dining", amount: 320 }, { key: "gas", amount: 230 }] },
-      { ym: "2026-02", label: "Feb", income: 2950, spending: 1980, net: 970,  count: 121, live: 121, imported: 0, categories: [{ key: "groceries", amount: 500 }, { key: "dining", amount: 260 }, { key: "gas", amount: 200 }] },
-      { ym: "2026-03", label: "Mar", income: 3100, spending: 2200, net: 900,  count: 139, live: 139, imported: 0, categories: [{ key: "groceries", amount: 590 }, { key: "dining", amount: 340 }, { key: "gas", amount: 220 }] },
-      { ym: "2026-04", label: "Apr", income: 3000, spending: 1850, net: 1150, count: 117, live: 117, imported: 0, categories: [{ key: "groceries", amount: 480 }, { key: "dining", amount: 240 }, { key: "gas", amount: 190 }] },
-      { ym: "2026-05", label: "May", income: 3300, spending: 2050, net: 1250, count: 134, live: 134, imported: 0, categories: [{ key: "groceries", amount: 540 }, { key: "dining", amount: 300 }, { key: "gas", amount: 215 }] },
-      { ym: "2026-06", label: "Jun", income: 3200, spending: 1951, net: 1249, count: 142, live: 142, imported: 0, categories: [{ key: "groceries", amount: 520 }, { key: "dining", amount: 290 }, { key: "gas", amount: 210 }] },
+      { ym: "2026-01", label: "Jan", income: 2800, spending: 2100, net: 700,  count: 128, live: 128, imported: 0, interest: 12.4, ccpay: 80,  categories: [{ key: "groceries", amount: 560 }, { key: "dining", amount: 320 }, { key: "gas", amount: 230 }] },
+      { ym: "2026-02", label: "Feb", income: 2950, spending: 1980, net: 970,  count: 121, live: 121, imported: 0, interest: 11.9, ccpay: 80,  categories: [{ key: "groceries", amount: 500 }, { key: "dining", amount: 260 }, { key: "gas", amount: 200 }] },
+      { ym: "2026-03", label: "Mar", income: 3100, spending: 2200, net: 900,  count: 139, live: 139, imported: 0, interest: 11.2, ccpay: 100, categories: [{ key: "groceries", amount: 590 }, { key: "dining", amount: 340 }, { key: "gas", amount: 220 }] },
+      { ym: "2026-04", label: "Apr", income: 3000, spending: 1850, net: 1150, count: 117, live: 117, imported: 0, interest: 10.6, ccpay: 100, categories: [{ key: "groceries", amount: 480 }, { key: "dining", amount: 240 }, { key: "gas", amount: 190 }] },
+      { ym: "2026-05", label: "May", income: 3300, spending: 2050, net: 1250, count: 134, live: 134, imported: 0, interest: 9.8,  ccpay: 120, categories: [{ key: "groceries", amount: 540 }, { key: "dining", amount: 300 }, { key: "gas", amount: 215 }] },
+      { ym: "2026-06", label: "Jun", income: 3200, spending: 1951, net: 1249, count: 142, live: 142, imported: 0, interest: 9.1,  ccpay: 120, categories: [{ key: "groceries", amount: 520 }, { key: "dining", amount: 290 }, { key: "gas", amount: 210 }] },
     ],
   };
 

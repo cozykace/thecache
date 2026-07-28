@@ -2766,6 +2766,92 @@ const RENDERERS = {
     }
     Store.subscribe(el, loadMonths);  // re-pulls month rollups whenever data changes
   },
+  debt(el) {
+    // Debt cost (Money Truth arc, Brick 3) — what carrying your cards actually costs, as a
+    // HEADLINE: interest this month, the monthly average, the balance, and — the motivating
+    // line — a payoff date at your current pace. Deterministic math from monthly.json's
+    // per-month interest/ccpay (store.monthly_history's detectors) + the negative account
+    // balances. Phrasing is information, never a failure (PRINCIPLES): the numbers inform,
+    // the pace line points forward, and $0 debt is a quiet win. Falls back to the 30-day
+    // transactions window when month rollups aren't here yet (web-only caches).
+    el.classList.add("is-breakdown", "is-debt");
+    el.innerHTML =
+      '<div class="bd-head">' +
+        '<div class="bd-top"><span class="fc-label">debt cost</span></div>' +
+        '<div class="big dbt-big">…</div>' +
+        '<div class="fc-sub dbt-sub"></div>' +
+      '</div>' +
+      '<div class="dbt-pace"></div>';
+    const big = el.querySelector(".dbt-big"), sub = el.querySelector(".dbt-sub"), pace = el.querySelector(".dbt-pace");
+    // the same deterministic detectors as store.is_interest_txn / is_card_payment_txn —
+    // only used by the 30-day fallback when monthly.json hasn't been computed yet
+    const isInt = (d, amt) => amt < 0 && (d || "").toLowerCase().indexOf("interest") !== -1;
+    const CCPAY_KEYS = ["card payment", "credit card payment", "crd autopay", "card autopay", "payment thank you", "epayment", "e-payment", "credit crd", "cardmember"];
+    const isPay = (d, amt) => { if (!(amt < 0)) return false; const s = (d || "").toLowerCase(); return CCPAY_KEYS.some((k) => s.indexOf(k) !== -1); };
+    function paint(interestNow, nowLabel, avgInt, avgPay, debt, haveMonths) {
+      big.textContent = fmtUSD(interestNow);
+      const bits = [];
+      if (nowLabel) bits.push(nowLabel);
+      if (haveMonths && avgInt > 0) bits.push("≈ " + fmtUSD(avgInt) + "/mo average");
+      if (debt > 0) bits.push("balance " + fmtUSD(debt));
+      sub.textContent = bits.join(" · ") || "—";
+      // the pace line — forward-looking, gentle, never a scold
+      if (debt <= 0 && interestNow <= 0) {
+        big.textContent = fmtUSD(0);
+        sub.textContent = "no card debt in sight";
+        pace.textContent = "nothing is feeding interest right now — quietly excellent.";
+        return;
+      }
+      if (debt > 0 && avgPay <= 0) { pace.textContent = "once card payments show up here, your payoff date appears."; return; }
+      const monthlyDown = avgPay - avgInt;
+      if (debt > 0 && monthlyDown <= 0) {
+        pace.textContent = "right now payments ≈ interest, so the balance holds steady — even a little more would start it shrinking.";
+        return;
+      }
+      if (debt > 0) {
+        const monthsLeft = debt / monthlyDown;
+        if (monthsLeft > 360) { pace.textContent = "at this pace: 30+ years — a small bump to payments changes this number a lot."; return; }
+        const eta = new Date(); eta.setMonth(eta.getMonth() + Math.ceil(monthsLeft));
+        const yrs = monthsLeft / 12;
+        const span = yrs >= 1 ? (Math.round(yrs * 10) / 10 + " years") : (Math.ceil(monthsLeft) + " months");
+        let line = "at this pace: paid off ~" + eta.toLocaleDateString("en-US", { month: "short", year: "numeric" }) + " (about " + span + ")";
+        if (avgInt > 0 && avgInt / avgPay >= 0.8) line += " · most of each payment is feeding interest right now";
+        pace.textContent = line;
+      } else {
+        pace.textContent = "";
+      }
+    }
+    function load() {
+      Promise.all([
+        fetch("data/balances.json?t=" + Date.now()).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+        fetch("data/monthly.json?t=" + Date.now()).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+        fetch("data/transactions.json?t=" + Date.now()).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      ]).then(([bal, mo, tj]) => {
+        const debt = -((bal.accounts || []).reduce((s, a) => s + Math.min(0, +a.balance || 0), 0));
+        const rows = (mo && mo.months) || [];
+        const curYm = new Date().toISOString().slice(0, 7);
+        const hasMonthly = rows.some((r) => r.interest !== undefined);
+        if (hasMonthly) {
+          const cur = rows.find((r) => r.ym === curYm);
+          let interestNow = cur ? (+cur.interest || 0) : 0, nowLabel = "this month";
+          if (!interestNow) { const lastWith = rows.find((r) => r.ym !== curYm && +r.interest > 0); if (lastWith) { interestNow = +lastWith.interest; nowLabel = lastWith.label; } }
+          const full = rows.filter((r) => r.ym !== curYm).slice(0, 6);
+          const n = full.length || 1;
+          const avgInt = full.reduce((s, r) => s + (+r.interest || 0), 0) / n;
+          const avgPay = full.reduce((s, r) => s + (+r.ccpay || 0), 0) / n;
+          paint(interestNow, nowLabel, avgInt, avgPay, debt, full.length > 0);
+        } else {
+          // month rollups not computed here (web-only cache) — approximate from the 30d window
+          const txns = (tj && tj.transactions) || [];
+          let wi = 0, wp = 0;
+          txns.forEach((t) => { const a = +t.amount || 0; if (isInt(t.description, a)) wi += -a; if (isPay(t.description, a)) wp += -a; });
+          paint(wi, "last 30 days", wi, wp, debt, wi > 0 || wp > 0);
+        }
+      });
+    }
+    load();
+    Store.subscribe(el, load);   // re-pull whenever money data moves (sync, categorize, import)
+  },
 };
 
 // ── In-app category editor (talks to the local backend) ────
@@ -7519,6 +7605,7 @@ const LIBRARY = [
   { type: "subscriptions", title: "Money Map", w: 320, h: 340, cat: "money" },
   { type: "accountflow", title: "Money flow", w: 320, h: 380, cat: "money" },
   { type: "months", title: "Months", w: 320, h: 340, cat: "money" },
+  { type: "debt", title: "Debt cost", w: 300, h: 220, cat: "money" },
   { type: "averages", title: "Statistics", w: 330, h: 300, cat: "money" },
   // ── Work & time ──
   { type: "work", title: "Work planner", w: 300, h: 210, cat: "work" },
@@ -7810,6 +7897,10 @@ const WIDGET_INFO = {
     "<p><b>Source:</b> your full ledger, bucketed by calendar month.</p>" +
     "<p><b>In</b> = income deposits that month · <b>Out</b> = spending (<b>transfers excluded</b>) · <b>Net</b> = In − Out.</p>" +
     "<p>Tap a month to see its category split.</p>",
+  debt:
+    "<p><b>What carrying your cards actually costs</b> — the headline is the interest you paid this month, with your monthly average and current balance beneath.</p>" +
+    "<p><b>The pace line</b> is the point: at your current payment pace, roughly when the balance reaches zero. It's computed from detected interest charges vs detected card payments in your ledger — deterministic math, no guessing.</p>" +
+    "<p>This is information, never a judgment: knowing the number is what changes it. Even a small bump above the interest line moves the payoff date a lot.</p>",
   accountflow:
     "<p><b>A map of where your money lives and moves.</b> Each box is a real account (live balance). <b>Checking sits up top</b> — that's where new money lands — then it cascades down to savings, other accounts, and cards.</p>" +
     "<p><b>money in</b> = your monthly income · <b>money out</b> = your monthly spending (the bubbles on those lines).</p>" +

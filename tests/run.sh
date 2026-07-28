@@ -39,7 +39,7 @@ for t in merge_test authored_test livelock_test profile_test profilecard_test ti
 done
 
 echo "── Python (backend merge engine) ──"
-for t in map_test roundtrip_test maptie_test restore_test rev_test catmeta_test tomb_test deck_parity checkinlog_test simplefin_test webmoney_parity burn_test catkey_test; do
+for t in map_test roundtrip_test maptie_test restore_test rev_test catmeta_test tomb_test deck_parity checkinlog_test simplefin_test webmoney_parity burn_test catkey_test debt_test; do
   run "$t" env PYTHONPATH="$PWD" python3 "tests/$t.py"
 done
 
