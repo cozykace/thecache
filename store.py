@@ -1087,6 +1087,7 @@ def build_snapshot(accounts, window_days=30, now=None, fetch_days=None, connecti
     mid = now - (window_days // 2) * 86400
     total = cash = outflow = recent = older = 0.0
     income_total = 0.0
+    xfer_total = 0.0   # excluded transfers — surfaced as a footnote figure, never spending
     cats = {}
     inc = {}
     untagged_inc = set()  # positive sources you haven't tagged income/ignore yet
@@ -1113,8 +1114,15 @@ def build_snapshot(accounts, window_days=30, now=None, fetch_days=None, connecti
                 continue  # kept in the ledger, but outside the summary window
             if amt < 0:
                 spend = -amt
-                outflow += spend
                 c = categorize(desc, overrides)
+                if c == "transfer":
+                    # moving your own money / paying a card is NOT spending — the swipe already
+                    # counted. Every other path (period_summary, Months, averages, statistics)
+                    # excluded transfers since 2026-06-22; the snapshot was the ONE leaky path,
+                    # so burn/day, spending.total, the trend and Safe-to-spend all ran ~hot.
+                    xfer_total += spend
+                    continue
+                outflow += spend
                 cats[c] = cats.get(c, 0.0) + spend
                 if posted >= mid:
                     recent += spend
@@ -1162,6 +1170,7 @@ def build_snapshot(accounts, window_days=30, now=None, fetch_days=None, connecti
             "per_day": round(outflow / window_days, 2),
             "trend_pct": trend,
             "categories": cats_list,
+            "transfers": round(xfer_total, 2),  # excluded from spending — footnote figure, same as period_summary
         },
         "income": {
             "window_days": window_days,
@@ -1481,6 +1490,39 @@ def recompute_spending():
     bal = _read(BALANCES, {})
     sp = bal.get("spending", {})
     sp["categories"] = categories_from_txns(txns, overrides)
+    # Recompute the TOTALS too, not just the category split. This used to leave total/per_day/
+    # burn_per_day at the last sync's numbers — so categorizing a txn as "transfer" removed it
+    # from the list while the burn stayed inflated until the next bank pull (the honest-burn bug's
+    # second path). Same rule as build_snapshot: transfers are never spending.
+    wd = sp.get("window_days") or bal.get("spend_window_days") or 30
+    now_ts = int(time.time())
+    mid_ts = now_ts - (wd // 2) * 86400
+    outflow = xfer_total = recent = older = 0.0
+    for t in txns:
+        try:
+            amt = float(t.get("amount", 0) or 0)
+            posted = int(t.get("posted", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if amt >= 0:
+            continue
+        spend = -amt
+        if categorize(t.get("description", ""), overrides) == "transfer":
+            xfer_total += spend
+            continue
+        outflow += spend
+        if posted >= mid_ts:
+            recent += spend
+        else:
+            older += spend
+    half = wd / 2.0
+    rd, od = recent / half, older / half
+    sp["total"] = round(outflow, 2)
+    sp["per_month"] = round(outflow / wd * 30, 2)
+    sp["per_day"] = round(outflow / wd, 2)
+    sp["trend_pct"] = round((rd - od) / od * 100) if od > 0 else None
+    sp["transfers"] = round(xfer_total, 2)
+    bal["burn_per_day"] = round(outflow / wd, 2)
     bal["spending"] = sp
     subs_items = subscription_items(txns, overrides)
     subs_total = round(sum(s["amount"] for s in subs_items), 2)

@@ -268,8 +268,8 @@
 
   // ── spending / income aggregates ─────────────────────────────────────────────
   // categories_from_txns (mirror store.categories_from_txns) — transfers EXCLUDED.
-  // (build_snapshot INCLUDES transfers in spending; recompute_spending / period_summary
-  // EXCLUDE them. This is an existing store.py distinction — both ported faithfully.)
+  // (Since the 2026-07-28 honest-burn fix, build_snapshot excludes them too — every
+  // spending path now agrees: transfers are never spending, surfaced as a footnote.)
   function categoriesFromTxns(txns, overrides, remap) {
     var cats = Object.create(null);   // null-proto: a category keyed "constructor" must aggregate, not read the inherited fn
     txns.forEach(function (t) {
@@ -362,7 +362,7 @@
     var fetchCutoff = now - fetchDays * 86400;
     var summaryCutoff = now - windowDays * 86400;
     var mid = now - Math.floor(windowDays / 2) * 86400;
-    var total = 0, cash = 0, outflow = 0, recent = 0, older = 0, incomeTotal = 0;
+    var total = 0, cash = 0, outflow = 0, recent = 0, older = 0, incomeTotal = 0, xferTotal = 0;
     var cats = Object.create(null), inc = Object.create(null), untaggedInc = Object.create(null);   // null-proto — user-derived keys (see categoriesFromTxns)
     var outAccounts = [], txns = [];
 
@@ -380,8 +380,9 @@
         if (posted < summaryCutoff) return;
         if (amt < 0) {
           var spend = -amt;
-          outflow += spend;
           var c = categorize(desc, overrides, remap);
+          if (c === "transfer") { xferTotal += spend; return; }   // your own money moving / a card payment — never spending (mirrors store.build_snapshot)
+          outflow += spend;
           cats[c] = (cats[c] || 0) + spend;
           if (posted >= mid) recent += spend; else older += spend;
         } else if (amt > 0) {
@@ -422,6 +423,7 @@
         per_day: round2(outflow / windowDays),
         trend_pct: trend,
         categories: catsList,
+        transfers: round2(xferTotal),
       },
       income: {
         window_days: windowDays,
@@ -576,13 +578,31 @@
     // full ledger, and neither touches total/cash/accounts/updated). rev bumps once per
     // recompute in store.py; we mirror that (two bumps: spending then income).
     var bal = _parseObj(files["balances.json"]);
-    // recompute_spending
+    // recompute_spending — totals INCLUDED (mirrors store.py's honest-burn fix: a categorize
+    // edit must move total/per_day/burn/trend too, not just the category list, or tagging a
+    // transfer leaves the burn inflated until the next sync)
     var sp = (bal.spending && typeof bal.spending === "object") ? bal.spending : {};
     sp.categories = categoriesFromTxns(window, ctx.overrides, ctx.remap);
+    var wd = sp.window_days || bal.spend_window_days || 30;
+    var nowTs = Math.floor(Date.now() / 1000), midTs = nowTs - Math.floor(wd / 2) * 86400;
+    var outflow = 0, xferTotal = 0, recent = 0, older = 0;
+    window.forEach(function (t) {
+      var amt = parseFloat(t.amount || 0); if (!isFinite(amt) || amt >= 0) return;
+      var spend = -amt;
+      if (categorize(t.description || "", ctx.overrides, ctx.remap) === "transfer") { xferTotal += spend; return; }
+      outflow += spend;
+      if ((t.posted || 0) >= midTs) recent += spend; else older += spend;
+    });
+    var half2 = wd / 2.0, rd2 = recent / half2, od2 = older / half2;
+    sp.total = round2(outflow);
+    sp.per_month = round2(outflow / wd * 30);
+    sp.per_day = round2(outflow / wd);
+    sp.trend_pct = od2 > 0 ? pyRound((rd2 - od2) / od2 * 100) : null;
+    sp.transfers = round2(xferTotal);
+    bal.burn_per_day = round2(outflow / wd);
     bal.spending = sp;
     var subsItems = subscriptionItems(window, ctx.overrides, ctx.remap);
     var subsTotal = round2(subsItems.reduce(function (s, x) { return s + x.amount; }, 0));
-    var wd = sp.window_days || 30;
     bal.subscriptions = { window_days: wd, total: subsTotal, per_month: round2(subsTotal / wd * 30), items: subsItems };
     bal.rev = _nextRev(bal);
     // recompute_income
