@@ -2905,14 +2905,21 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
       still apply); bank + server are .dt-dot siblings. Tapping spins them around the centre (WAAPI,
       reduce-motion-gated) then they settle back — a still triad that always shows all three states. */
 #cloudHealth.cloud-light { width: 40px; min-width: 40px; max-width: 40px; }   /* room for the triad */
-.dock-triad { position: relative; width: 26px; height: 22px; margin: 0 auto; }
-.dt-spin { position: absolute; inset: 0; transform-origin: 50% 50%; }
+.dock-triad { position: relative; width: 26px; height: 22px; margin: 0 auto; flex: 0 0 auto; }
+/* spin around the triangle's CENTROID (13, 12.5), not the box middle — otherwise the triad
+   wobbles off-axis on the way round instead of turning cleanly in place */
+.dt-spin { position: absolute; inset: 0; transform-origin: 50% 12.5px; }
 #cloudHealth .dock-triad .sync-dot, .dock-triad .dt-dot {
   position: absolute; width: 9px; height: 9px; box-sizing: border-box; border-radius: 50%; margin: 0;
 }
-.dock-triad .t-cloud  { top: 0;      left: 50%; margin-left: -4.5px; }   /* apex — centred by margin (transform is used by the breathe/spin) */
-.dock-triad .t-bank   { bottom: 0;   left: 1px; }                        /* base-left */
-.dock-triad .t-server { bottom: 0;   right: 1px; }                       /* base-right */
+/* A TRUE equilateral triad. Dot CENTRES: apex (13, 4.5) · base (6, 16.5) and (20, 16.5) —
+   base 14px, legs 13.9px, so all three sides match within a tenth of a pixel and the shape
+   sits centred in its box (so the spin rotates around the real middle, not a lopsided one).
+   Positioned with calc(), never margin: the sizing rule above carries an #id and would win
+   the specificity fight against a margin-based centring and shove the apex off-centre. */
+.dock-triad .t-cloud  { top: 0;    left: calc(50% - 4.5px); }   /* apex */
+.dock-triad .t-bank   { top: 12px; left: 1.5px; }               /* base-left */
+.dock-triad .t-server { top: 12px; right: 1.5px; }              /* base-right */
 /* bank + server dots speak the SAME shape language as the cloud dot + the panel rows */
 .dt-dot { background: rgba(var(--ink-rgb), 0.28); }
 .dt-dot[data-s="ok"]   { background: #3f8f4e; }                                   /* healthy — filled */
