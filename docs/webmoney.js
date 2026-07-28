@@ -284,6 +284,75 @@
       .sort(function (a, b) { return b.amount - a.amount; });
   }
 
+  // top_merchants (mirror store.top_merchants) — all spending grouped by cleaned merchant,
+  // biggest first, each with its CURRENT category. Drives the web categorizer's list.
+  function topMerchants(txns, overrides, remap, limit) {
+    limit = limit || 24;
+    var agg = Object.create(null), order = [];   // null-proto: a merchant that _cleans to "constructor" must aggregate, not crash
+    (txns || []).forEach(function (t) {
+      var amt = parseFloat(t.amount || 0) || 0;
+      if (amt >= 0) return;
+      var key = _clean(t.description || "") || "unknown";
+      var it = agg[key];
+      if (!it) {
+        it = agg[key] = { merchant: _titleCase(key), key: key, amount: 0,
+          category: categorize(t.description || "", overrides, remap), count: 0, first: null, last: null };
+        order.push(key);
+      }
+      it.amount += -amt; it.count += 1;
+      var p = t.posted;
+      if (p) {
+        if (it.first === null || p < it.first) it.first = p;
+        if (it.last === null || p > it.last) it.last = p;
+      }
+    });
+    var rows = order.map(function (k) { return agg[k]; });
+    rows.forEach(function (r) { r.amount = round2(r.amount); });
+    rows.sort(function (a, b) { return b.amount - a.amount; });
+    return rows.slice(0, limit);
+  }
+
+  // other_merchants (mirror store.other_merchants) — top spends stuck in "other", so the
+  // categorizer can offer them a home.
+  function otherMerchants(txns, overrides, remap, limit) {
+    limit = limit || 14;
+    var agg = Object.create(null), order = [];
+    (txns || []).forEach(function (t) {
+      var amt = parseFloat(t.amount || 0) || 0;
+      if (amt >= 0) return;
+      if (categorize(t.description || "", overrides, remap) !== "other") return;
+      var key = _clean(t.description || "") || "unknown";
+      if (agg[key] === undefined) { agg[key] = 0; order.push(key); }
+      agg[key] += -amt;
+    });
+    var rows = order.map(function (k) { return { merchant: _titleCase(k), key: k, amount: round2(agg[k]) }; });
+    rows.sort(function (a, b) { return b.amount - a.amount; });
+    return rows.slice(0, limit);
+  }
+
+  // deposit_sources (mirror store.deposit_sources) — every incoming amount grouped by source
+  // with its current income status. Drives the web income tagger.
+  function depositSources(txns, incomeOverrides, overrides, remap, limit) {
+    limit = limit || 40;
+    var agg = Object.create(null), order = [];
+    (txns || []).forEach(function (t) {
+      var amt = parseFloat(t.amount || 0) || 0;
+      if (amt <= 0) return;
+      var dec = incomeDecision(t.description || "", incomeOverrides, overrides, remap);
+      var key = dec[0];
+      if (!agg[key]) {
+        agg[key] = { source: prettifyMerchant(key, _titleCase(key)), key: key, amount: 0,
+          status: dec[1] ? "income" : "ignore", tagged: dec[2] };
+        order.push(key);
+      }
+      agg[key].amount += amt;
+    });
+    var rows = order.map(function (k) { return agg[k]; });
+    rows.forEach(function (r) { r.amount = round2(r.amount); });
+    rows.sort(function (a, b) { return b.amount - a.amount; });
+    return rows.slice(0, limit);
+  }
+
   // subscription_items (mirror store.subscription_items) — the "subscriptions" category
   // grouped by merchant. NOTE this is the cheap grouping, NOT detect_recurring (deferred).
   function subscriptionItems(txns, overrides, remap) {
@@ -954,6 +1023,7 @@
     categorize: categorize, prettifyMerchant: prettifyMerchant, isIncome: isIncome,
     incomeDecision: incomeDecision, subscriptionItems: subscriptionItems,
     categoriesFromTxns: categoriesFromTxns,
+    topMerchants: topMerchants, otherMerchants: otherMerchants, depositSources: depositSources,
     ledgerKey: ledgerKey, isDeleted: isDeleted, mergeLedger: mergeLedger,
     parseJsonl: parseJsonl, serializeJsonl: serializeJsonl,
     buildSnapshot: buildSnapshot,

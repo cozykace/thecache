@@ -326,5 +326,34 @@ ok("extractErrors: a >200-char message is capped", M.extractErrors({ errlist: [{
   ok("sfApply: errors WITH accounts → writes the good data and surfaces the message", partial.added === 1 && partial.errors.length === 1);
 })();
 
+// ── categorizer views (web categorize/income — mirror store.top_merchants /
+//    other_merchants / deposit_sources; drives the web tagger UIs) ───────────
+(function () {
+  const now = 1700000000;
+  const txns = [
+    { id: "m1", posted: now - 86400, amount: -20, description: "Blue Grocer 123" },
+    { id: "m2", posted: now - 2 * 86400, amount: -30, description: "Blue Grocer 456" },   // same cleaned merchant
+    { id: "m3", posted: now - 3 * 86400, amount: -5, description: "Mystery Vendor Z" },   // lands in "other"
+    { id: "d1", posted: now - 86400, amount: 900, description: "Payroll Co Direct Dep" },
+    { id: "d2", posted: now - 2 * 86400, amount: 50, description: "Aunt Jane Zelle Payment" },
+  ];
+  const ov = { "blue grocer": "groceries" };
+  const tm = M.topMerchants(txns, ov, {});
+  ok("topMerchants: same cleaned merchant aggregates (2 txns → 1 row of 50)",
+    tm.length >= 1 && tm[0].amount === 50 && tm[0].count === 2);
+  ok("topMerchants: carries the CURRENT category from overrides", tm[0].category === "groceries");
+  ok("topMerchants: biggest first", tm.every((r, i) => i === 0 || tm[i - 1].amount >= r.amount));
+  ok("topMerchants: first/last posted tracked", tm[0].first < tm[0].last);
+  const om = M.otherMerchants(txns, ov, {});
+  ok("otherMerchants: only 'other' spends (mystery vendor, not the categorized grocer)",
+    om.length === 1 && om[0].amount === 5 && /mystery/i.test(om[0].merchant));
+  const ds = M.depositSources(txns, {}, ov, {});
+  ok("depositSources: every incoming source listed", ds.length === 2);
+  ok("depositSources: payroll auto-reads as income, untagged", ds[0].status === "income" && ds[0].tagged === false);
+  const ds2 = M.depositSources(txns, { [ds[1].key]: "ignore" }, ov, {});
+  const tagged = ds2.find((r) => r.key === ds[1].key);
+  ok("depositSources: a user tag pins status + reads tagged", tagged && tagged.status === "ignore" && tagged.tagged === true);
+})();
+
 console.log("\n" + p + " passed, " + f + " failed");
 process.exit(f ? 1 : 0);

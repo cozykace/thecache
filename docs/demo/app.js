@@ -4721,6 +4721,7 @@ async function cloudPush(passphrase, opts) {
   // data with an empty bundle just because the open failed
   let files = {}, api = {}, exported, filesMeta = {}, curLocal = null, curLocalMeta = null, vaultAuthored = null;
   let _foldedMoney = null;   // web: the CSV deltas this push is sealing — confirmed only after upload lands (so a failed push stays retryable)
+  let _foldedMapEdits = null;   // web: pending categorize/income tag edits riding this push — same confirm-after-landing rule
   if (window.__CACHE_WEB__) {
     if (rec && rec.blob) { const cur = await cloudOpen(rec.blob, passphrase); files = cur.files || {}; api = cur.api || {}; exported = cur.exported; filesMeta = cur.filesMeta || {}; curLocal = cur.local || null; curLocalMeta = cur.localMeta || null; vaultAuthored = authoredHash(cur.local || {}, cur.files || {}); }
     // web money WRITER (the ONE narrow write): fold this session's CSV imports into the
@@ -4760,6 +4761,10 @@ async function cloudPush(passphrase, opts) {
         }
       }
     } catch (e) {}   // a failed fold leaves _pending intact (unconfirmed) → cloudSealPendingMoney keeps retrying and tells the user; the vault meanwhile seals its own files, never a half-merge
+    // web map WRITER (categorize / income tags made in the browser): fold this session's
+    // pending tag edits onto the vault's FRESHEST maps, newest-per-key with filesMeta
+    // stamps (merge_maps semantics) — a later edit from another device outranks ours.
+    try { if (window.__cacheMapEdits) _foldedMapEdits = window.__cacheMapEdits.applyToVault(files, filesMeta); } catch (e) {}
   } else {
     // open the vault FIRST so we can merge another device's user-edit maps
     // (categories/income/subs/income-links) into our local backend before exporting —
@@ -4840,6 +4845,7 @@ async function cloudPush(passphrase, opts) {
     // the vault's blob already equals this (folded) payload → the imported money is provably
     // sealed → clear it from _pending so the import's "still saving…" watcher resolves
     if (_foldedMoney && window.__cacheMoneyConfirmSealed) { try { window.__cacheMoneyConfirmSealed(_foldedMoney); } catch (e) {} }
+    if (_foldedMapEdits && window.__cacheMapEdits) { try { window.__cacheMapEdits.confirmSealed(_foldedMapEdits); } catch (e) {} }
     return { count, bytes: s.bytes || 0, unchanged: true };
   }
   const body = { blob: await cloudSeal(Object.assign(JSON.parse(payloadCore), { exported })) };
@@ -4870,6 +4876,7 @@ async function cloudPush(passphrase, opts) {
   // the upload landed → the folded CSV import is now durably in the vault → clear it from
   // _pending so the import's "still saving…" watcher resolves to "sealed ✓"
   if (_foldedMoney && window.__cacheMoneyConfirmSealed) { try { window.__cacheMoneyConfirmSealed(_foldedMoney); } catch (e) {} }
+  if (_foldedMapEdits && window.__cacheMapEdits) { try { window.__cacheMapEdits.confirmSealed(_foldedMapEdits); } catch (e) {} }
   return { count, bytes: (body.blob || "").length };
 }
 // a zero-knowledge account must never silently accept a keybox whose escrow-ness

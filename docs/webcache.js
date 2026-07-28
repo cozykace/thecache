@@ -717,6 +717,74 @@
     q.split("&").forEach(function (p) { if (!p) return; var kv = p.split("="); out[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || ""); });
     return out;
   }
+  // ── web categorize / income tagging ──────────────────────────────────────────
+  // The categorizer views (merchants / deposits / other-merchants) compute LIVE from the
+  // vault's own files, and POST /api/categorize + /api/income WRITE here in the browser:
+  // update the served map, recompute the money blocks (webmoney), and queue the edit as a
+  // PENDING map edit that the next cloud push folds onto the vault's FRESHEST copy with a
+  // per-key filesMeta stamp (merge_maps newest-per-key semantics) — so a concurrent tag
+  // made on the desktop is never clobbered, and every device converges. Before this, a
+  // web-only user could SEE money but never categorize it ("no data — sync first" ×3 in
+  // the beta inbox).
+  var PENDING_MAP_EDITS = [];
+  function _moneyCtx() {
+    var ov = {}, io = {}, cm = {};
+    try { ov = JSON.parse(FILES["categories.json"] || "{}") || {}; } catch (e) {}
+    try { io = JSON.parse(FILES["income.json"] || "{}") || {}; } catch (e) {}
+    try { cm = JSON.parse(FILES["catmeta.json"] || "{}") || {}; } catch (e) {}
+    return { overrides: ov, incomeOverrides: io, remap: cm.remap || {}, catmetaLabels: cm.labels || {} };
+  }
+  function _windowTxns() {
+    // the desktop views read transactions.json (the recent window) — mirror that; a
+    // CSV-only cache may lack it, so fall back to the full ledger
+    try { var tj = JSON.parse(FILES["transactions.json"] || "{}"); if (tj && tj.transactions && tj.transactions.length) return tj.transactions; } catch (e) {}
+    try {
+      var led = window.CacheMoney.parseJsonl(FILES["ledger.jsonl"] || "");
+      return Object.keys(led).map(function (k) { return led[k]; });
+    } catch (e) { return []; }
+  }
+  function _applyMapEdit(file, key, value) {
+    key = (key || "").trim().toLowerCase();
+    if (!key) return false;
+    var m = {}; try { m = JSON.parse(FILES[file] || "{}") || {}; } catch (e) {}
+    if (value === null) delete m[key]; else m[key] = value;
+    FILES[file] = JSON.stringify(m, null, 2);
+    PENDING_MAP_EDITS.push({ file: file, key: key, value: value, at: Date.now() });
+    return true;
+  }
+  function _recomputeMoney() {
+    // rebuildFromLedger mirrors recompute_spending + recompute_income (it reads the maps
+    // straight from the files — including the edit we just wrote — and PRESERVES the
+    // balances header: total/cash/accounts/updated survive untouched)
+    if (FILES["ledger.jsonl"] == null) return;   // no money to recompute (and never wipe a header with zeros)
+    var out = window.CacheMoney.rebuildFromLedger(FILES, {});
+    if (window.__cacheWebMoney) window.__cacheWebMoney.commit(out);
+    else Object.keys(out || {}).forEach(function (n) { FILES[n] = out[n]; });
+  }
+  window.__cacheMapEdits = {
+    pending: function () { return PENDING_MAP_EDITS.slice(); },
+    // fold the pending edits onto the vault's freshest files, newest-per-key: if another
+    // device stamped this exact key LATER than our edit, theirs wins and ours retires.
+    applyToVault: function (files, filesMeta) {
+      if (!PENDING_MAP_EDITS.length) return null;
+      var applied = [];
+      PENDING_MAP_EDITS.forEach(function (e) {
+        var fm = filesMeta[e.file] = filesMeta[e.file] || {};
+        if ((+fm[e.key] || 0) > e.at) { applied.push(e); return; }   // superseded — retire without writing
+        var m = {}; try { m = JSON.parse(files[e.file] || "{}") || {}; } catch (er) {}
+        if (e.value === null) delete m[e.key]; else m[e.key] = e.value;
+        files[e.file] = JSON.stringify(m, null, 2);
+        fm[e.key] = e.at;
+        applied.push(e);
+      });
+      return applied;
+    },
+    // confirmed only after the sealed upload lands — a failed push keeps edits retryable
+    confirmSealed: function (applied) {
+      var ids = {}; (applied || []).forEach(function (e) { ids[e.file + " " + e.key + " " + e.at] = 1; });
+      PENDING_MAP_EDITS = PENDING_MAP_EDITS.filter(function (e) { return !ids[e.file + " " + e.key + " " + e.at]; });
+    },
+  };
   function _liveSummary(url) {
     var p = _qsParams(url);
     var led = window.CacheMoney.parseJsonl(FILES["ledger.jsonl"] || "");
@@ -735,7 +803,7 @@
 
   // ── serve app data from the decrypted store ──────────────────────────────────
   function J(obj) { return new Response(JSON.stringify(obj), { status: 200, headers: { "Content-Type": "application/json" } }); }
-  function serve(url, method) {
+  function serve(url, method, body) {
     var M = (method || "GET").toUpperCase();
     var dm = url.match(/data\/([\w.-]+\.json)/);
     if (dm) { var nm = dm[1]; return FILES[nm] != null ? new Response(FILES[nm], { status: 200, headers: { "Content-Type": "application/json" } }) : J({}); }
@@ -758,9 +826,41 @@
           try { return J(_liveSummary(url)); } catch (e) {}
         }
       }
+      // categorizer views — LIVE from the vault's own files whenever it holds transactions,
+      // so a web-only bank/CSV cache gets real lists (and a local tag reflects instantly);
+      // an empty vault falls through to the desktop-precomputed bundle / the ok-stub.
+      if (M === "GET" && window.CacheMoney && (key === "merchants" || key === "other-merchants" || key === "deposits")) {
+        var wtx = _windowTxns();
+        if (wtx.length) {
+          var cx = _moneyCtx();
+          try {
+            if (key === "merchants") return J({ merchants: window.CacheMoney.topMerchants(wtx, cx.overrides, cx.remap) });
+            if (key === "other-merchants") return J({ merchants: window.CacheMoney.otherMerchants(wtx, cx.overrides, cx.remap) });
+            return J({ deposits: window.CacheMoney.depositSources(wtx, cx.incomeOverrides, cx.overrides, cx.remap) });
+          } catch (e) {}
+        }
+      }
       if (M === "GET" && API[key] != null) return J(API[key]);
       if (M === "GET") return J({ ok: true });
-      // writes aren't supported on the web yet — read-only mirror of your desktop cache
+      // categorize + income tags WRITE here in the browser (see the pending-edits block above)
+      if (M === "POST" && (key === "categorize" || key === "income") && window.CacheMoney) {
+        var data = {}; try { data = JSON.parse(body || "{}") || {}; } catch (e) {}
+        try {
+          var okw;
+          if (key === "categorize") okw = _applyMapEdit("categories.json", data.merchant, data.category || "other");
+          else {
+            var st = data.status;
+            okw = _applyMapEdit("income.json", data.source, (st === "income" || st === "ignore") ? st : null);
+          }
+          if (!okw) return J({ ok: false, error: "bad request" });
+          _recomputeMoney();
+          var nb = {}; try { nb = JSON.parse(FILES["balances.json"] || "{}") || {}; } catch (e) {}
+          return J(key === "categorize" ? { ok: true, spending: nb.spending || {} } : { ok: true, income: nb.income || {} });
+        } catch (e) {
+          return J({ ok: false, error: "couldn't save that tag — " + ((e && e.message) || "unknown error") });
+        }
+      }
+      // other writes aren't supported on the web yet — desktop-only for now
       return J({ ok: false, web: true, error: "Editing from the web is coming soon — for now, changes are made in the desktop app and synced here." });
     }
     return J({ ok: true });
@@ -771,7 +871,8 @@
     var isApp = !/^https?:\/\//i.test(url) && (url.indexOf("/api/") !== -1 || url.indexOf("data/") !== -1);
     if (isApp) {
       var method = (init && init.method) || (typeof input === "object" && input && input.method) || "GET";
-      return READY ? Promise.resolve(serve(url, method)) : gate.then(function () { return serve(url, method); });
+      var body = (init && init.body) || null;   // POST categorize/income read their JSON body
+      return READY ? Promise.resolve(serve(url, method, body)) : gate.then(function () { return serve(url, method, body); });
     }
     if (realFetch) return realFetch(input, init);
     return Promise.reject(new Error("offline"));
