@@ -2940,6 +2940,12 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .dock-triad .t-cloud  { top: 0;    left: calc(50% - 4.5px); }   /* apex */
 .dock-triad .t-bank   { top: 12px; left: 1.5px; }               /* base-left */
 .dock-triad .t-server { top: 12px; right: 1.5px; }              /* base-right */
+/* DYAD — hosted web / demo have no desktop server, so the light is just cloud + bank side by
+   side (vertically centred; dot centres at y=11 = the box middle, so the spin stays true). */
+.dock-triad.dyad .t-server { display: none; }
+.dock-triad.dyad .t-cloud  { top: 6.5px; left: 2.5px; }
+.dock-triad.dyad .t-bank   { top: 6.5px; left: auto; right: 2.5px; }
+.dock-triad.dyad .dt-spin  { transform-origin: 50% 50%; }
 /* bank + server dots speak the SAME shape language as the cloud dot + the panel rows */
 .dt-dot { background: rgba(var(--ink-rgb), 0.28); }
 .dt-dot[data-s="ok"]   { background: var(--dot-ok); }                             /* healthy — filled */

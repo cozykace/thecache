@@ -5659,7 +5659,12 @@ function paintDockConn() {   // paint the triad's bank + server dots (the cloud 
   if (!el) return;
   const b = el.querySelector(".t-bank"), sv = el.querySelector(".t-server");
   if (b) b.dataset.s = connBankCode();
-  if (sv) sv.dataset.s = connServerCode();
+  // no desktop server here (hosted web / demo) → the server dot doesn't exist and the light
+  // is a DYAD (cloud + bank side by side), not a triangle with a permanently-grey corner
+  const noSrv = !!(window.__CACHE_WEB__ || window.__CACHE_DEMO__);
+  const tri = el.querySelector(".dock-triad");
+  if (tri) tri.classList.toggle("dyad", noSrv);
+  if (sv) { sv.hidden = noSrv; if (!noSrv) sv.dataset.s = connServerCode(); }
 }
 function spinDockTriad() {   // the little ceremony on tap — spin the three dots around the centre, then settle
   if (typeof reduceMotion === "function" && reduceMotion()) return;
@@ -5826,12 +5831,13 @@ function openAccountMenu(anchor) {
     return { s: "warn", label: "Bank (SimpleFIN)", sub: "Not linked — tap to connect.", act: "bank" };
   };
   const serverInfo = () => {
-    // hosted web / demo have no local server — say so plainly, don't fake a "disconnected".
-    if (_noLocalBackend) return { s: "na", label: "Cache server", sub: "Runs in your browser — nothing to start." };
+    // hosted web / demo have no desktop server — the row (and its dot) simply doesn't exist
+    // there. A permanently-grey light explaining itself was pure confusion (beta feedback).
+    if (_noLocalBackend) return null;
     const st = (serverBtn && serverBtn.dataset.state) || "down";
-    if (st === "live") return { s: "ok", label: "Cache server", sub: "Running on this Mac." };
-    if (st === "stale") return { s: "warn", label: "Cache server", sub: "Running old code — tap to restart.", act: "server" };
-    return { s: "err", label: "Cache server", sub: "Not running — tap for help.", act: "server" };
+    if (st === "live") return { s: "ok", label: "Desktop server", sub: "Running on this Mac." };
+    if (st === "stale") return { s: "warn", label: "Desktop server", sub: "Running old code — tap to restart.", act: "server" };
+    return { s: "err", label: "Desktop server", sub: "Not running — tap for help.", act: "server" };
   };
   const rowOf = (i) => csRow(i.s, i.label, i.sub, i.act);
   const actions = () => {
@@ -5848,7 +5854,7 @@ function openAccountMenu(anchor) {
       : "<b>Not signed in</b> — set up cloud to back up &amp; sync.";
     menu.innerHTML =
       '<div class="am-who">' + who + "</div>" +
-      '<div class="cs-rows">' + rowOf(cloudInfo()) + rowOf(bankInfo()) + rowOf(serverInfo()) + "</div>" +
+      '<div class="cs-rows">' + [cloudInfo(), bankInfo(), serverInfo()].filter(Boolean).map(rowOf).join("") + "</div>" +
       '<div class="am-sep"></div>' +
       '<button class="am-item" data-act="sync"' + (syncing ? " disabled" : "") + '><i data-lucide="refresh-cw"></i>' +
         (syncing ? "Syncing…" : "Sync now") + "</button>" +
