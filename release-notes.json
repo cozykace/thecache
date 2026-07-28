@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-28-debt-cost",
+    "date": "2026-07-28",
+    "title": "Debt cost — what your cards actually cost, and when they'd be paid off",
+    "body": "A new widget in the Library's Money section, and it exists because of one number from real testing: what carrying a card balance costs per month, and how long it lasts at the current pace, turned out to be the most motivating thing the data could say. The headline is the interest you paid this month; under it, your monthly average and card balance; and then the line that matters — at this pace, roughly when you'd be paid off. It's computed from your actual detected interest charges and card payments, no guessing. And when payments are mostly feeding interest, it says so kindly: the balance holds steady — even a little more would start it shrinking. Information, never a judgment."
+  },
+  {
     "id": "2026-07-28-category-rules-survive",
     "date": "2026-07-28",
     "title": "Your categories survive the bank changing its mind",
