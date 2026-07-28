@@ -2912,9 +2912,23 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
    ink, and BEAST recolours everything): filled dot / haloed dot / square / solid ring / dashed
    ring. No two share geometry. */
 #cloudHealth[data-cloud="ok"] .sync-dot { background: var(--dot-ok); }                    /* synced — the SAME green as its panel row + its triad siblings */
-/* syncing — breathing; the halo ring keeps it distinct from ok even when reduce-motion kills
-   the animation (shape, not just colour or motion) */
-#cloudHealth[data-cloud="sync"] .sync-dot { background: var(--accent); box-shadow: 0 0 0 2px rgba(var(--ink-rgb), 0.22); animation: cloudbreathe 1.2s ease-in-out infinite; }
+/* SYNCING is an overlay: the dots KEEP their real colours; a soft accent ring pulses around the
+   cloud dot and the whole dyad/triad slowly turns. (The dot used to repaint accent-dark — a
+   mystery colour that answered nothing. Same status, currently refreshing.) */
+#cloudHealth[data-syncing="1"] .sync-dot { animation: ringpulse 1.4s ease-in-out infinite; }
+#cloudHealth[data-syncing="1"] .dt-spin { animation: dockorbit 3.2s linear infinite; }
+@keyframes ringpulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(var(--ink-rgb), 0.38); }
+  50%      { box-shadow: 0 0 0 4.5px rgba(var(--ink-rgb), 0.10); }
+}
+@keyframes dockorbit { to { transform: rotate(360deg); } }
+/* reduce-motion: no orbit, no pulse — a steady ring still says "refreshing" without motion */
+@media (prefers-reduced-motion: reduce) {
+  #cloudHealth[data-syncing="1"] .sync-dot { animation: none; box-shadow: 0 0 0 2px rgba(var(--ink-rgb), 0.3); }
+  #cloudHealth[data-syncing="1"] .dt-spin { animation: none; }
+}
+html[data-reduce-motion="1"] #cloudHealth[data-syncing="1"] .sync-dot { animation: none; box-shadow: 0 0 0 2px rgba(var(--ink-rgb), 0.3); }
+html[data-reduce-motion="1"] #cloudHealth[data-syncing="1"] .dt-spin { animation: none; }
 #cloudHealth[data-cloud="err"] .sync-dot { background: var(--accent); border-radius: 2px; box-shadow: none; }   /* needs you — a SQUARE */
 #cloudHealth[data-cloud="warn"] .sync-dot { background: transparent; border: 2px solid var(--accent); box-shadow: none; }   /* not done yet — SOLID ring */
 #cloudHealth[data-cloud="off"] .sync-dot { background: transparent; border: 2px dashed rgba(var(--ink-rgb), 0.4); box-shadow: none; }   /* off by choice — DASHED ring (distinct from warn's solid) */

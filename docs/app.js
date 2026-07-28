@@ -5608,12 +5608,23 @@ function cloudChip(state, msg) {
   // resized it and shoved the whole dock sideways — twice per 75s poll. State now reads as
   // colour + SHAPE (never colour alone), and the words live on for screen readers, the
   // tooltip, and the account menu.
+  // SYNCING is an OVERLAY, not a state: the dots keep their real colours while a ring pulses
+  // around the cloud dot and the whole dyad/triad slowly turns (data-syncing drives the CSS).
+  // Painting the dot accent-dark here made it read as a mystery colour ("dark blue makes no
+  // sense" — founder feedback); the truth is "same status, currently refreshing".
+  if (state === "syncing" && !cloudPaused()) {
+    el.classList.add("cloud-light");
+    el.dataset.syncing = "1";
+    if (txt) txt.textContent = "cloud: syncing";
+    el.title = "encrypting + syncing to your cloud";
+    el.setAttribute("aria-label", "cloud: syncing — tap for your account & cloud settings");
+    return;
+  }
+  el.removeAttribute("data-syncing");
   let key, label, tip;
   if (cloudPaused()) {
     key = "off"; label = "cloud sync: off";
     tip = "cloud sync is off by your choice — your data stays on this device (Settings → Cache cloud)";
-  } else if (state === "syncing") {
-    key = "sync"; label = "cloud: syncing"; tip = "encrypting + syncing to your cloud";
   } else if (state === "err") {
     key = "err"; label = "cloud sync: needs you";
     tip = (msg || "cloud sync failed") + " — tap for cloud settings";
