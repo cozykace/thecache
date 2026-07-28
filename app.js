@@ -5585,18 +5585,17 @@ function cloudChip(state, msg) {
   const s = cloudState();
   const dot = el.querySelector(".sync-dot"), txt = el.querySelector(".sync-text");
   el.hidden = false;
+  paintDockConn();   // keep the triad's bank + server dots current on every cloud check
   if (!s.token) {
-    // Not signed in → DON'T vanish, and DO keep the words. A logged-out desktop user otherwise
-    // has no way to discover cloud sign-in (it's buried in Settings → Cache cloud) — the exact
-    // wall a tester hit. This state is static (logging in reloads the page), so unlike the
-    // signed-in states it can't oscillate and shove the dock. The hosted web app's login gate
-    // guarantees a token, so this only ever surfaces on desktop.
-    el.classList.remove("cloud-light");
-    el.removeAttribute("data-cloud");
-    if (dot) dot.style.background = "#6b9bd6";
+    // Signed out: still show the triad (cloud dot muted, bank + server live) so a logged-out user
+    // sees their lifelines; the tooltip + the panel's "Set up cloud sync" keep sign-in discoverable.
+    // The hosted web app's login gate guarantees a token, so this only surfaces on desktop.
+    el.classList.add("cloud-light");
+    el.dataset.cloud = "na";
+    if (dot) dot.removeAttribute("style");
     if (txt) txt.textContent = "sign in to sync";
     el.title = "sign in to sync your cache across your devices — tap to set up (Settings → Cache cloud)";
-    el.setAttribute("aria-label", el.title);
+    el.setAttribute("aria-label", "connections — sign in to sync; tap to set up cloud, bank & server status");
     return;
   }
   // Signed in: a FIXED-FOOTPRINT status light. The label used to swing between "cloud ✓" and
@@ -5632,6 +5631,41 @@ function cloudChip(state, msg) {
   if (txt) txt.textContent = label;
   el.title = tip;
   el.setAttribute("aria-label", label + " — tap for your account & cloud settings");
+}
+// ── The dock light is a TRIAD ────────────────────────────────────────────────
+//    The dock's status light is three dots in a little triangle: cloud (the apex — the existing
+//    .sync-dot, still fully owned by cloudChip) + bank + server siblings. Tapping it spins the
+//    three around their centre and settles them (a still triad that always shows all three). These
+//    helpers keep the bank + server dots honest; the cloud dot rides cloudChip untouched.
+let _bankConn = null;   // desktop: cached /api/connect-status.connected; web: sfHasCred() is authoritative
+function connBankCode() {
+  const c = window.__CACHE_WEB__ ? sfHasCred() : _bankConn;
+  if (c === null || c === undefined || c === "err") return "na";
+  return c ? "ok" : "warn";
+}
+function connServerCode() {
+  if (window.__CACHE_WEB__ || window.__CACHE_DEMO__) return "na";   // no local backend here
+  const btn = document.getElementById("serverBtn");
+  const st = (btn && btn.dataset.state) || "down";
+  return st === "live" ? "ok" : st === "stale" ? "warn" : "err";
+}
+function paintDockConn() {   // paint the triad's bank + server dots (the cloud dot is cloudChip's job)
+  const el = document.getElementById("cloudHealth");
+  if (!el) return;
+  const b = el.querySelector(".t-bank"), sv = el.querySelector(".t-server");
+  if (b) b.dataset.s = connBankCode();
+  if (sv) sv.dataset.s = connServerCode();
+}
+function spinDockTriad() {   // the little ceremony on tap — spin the three dots around the centre, then settle
+  if (typeof reduceMotion === "function" && reduceMotion()) return;
+  const spin = document.querySelector("#cloudHealth .dt-spin");
+  if (!spin || !spin.animate) return;
+  spin.animate(
+    [{ transform: "rotate(-400deg) scale(0.35)" },
+     { transform: "rotate(6deg) scale(1.06)", offset: 0.8 },
+     { transform: "rotate(0deg) scale(1)" }],
+    { duration: 780, easing: "cubic-bezier(0.2, 0.72, 0.3, 1)" }
+  );
 }
 // ── The connection panel — tap the cloud dot and see, in one honest place, whether your
 //    three lifelines are healthy: cloud sync, your bank (SimpleFIN), and (on desktop) the
@@ -5731,35 +5765,20 @@ function openAccountMenu(anchor) {
       '<button class="am-item" data-act="switch"><i data-lucide="users"></i>Use a different account…</button>' +
       '<button class="am-item am-out" data-act="logout"><i data-lucide="log-out"></i>Log out</button>';
   };
-  // The triad is built ONCE (so its spin plays once, on open); repaints only RECOLOUR its three dots.
-  const updateTriad = () => {
-    const set = (cls, code) => { const el = menu.querySelector(".cs-tdot." + cls); if (el) el.dataset.s = code; };
-    set("t-cloud", cloudInfo().s); set("t-bank", bankInfo().s); set("t-server", serverInfo().s);
-  };
   const paint = () => {
     const s = cloudState();
     const who = s.token
       ? "Signed in as <b>" + escapeHtml(s.email || "your account") + "</b>"
       : "<b>Not signed in</b> — set up cloud to back up &amp; sync.";
-    bodyWrap.innerHTML =
+    menu.innerHTML =
       '<div class="am-who">' + who + "</div>" +
       '<div class="cs-rows">' + rowOf(cloudInfo()) + rowOf(bankInfo()) + rowOf(serverInfo()) + "</div>" +
       '<div class="am-sep"></div>' +
       '<button class="am-item" data-act="sync"' + (syncing ? " disabled" : "") + '><i data-lucide="refresh-cw"></i>' +
         (syncing ? "Syncing…" : "Sync now") + "</button>" +
       actions();
-    updateTriad();
     drawIcons();
   };
-
-  // build the persistent shell ONCE: the animated triad on top, then the body region paint() owns
-  menu.innerHTML =
-    '<div class="am-triad"><div class="am-triad-spin">' +
-      '<span class="cs-dot cs-tdot t-cloud" data-s="na"></span>' +
-      '<span class="cs-dot cs-tdot t-bank" data-s="na"></span>' +
-      '<span class="cs-dot cs-tdot t-server" data-s="na"></span>' +
-    '</div></div><div class="am-bodywrap"></div>';
-  const bodyWrap = menu.querySelector(".am-bodywrap");
 
   paint();
   // position ONCE against the first paint. Repaints only grow/shrink height; the menu is anchored by
@@ -5780,8 +5799,8 @@ function openAccountMenu(anchor) {
   // desktop/demo: the real bank connection state
   if (!web) {
     fetch("/api/connect-status").then((r2) => (r2.ok ? r2.json() : null))
-      .then((d) => { bankConn = !!(d && d.connected); if (alive()) paint(); })
-      .catch(() => { bankConn = "err"; if (alive()) paint(); });   // server unreachable — don't claim "not linked"
+      .then((d) => { bankConn = !!(d && d.connected); _bankConn = bankConn; paintDockConn(); if (alive()) paint(); })
+      .catch(() => { bankConn = "err"; _bankConn = "err"; paintDockConn(); if (alive()) paint(); });   // server unreachable — don't claim "not linked"
   }
 
   menu.addEventListener("click", (e) => {
@@ -13501,6 +13520,7 @@ function setServer(state) {
   if (brandDot) brandDot.dataset.state = state;
   if (!serverBtn) return;
   serverBtn.dataset.state = state;
+  try { paintDockConn(); } catch (e) {}   // reflect the server dot in the dock triad
   serverText.textContent = state === "live" ? "live" : state === "stale" ? "restart" : "offline";
   serverBtn.title =
     state === "live" ? "backend running — click to restart" :
@@ -13968,7 +13988,13 @@ function openClockSettings(anchor) {
     // Always open the connection panel — signed in OR out. Signed out it still shows bank +
     // server status and carries a "Set up cloud sync" CTA, so a logged-out desktop user can
     // still see their lifelines and find sign-in (the exact discoverability wall a tester hit).
-    cloud.addEventListener("click", () => openAccountMenu(cloud));
+    cloud.addEventListener("click", () => { spinDockTriad(); openAccountMenu(cloud); });
+    try { paintDockConn(); } catch (e) {}   // populate the triad's bank + server dots on load
+    // desktop: one connect-status read so the bank dot isn't stuck on "checking" until the panel opens
+    if (!window.__CACHE_WEB__ && !window.__CACHE_DEMO__) {
+      fetch("/api/connect-status").then((r) => (r.ok ? r.json() : null))
+        .then((d) => { _bankConn = !!(d && d.connected); paintDockConn(); }).catch(() => {});
+    }
   }
   // finish an account switch: "Use a different account…" logs out (parking the cache),
   // reloads to this clean slate, and left a one-shot flag — take them straight to a

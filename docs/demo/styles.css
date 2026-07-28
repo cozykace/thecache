@@ -2894,6 +2894,29 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 #cloudHealth[data-cloud="off"] .sync-dot { background: transparent; border: 2px dashed rgba(var(--ink-rgb), 0.4); box-shadow: none; }   /* off by choice — DASHED ring (distinct from warn's solid) */
 @keyframes cloudbreathe { 50% { opacity: 0.28; transform: scale(0.82); } }
 
+/* ── The dock light is a TRIAD — three status dots (cloud apex · bank + server base) in a little
+      triangle, right in the dock. The cloud dot is the existing .sync-dot (all its data-cloud shapes
+      still apply); bank + server are .dt-dot siblings. Tapping spins them around the centre (WAAPI,
+      reduce-motion-gated) then they settle back — a still triad that always shows all three states. */
+#cloudHealth.cloud-light { width: 40px; min-width: 40px; max-width: 40px; }   /* room for the triad */
+.dock-triad { position: relative; width: 26px; height: 22px; margin: 0 auto; }
+.dt-spin { position: absolute; inset: 0; transform-origin: 50% 50%; }
+#cloudHealth .dock-triad .sync-dot, .dock-triad .dt-dot {
+  position: absolute; width: 9px; height: 9px; box-sizing: border-box; border-radius: 50%; margin: 0;
+}
+.dock-triad .t-cloud  { top: 0;      left: 50%; margin-left: -4.5px; }   /* apex — centred by margin (transform is used by the breathe/spin) */
+.dock-triad .t-bank   { bottom: 0;   left: 1px; }                        /* base-left */
+.dock-triad .t-server { bottom: 0;   right: 1px; }                       /* base-right */
+/* bank + server dots speak the SAME shape language as the cloud dot + the panel rows */
+.dt-dot { background: rgba(var(--ink-rgb), 0.28); }
+.dt-dot[data-s="ok"]   { background: #3f8f4e; }                                   /* healthy — filled */
+.dt-dot[data-s="warn"] { background: transparent; border: 2px solid var(--accent); }   /* attention — ring */
+.dt-dot[data-s="err"]  { background: var(--accent); border-radius: 2px; }        /* needs you — square */
+.dt-dot[data-s="off"]  { background: transparent; border: 2px dashed rgba(var(--ink-rgb), 0.4); }
+.dt-dot[data-s="na"]   { background: rgba(var(--ink-rgb), 0.28); }               /* n/a — muted */
+/* signed-out cloud dot: clearly muted, so it never looks like a healthy "synced" dot */
+#cloudHealth[data-cloud="na"] .sync-dot { background: rgba(var(--ink-rgb), 0.28); box-shadow: none; }
+
 /* ── The Dock (one cohesive bottom bar) ───────────────── */
 .dock-bar {
   position: fixed; left: 0; right: 0; bottom: 16px; z-index: 55;
@@ -3021,32 +3044,6 @@ button.cs-row:hover { background: rgba(var(--ink-rgb), 0.06); }
 .cs-dot[data-s="warn"] { background: transparent; border: 2px solid var(--accent); }                /* attention — SOLID ring */
 .cs-dot[data-s="off"] { background: transparent; border: 2px dashed rgba(var(--ink-rgb), 0.4); }    /* off by choice — DASHED ring */
 .cs-dot[data-s="na"] { background: rgba(var(--ink-rgb), 0.28); }                                    /* not applicable — muted dot */
-
-/* ── The status TRIAD — the connection panel's hero. On open, three status lights (cloud/bank/server)
-      spin around a centre point and ease into a still triangle. Each dot reuses the .cs-dot colour+shape,
-      so it reads the SAME language as the rows below. Recoloured in place on repaint (never re-spun). */
-.am-triad { position: relative; width: 78px; height: 66px; margin: 4px auto 12px; }
-.am-triad-spin { position: absolute; inset: 0; transform-origin: 50% 50%;
-  animation: triadIn 0.9s cubic-bezier(0.2, 0.72, 0.3, 1) both; }
-.cs-tdot { position: absolute; width: 14px; height: 14px; }        /* reuses .cs-dot colours; just bigger + placed */
-.cs-tdot.t-cloud  { top: 0;      left: 50%; margin-left: -7px; }   /* apex */
-.cs-tdot.t-bank   { bottom: 3px; left: 9px; }                      /* base-left */
-.cs-tdot.t-server { bottom: 3px; right: 9px; }                     /* base-right */
-/* faint hairline triangle connecting them, so the three read as ONE constellation */
-.am-triad::before { content: ""; position: absolute; inset: 7px 9px 10px; border: 1px solid var(--edge-soft);
-  clip-path: polygon(50% 0, 100% 100%, 0 100%); opacity: 0.5; pointer-events: none;
-  animation: triadWebIn 0.9s ease both; }
-@keyframes triadIn {
-  0%   { transform: rotate(-410deg) scale(0.12); opacity: 0; }
-  55%  { opacity: 1; }
-  82%  { transform: rotate(7deg) scale(1.05); }
-  100% { transform: rotate(0deg) scale(1); opacity: 1; }
-}
-@keyframes triadWebIn { 0%, 60% { opacity: 0; } 100% { opacity: 0.5; } }
-/* accessibility — no spin when motion is reduced; the triad just appears, static and accurate */
-@media (prefers-reduced-motion: reduce) { .am-triad-spin, .am-triad::before { animation: none; } }
-html[data-reduce-motion="1"] .am-triad-spin, html[data-reduce-motion="1"] .am-triad::before { animation: none; }
-
 .am-sep { height: 1px; background: var(--edge-soft); margin: 5px 2px; }
 .am-item {
   display: flex; align-items: center; gap: 9px;

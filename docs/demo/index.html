@@ -25,9 +25,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Special+Gothic+Expanded+One&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=2f22c82742" />
+    <link rel="stylesheet" href="styles.css?v=33ebe5cb0b" />
     <!-- apply saved theme before paint to avoid a flash (external so the CSP stays inline-free) -->
-    <script src="theme-preload.js?v=2f22c82742"></script>
+    <script src="theme-preload.js?v=33ebe5cb0b"></script>
     <style>
       /* demo-only chrome */
       #demoBadge {
@@ -170,7 +170,7 @@
       <button id="sourcesBtn" class="status-pill" title="data sources"><span class="src-count">…</span>&nbsp;sources</button>
       <button id="serverBtn" class="status-pill server-pill" title="local backend status"><span class="server-dot" aria-hidden="true"></span><span class="server-text">…</span></button>
       <button id="syncHealth" class="status-pill" title="click to sync now"><span class="sync-dot"></span><span class="sync-text">…</span></button>
-      <button id="cloudHealth" class="status-pill" hidden title="cloud sync"><span class="sync-dot"></span><span class="sync-text">cloud</span></button>
+      <button id="cloudHealth" class="status-pill" hidden title="cloud sync"><span class="dock-triad"><span class="dt-spin"><span class="sync-dot t-cloud"></span><span class="dt-dot t-bank" data-s="na"></span><span class="dt-dot t-server" data-s="na"></span></span></span><span class="sync-text">cloud</span></button>
     </div>
 
     <!-- hidden YouTube audio player for the soundtrack -->
@@ -181,7 +181,7 @@
          is no longer loaded here; app.js pulls it in on demand only when a soundtrack is used. -->
     <script defer src="assets/vendor/lucide.min.js"></script>
     <script type="module" src="assets/vendor/motion-init.js"></script>
-    <script defer src="demo-data.js?v=2f22c82742"></script>
-    <script defer src="app.js?v=2f22c82742"></script>
+    <script defer src="demo-data.js?v=33ebe5cb0b"></script>
+    <script defer src="app.js?v=33ebe5cb0b"></script>
   </body>
 </html>
