@@ -343,6 +343,19 @@ function _cancelCutoff(key) {
   return e.status === "until" ? (e.until || null) : (e.statusAt || null);
 }
 function subCadence(key) { return subEntry(key).cadence || "monthly"; }
+// the cadence the MATH should use: the user's explicit setting wins; otherwise infer from the
+// detector's OBSERVED gap. Without this, a yearly fee with no cadence set defaulted to monthly —
+// ×12-inflated $/yr totals and a phantom charge projected onto every month's calendar + runway.
+function effCadence(r) {
+  const e = subEntry(r.key);
+  if (e.cadence) return e.cadence;
+  const g = +r.avg_gap_days || 0;
+  if (g >= 300) return "yearly";
+  if (g >= 75) return "quarterly";
+  if (g >= 11 && g <= 18) return "biweekly";
+  if (g >= 5 && g <= 10) return "weekly";
+  return "monthly";
+}
 function setSubCadence(key, val) { setSubField(key, "cadence", val); }
 function cadenceInfo(id) { return CADENCES.find((c) => c.id === id) || CADENCES[2]; }
 function cadenceAbbr(key) { return cadenceInfo(subCadence(key)).abbr; }
@@ -6766,7 +6779,9 @@ function openFinances() {
     // committed before money next arrives, and whether cash carries it. Deterministic:
     // income rhythm (next_deposit) × the same charge projections the calendar paints.
     if (!nextDep || !nextDep.ymd) return "";
+    if (!detected.length) return "";   // no recurring feed here (web-only cache) → no confident "$0 due" claim
     let due = 0;
+    const detKeys = {}; detected.forEach((r) => { detKeys[r.key] = 1; });
     const start = new Date(); start.setDate(start.getDate() + 1);
     for (let d = new Date(start); ; d.setDate(d.getDate() + 1)) {
       const ymd = ymdOf(d);
@@ -6775,10 +6790,17 @@ function openFinances() {
         if (!subAlive(r.key) || !r.last) return;
         const e = subEntry(r.key);
         if (subStatus(r.key) === "until" && e.until && ymd > e.until) return;
-        if (calFinOccursOn(r.last, subCadence(r.key), ymd)) due += (r.amount || 0);
+        if (calFinOccursOn(r.last, effCadence(r), ymd)) due += (r.amount || 0);
       });
     }
-    annuals.forEach((a) => { if (subAlive(a.key) && a.next && a.next * 1000 <= new Date(nextDep.ymd + "T23:59:59").getTime()) due += (a.amount || 0); });
+    annuals.forEach((a) => {
+      if (detKeys[a.key]) return;   // already projected in the loop above — never count a renewal twice
+      if (!subAlive(a.key)) return;
+      const e = subEntry(a.key);
+      const nextYmd = a.next ? ymdOf(new Date(a.next * 1000)) : null;
+      if (subStatus(a.key) === "until" && e.until && nextYmd && nextYmd > e.until) return;   // ends before it lands
+      if (a.next && a.next * 1000 <= new Date(nextDep.ymd + "T23:59:59").getTime()) due += (a.amount || 0);
+    });
     const cash = +bal.cash || 0, reserve = parseFloat(localStorage.getItem("money.reserve")) || 0;
     const when = "~" + new Date(nextDep.ymd + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
     let verdict;
@@ -6858,8 +6880,8 @@ function openFinances() {
     const rows = ordered.map((r, i) => {
       const st = subStatus(r.key), nm = subName(r), e = subEntry(r.key);
       const ago = r.last ? Math.round(Date.now() / 1000 / 86400 - r.last / 86400) : null;
-      const perYr = (r.amount || 0) * cadenceInfo(subCadence(r.key)).perYear;
-      const evidence = fmtUSD(r.amount) + "/" + cadenceAbbr(r.key) + " · " + fmtUSD(perYr) + "/yr · " + (r.count || 0) + "× · " +
+      const perYr = (r.amount || 0) * cadenceInfo(effCadence(r)).perYear;
+      const evidence = fmtUSD(r.amount) + "/" + cadenceInfo(effCadence(r)).abbr + " · " + fmtUSD(perYr) + "/yr · " + (r.count || 0) + "× · " +
         (ago != null ? "last " + ago + "d ago" : "no charge seen") + ((r.accounts || []).length ? " · " + esc((r.accounts || [])[0]) : "");
       const changed = r.flag === "changed" && st !== "cancelled"
         ? '<span class="fin-flag">was ' + fmtUSD(r.amount) + " → now " + fmtUSD(r.recent) + "</span>" : "";
@@ -6876,7 +6898,7 @@ function openFinances() {
         "</span></div>";
     }).join("");
     // the honest yearly load — the multiplication an EF-focused app should never outsource
-    const yrTotal = ordered.filter((r) => subAlive(r.key)).reduce((s, r) => s + (r.amount || 0) * cadenceInfo(subCadence(r.key)).perYear, 0);
+    const yrTotal = ordered.filter((r) => subAlive(r.key)).reduce((s, r) => s + (r.amount || 0) * cadenceInfo(effCadence(r)).perYear, 0);
     const loadNote = yrTotal > 0 ? " — " + fmtUSD(yrTotal) + "/yr all told (~" + fmtUSD(yrTotal / 12) + "/mo run-rate)" : "";
     return '<div class="fin-sec">recurring & subscriptions <span class="fin-sec-note">every detected repeat-charge, with its real bank evidence' + loadNote + "</span></div>" +
       (rows ? '<div class="fin-subs">' + rows + "</div>" : '<div class="fin-clear">no recurring charges detected yet</div>');
@@ -6962,8 +6984,13 @@ function openFinances() {
   startTimer();
   try { root.focus(); } catch (e) {}
   // the deep-work room stays LIVE: a sync landing mid-session (a peer's tags, a bank pull)
-  // re-pulls the feeds instead of leaving stale headlines under your hands
-  try { Store.subscribe(root, loadAll); } catch (e) {}
+  // re-pulls the feeds instead of leaving stale headlines under your hands — but NEVER while
+  // you're mid-edit: a repaint under a focused input eats the typing and closes open pickers
+  try { Store.subscribe(root, () => {
+    const a = document.activeElement;
+    if (a && root.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;
+    loadAll();
+  }); } catch (e) {}
 }
 (function () { const b = document.getElementById("finBtn"); if (b) b.addEventListener("click", openFinances); })();
 // ── Accessibility ─────────────────────────────────────────────────────────
@@ -12436,8 +12463,8 @@ function openCalendar() {
       const st = subStatus(r.key), e = subEntry(r.key);
       if (st === "cancelled" || isSubPaused(r.key)) return;
       if (st === "until" && e.until && ymd > e.until) return;   // paid-through date passed — no more projections
-      if (r.last && calFinOccursOn(r.last, subCadence(r.key), ymd)) {
-        out.push({ kind: "sub", key: r.key, name: subName(r), amount: r.amount, cadence: subCadence(r.key), st: st, r: r });
+      if (r.last && calFinOccursOn(r.last, effCadence(r), ymd)) {
+        out.push({ kind: "sub", key: r.key, name: subName(r), amount: r.amount, cadence: effCadence(r), st: st, r: r });
       }
     });
     const subKeys = {}; finSubs.forEach((r) => { subKeys[r.key] = 1; });

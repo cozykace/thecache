@@ -58,6 +58,19 @@ ok("one deposit is not a rhythm", res2 is None)
 old = [t("o1", 200, 500, "Payroll Co Direct Dep"), t("o2", 170, 500, "Payroll Co Direct Dep")]
 ok("a long-quiet rhythm promises nothing", store.next_deposit(old, now=NOW) is None)
 
+# ── non-finite poison (a malformed bridge amount) never rides ──
+# float("NaN") raises nothing, NaN <= 0 is False — without explicit guards a poisoned row
+# would enter the median, emit invalid JSON (bare NaN) from /api/runway, and fork web/desktop.
+poison = txns + [t("bad1", 7, float("nan"), "Payroll Co Direct Dep")]
+resp = store.next_deposit(poison, now=NOW)
+ok("a NaN deposit is ignored, the real rhythm stands", resp is not None and resp["amount"] == res["amount"])
+snapP, _ = store.build_snapshot([{ "id": "a1", "name": "X", "balance": 100.0, "currency": "USD",
+                                   "transactions": [{"id": "n1", "posted": NOW - DAY, "amount": "NaN", "description": "Broken Bridge Row"},
+                                                    {"id": "n2", "posted": NOW - DAY, "amount": -10.0, "description": "Real Charge"}] }],
+                              window_days=30, now=NOW)
+ok("build_snapshot refuses a non-finite amount at the door", snapP["spending"]["total"] == 10.0)
+ok("…and the snapshot serializes to VALID json (no bare NaN)", "NaN" not in json.dumps(snapP))
+
 # ── JS parity ──
 js = (
     "const M=require(%r);"

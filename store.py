@@ -10,6 +10,7 @@ Files (all gitignored, local, chmod 600):
   data/categories.json    YOUR permanent category overrides {substring: category}
 """
 
+import math
 import os
 import re
 import json
@@ -1213,6 +1214,12 @@ def build_snapshot(accounts, window_days=30, now=None, fetch_days=None, connecti
                 amt = float(t.get("amount", 0) or 0)
             except (TypeError, ValueError):
                 continue
+            if not math.isfinite(amt):
+                continue   # float("NaN")/float("Infinity") raise NOTHING — a malformed bridge
+                           # amount would poison the append-only ledger, emit invalid JSON
+                           # (bare NaN) from every API, and fork web/desktop (webmoney's
+                           # parseFloat filter drops what we'd keep). Same rule as the CSV
+                           # importer's _num: non-finite is corruption, never data.
             if posted < fetch_cutoff:
                 continue
             desc = t.get("description") or t.get("payee") or ""
@@ -2158,10 +2165,13 @@ def next_deposit(txns=None, now=None):
     overrides = load_overrides()
     by = {}
     for t in txns:
-        amt = t.get("amount", 0) or 0
-        posted = t.get("posted") or 0
-        if amt <= 0 or not posted:
+        try:
+            amt = float(t.get("amount", 0) or 0)
+        except (TypeError, ValueError):
             continue
+        posted = t.get("posted") or 0
+        if amt <= 0 or not posted or not math.isfinite(amt):
+            continue   # NaN <= 0 is False — an old poisoned ledger row must not ride into the median
         key, is_inc, _tag = income_decision(t.get("description", ""), income_overrides, overrides)
         if not is_inc:
             continue

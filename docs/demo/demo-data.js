@@ -148,10 +148,10 @@
 
   var recurring = {
     recurring: [
-      { key: "adobe",   name: "Adobe Creative Cloud", amount: 54.99, months: 8, count: 8, avg_gap_days: 30, last: ts(6),  first: ts(220), recent: ts(6),  flag: "",        accounts: ["Rewards Card"],       descriptions: ["ADOBE CREATIVE CLOUD"], category: "subscriptions", tagged: true },
-      { key: "spotify", name: "Spotify",              amount: 11.99, months: 8, count: 8, avg_gap_days: 30, last: ts(12), first: ts(225), recent: ts(12), flag: "",        accounts: ["Everyday Checking"],  descriptions: ["SPOTIFY USA"],          category: "subscriptions", tagged: true },
-      { key: "gym",     name: "Neighborhood Gym",     amount: 16.00, months: 1, count: 1, avg_gap_days: 30, last: ts(4),  first: ts(4),   recent: ts(4),  flag: "new",     accounts: ["Everyday Checking"],  descriptions: ["RIVERSIDE FITNESS"],    category: "health",        tagged: false },
-      { key: "toggl",   name: "Toggl",                amount: 9.00,  months: 6, count: 6, avg_gap_days: 30, last: ts(9),  first: ts(170), recent: ts(9),  flag: "changed", accounts: ["Rewards Card"],       descriptions: ["TOGGL TRACK"],          category: "subscriptions", tagged: true },
+      { key: "adobe",   name: "Adobe Creative Cloud", amount: 54.99, months: 8, count: 8, avg_gap_days: 30, last: ts(6),  first: ts(220), recent: 54.99, flag: "",        accounts: ["Rewards Card"],       descriptions: ["ADOBE CREATIVE CLOUD"], category: "subscriptions", tagged: true },
+      { key: "spotify", name: "Spotify",              amount: 11.99, months: 8, count: 8, avg_gap_days: 30, last: ts(12), first: ts(225), recent: 11.99, flag: "",        accounts: ["Everyday Checking"],  descriptions: ["SPOTIFY USA"],          category: "subscriptions", tagged: true },
+      { key: "gym",     name: "Neighborhood Gym",     amount: 16.00, months: 1, count: 1, avg_gap_days: 30, last: ts(4),  first: ts(4),   recent: 16.00, flag: "new",     accounts: ["Everyday Checking"],  descriptions: ["RIVERSIDE FITNESS"],    category: "health",        tagged: false },
+      { key: "toggl",   name: "Toggl",                amount: 9.00,  months: 6, count: 6, avg_gap_days: 30, last: ts(9),  first: ts(170), recent: 10.99, flag: "changed", accounts: ["Rewards Card"],       descriptions: ["TOGGL TRACK"],          category: "subscriptions", tagged: true },
     ],
   };
 
@@ -218,7 +218,13 @@
     if (url.indexOf("data/monthly.json") !== -1) return J(monthly);
     if (url.indexOf("/api/ping") !== -1) return J({ ok: true });
     if (url.indexOf("/api/manual-account") !== -1) return J({ ok: false, error: "The demo keeps its own books — in your real cache this saves instantly." });
-    if (url.indexOf("/api/runway") !== -1) return J({ next_deposit: { key: "payroll", source: "Payroll Co", days: 4, amount: 900, ymd: iso.slice(0, 10), next: 0 } });
+    if (url.indexOf("/api/runway") !== -1) {
+      // a payday ~26 days out, so the demo's monthly subs (Adobe due ~24d, Spotify ~18d) land
+      // INSIDE the window and the runway sentence shows real play numbers, never a $0 shrug
+      var payday = new Date(Date.now() + 26 * 86400000);
+      var pymd = payday.getFullYear() + "-" + String(payday.getMonth() + 1).padStart(2, "0") + "-" + String(payday.getDate()).padStart(2, "0");
+      return J({ next_deposit: { key: "payroll", source: "Payroll Co", days: 26, amount: 900, ymd: pymd, next: Math.floor(payday.getTime() / 1000) } });
+    }
     if (url.indexOf("/api/annuals") !== -1) return J({ annuals: [
       { name: "Summit Card Annual Fee", key: "summit card annual fee", amount: 95, days: 21, confidence: "yearly", when: "Aug 18", last: 0, next: 0 },
       { name: "Domain Renewal", key: "domain renewal", amount: 24, days: 64, confidence: "maybe", when: "Sep 30", last: 0, next: 0 },
