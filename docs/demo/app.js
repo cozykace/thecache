@@ -319,6 +319,16 @@ const CADENCES = [
   { id: "quarterly", label: "quarterly", perYear: 4, abbr: "qtr" },
   { id: "yearly", label: "yearly", perYear: 1, abbr: "yr" },
 ];
+// subscription STATUS lifecycle (Finances portal): "" = active · "until" = cancelled but
+// paid through a date · "cancelled" = done. Stored per-sub in subs.json (a merge map →
+// syncs newest-per-key). An "until" whose date has passed DERIVES to cancelled — the file
+// is never rewritten by the passage of time, only read differently (non-destructive).
+function subStatus(key) {
+  const e = subEntry(key);
+  if (e.status === "cancelled") return "cancelled";
+  if (e.status === "until") return (e.until && e.until < todayKey()) ? "cancelled" : "until";
+  return "active";
+}
 function subCadence(key) { return subEntry(key).cadence || "monthly"; }
 function setSubCadence(key, val) { setSubField(key, "cadence", val); }
 function cadenceInfo(id) { return CADENCES.find((c) => c.id === id) || CADENCES[2]; }
@@ -6562,6 +6572,188 @@ function openManualAccounts() {
   render([]);
   fetch("data/balances.json?t=" + Date.now()).then((r) => (r.ok ? r.json() : {})).then((d) => render(d.accounts || [])).catch(() => {});
 }
+// ── 🐷 THE FINANCES PORTAL — one room to really work on your money ───────────
+// A full-screen surface (the calendar/messages pattern), opened by the fourth anchor
+// button. Not a widget and not a 13th area: the deep-work room where the month gets
+// managed — honest headlines up top, then WHAT NEEDS ATTENTION, this month's shape,
+// the recurring/subscriptions manager (status lifecycle + reorder + the real bank
+// evidence per row), and debt + what's coming. Entering quietly starts a SESSION:
+// a small corner timer banks real minutes into a "Finances" session (hardlinked to a
+// finances session you scheduled on the calendar today, if there is one — the plan
+// and the actual time stay one data point), and every second banks +1 EXP.
+function openFinances() {
+  if (document.getElementById("finSpace")) return;
+  const root = document.createElement("div"); root.id = "finSpace"; root.className = "daily-space fin-space";
+  document.body.appendChild(root);
+  const esc = (s) => escapeHtml(s == null ? "" : String(s));
+  let bal = {}, months = [], detected = [], deposits = [], others = [], annuals = [];
+  // ── the auto-session ──
+  let sessId = null, secs = 0, tick = null, banked = 0;
+  function findOrMakeSession() {
+    try {
+      const things = thingsVisible(loadThings());
+      const today = calThingsOnDay(things, todayKey());
+      const sched = (today.sessions || []).find((s) => /financ|money/i.test(s.title || ""));
+      if (sched) return sched.id;   // hardlink: the session you PLANNED is the one that logs
+      let mine = things.find((t) => t.type === "session" && t.title === "Finances" && !t.sched);
+      if (mine) return mine.id;
+      const now = Date.now(), id = thingId();
+      saveThings([{ id: id, type: "session", title: "Finances", emoji: "🐷", start: todayKey(), end: null,
+        allDay: 1, startTime: null, endTime: null, goalMins: null, area: null,
+        notes: "auto-logged from the Finances portal", sched: null, updated: now, ord: 0, ordAt: now,
+        deleted: 0, parent: null, routine: null }]);
+      return id;
+    } catch (e) { return null; }
+  }
+  function bankMinute() {
+    if (!sessId) return;
+    try {
+      const day = todayKey(), cur = thingAmountOn(loadLog(), sessId + ":time", day);
+      const q = (cur && cur.qty != null ? +cur.qty : 0) + 1;
+      logThingEvent(sessId + ":time", "habit", { value: { done: 1, qty: q, unit: "min" }, ts: day, root: sessId });
+    } catch (e) {}
+  }
+  function startTimer() {
+    sessId = findOrMakeSession();
+    const chip = () => { const el = root.querySelector(".fin-timer"); if (el) el.textContent = "⏱ " + String(Math.floor(secs / 60)).padStart(2, "0") + ":" + String(secs % 60).padStart(2, "0"); };
+    tick = setInterval(() => {
+      secs++; chip();
+      if (secs % 60 === 0) { bankMinute(); try { addExp(60); } catch (e) {} banked = secs; }   // a minute of real money-work: 60 seconds, 60 EXP
+    }, 1000);
+  }
+  function stopTimer() {
+    if (tick) clearInterval(tick); tick = null;
+    const rem = secs - banked;
+    if (rem > 0) { try { addExp(rem); } catch (e) {} }   // the leftover seconds still count
+    if (secs >= 30) { try { logChar("log", "Worked on finances · " + Math.max(1, Math.round(secs / 60)) + " min"); } catch (e) {} }
+  }
+  const close = () => { stopTimer(); document.removeEventListener("keydown", onKey); root.remove(); };
+  const onKey = (ev) => { if (ev.key === "Escape" && !document.querySelector(".cat-modal")) close(); };
+  document.addEventListener("keydown", onKey);
+  // ── data ──
+  function loadAll() {
+    const t = Date.now();
+    Promise.all([
+      fetch("data/balances.json?t=" + t).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      fetch("data/monthly.json?t=" + t).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      fetch("/api/recurring?t=" + t).then((r) => r.json()).catch(() => ({})),
+      fetch("/api/deposits?t=" + t).then((r) => r.json()).catch(() => ({})),
+      fetch("/api/other-merchants?t=" + t).then((r) => r.json()).catch(() => ({})),
+      fetch("/api/annuals?t=" + t).then((r) => r.json()).catch(() => ({})),
+    ]).then(([b, mo, rec, dep, om, ann]) => {
+      bal = b || {}; months = (mo && mo.months) || [];
+      detected = (rec && rec.recurring) || []; deposits = (dep && dep.deposits) || [];
+      others = (om && om.merchants) || []; annuals = (ann && ann.annuals) || [];
+      render();
+    });
+  }
+  // ── sections ──
+  const statCard = (label, val, sub2) => '<div class="fin-stat"><div class="fin-stat-l">' + label + '</div><div class="fin-stat-v">' + val + "</div>" + (sub2 ? '<div class="fin-stat-s">' + sub2 + "</div>" : "") + "</div>";
+  function headlines() {
+    const debt = -((bal.accounts || []).reduce((s, a) => s + Math.min(0, +a.balance || 0), 0));
+    const curYm = new Date().toISOString().slice(0, 7);
+    const cur = months.find((m) => m.ym === curYm) || {};
+    return '<div class="fin-stats">' +
+      statCard("total cash", fmtUSD(bal.cash || 0)) +
+      statCard("burn / day", fmtUSD(bal.burn_per_day || 0), "transfers excluded") +
+      statCard("this month", fmtUSD(cur.income || 0) + " in · " + fmtUSD(cur.spending || 0) + " out") +
+      (debt > 0 ? statCard("card debt", fmtUSD(debt), cur.interest ? "cost " + fmtUSD(cur.interest) + " so far" : "") : statCard("card debt", fmtUSD(0), "nothing feeding interest")) +
+    "</div>";
+  }
+  function queue() {
+    const untagged = deposits.filter((d) => !d.tagged).length;
+    const uncat = others.length;
+    const staleMan = (bal.accounts || []).filter((a) => a.manual && a.as_of && (Date.now() - new Date(a.as_of + "T00:00:00").getTime()) / 86400000 > 45).length;
+    const soon = annuals.filter((a) => a.days <= 30);
+    const rows = [];
+    if (untagged) rows.push('<button class="fin-q" data-q="income"><span class="fin-q-n">' + untagged + "</span> deposit source" + (untagged === 1 ? "" : "s") + " to mark income / ignore</button>");
+    if (uncat) rows.push('<button class="fin-q" data-q="cats"><span class="fin-q-n">' + uncat + "</span> merchant" + (uncat === 1 ? "" : "s") + " sitting in “other” — give them a home</button>");
+    if (staleMan) rows.push('<button class="fin-q" data-q="manual"><span class="fin-q-n">' + staleMan + "</span> manual account" + (staleMan === 1 ? "" : "s") + " with an aging balance — still right?</button>");
+    soon.forEach((a) => rows.push('<div class="fin-q fin-q-info">~' + esc(a.when) + " · " + esc(a.name) + " expected (~" + fmtUSD(a.amount) + ")</div>"));
+    return '<div class="fin-sec">needs a minute</div>' +
+      (rows.length ? '<div class="fin-queue">' + rows.join("") + "</div>" : '<div class="fin-clear">nothing waiting — the books are tidy ✨</div>');
+  }
+  function subsSection() {
+    const withOrd = (r) => { const o = subEntry(r.key).ord; return o != null ? +o : 1e6; };
+    const ordered = detected.slice().sort((a, b) => withOrd(a) - withOrd(b) || (b.amount - a.amount));
+    const rows = ordered.map((r, i) => {
+      const st = subStatus(r.key), nm = subName(r), e = subEntry(r.key);
+      const ago = r.last ? Math.round(Date.now() / 1000 / 86400 - r.last / 86400) : null;
+      const evidence = fmtUSD(r.amount) + "/" + cadenceAbbr(r.key) + " · " + (r.count || 0) + "× · " +
+        (ago != null ? "last " + ago + "d ago" : "no charge seen") + ((r.accounts || []).length ? " · " + esc((r.accounts || [])[0]) : "");
+      return '<div class="fin-sub' + (st !== "active" ? " " + st : "") + '" data-key="' + esc(r.key) + '">' +
+        '<span class="fin-sub-move"><button class="fin-up" data-i="' + i + '" aria-label="move up">↑</button><button class="fin-dn" data-i="' + i + '" aria-label="move down">↓</button></span>' +
+        '<span class="fin-sub-main"><span class="fin-sub-name">' + esc(nm) + '</span><span class="fin-sub-ev">' + evidence + "</span></span>" +
+        '<span class="fin-sub-ctl"><select class="fin-status" data-key="' + esc(r.key) + '" aria-label="status">' +
+          '<option value=""' + (!e.status ? " selected" : "") + ">active</option>" +
+          '<option value="until"' + (e.status === "until" ? " selected" : "") + ">active until…</option>" +
+          '<option value="cancelled"' + (e.status === "cancelled" ? " selected" : "") + ">cancelled</option>" +
+        "</select>" +
+        (e.status === "until" ? '<input type="date" class="fin-until" data-key="' + esc(r.key) + '" value="' + esc(e.until || "") + '" aria-label="paid through">' : "") +
+        (st === "until" && e.until ? '<span class="fin-sub-note">runs until ' + esc(e.until) + "</span>" : st === "cancelled" ? '<span class="fin-sub-note">done — watching for surprise charges</span>' : "") +
+        "</span></div>";
+    }).join("");
+    return '<div class="fin-sec">recurring & subscriptions <span class="fin-sec-note">every detected repeat-charge, with its real bank evidence</span></div>' +
+      (rows ? '<div class="fin-subs">' + rows + "</div>" : '<div class="fin-clear">no recurring charges detected yet</div>');
+  }
+  function aheadSection() {
+    if (!annuals.length) return "";
+    return '<div class="fin-sec">expected ahead</div><div class="fin-queue">' +
+      annuals.slice(0, 6).map((a) => '<div class="fin-q fin-q-info">~' + esc(a.when) + " · " + esc(a.name) +
+        (a.confidence === "maybe" ? " <i>might renew</i>" : "") + " · ~" + fmtUSD(a.amount) + "</div>").join("") + "</div>";
+  }
+  function render() {
+    const keep = root.querySelector(".td-scroll") ? root.querySelector(".td-scroll").scrollTop : 0;
+    root.innerHTML =
+      '<div class="daily-top"><button class="daily-icn" id="finClose" aria-label="close">✕</button>' +
+      '<div class="td-htitle">🐷 Finances</div><span class="fin-timer" title="this visit logs as a session — every second banks EXP">⏱ 00:00</span></div>' +
+      '<div class="td-scroll fin-scroll">' +
+        headlines() + queue() + subsSection() + aheadSection() +
+        '<div class="fin-foot">time in here banks into your “Finances” session — schedule one on the calendar and the portal logs into it automatically.</div>' +
+      "</div>";
+    const sc = root.querySelector(".td-scroll"); if (sc && keep) sc.scrollTop = keep;
+    root.querySelector("#finClose").addEventListener("click", close);
+    root.querySelectorAll(".fin-q[data-q]").forEach((b) => b.addEventListener("click", () => {
+      const q = b.dataset.q;
+      if (q === "cats") { try { openCategorizer(loadAll); } catch (e) {} }
+      else if (q === "manual") { try { openManualAccounts(); } catch (e) {} }
+      else if (q === "income") { try { openIncomeTagger(loadAll); } catch (e) { try { openCategorizer(loadAll); } catch (e2) {} } }
+    }));
+    root.querySelectorAll(".fin-status").forEach((s) => s.addEventListener("change", () => {
+      setSubField(s.dataset.key, "status", s.value || null);
+      if (s.value !== "until") setSubField(s.dataset.key, "until", null);
+      render();
+    }));
+    root.querySelectorAll(".fin-until").forEach((inp) => inp.addEventListener("change", () => {
+      setSubField(inp.dataset.key, "until", inp.value || null); render();
+    }));
+    // reorder — fractional ord so moving ONE sub stamps ONE key (the deck's lesson)
+    const orderNow = () => detected.slice().sort((a, b) => {
+      const oa = subEntry(a.key).ord, ob = subEntry(b.key).ord;
+      return ((oa != null ? +oa : 1e6) - (ob != null ? +ob : 1e6)) || (b.amount - a.amount);
+    });
+    const move = (i, dir) => {
+      const list2 = orderNow();
+      const j = i + dir;
+      if (j < 0 || j >= list2.length) return;
+      // first reorder ever: materialize EVERY row's position once — otherwise the moved row's
+      // small ord would sort above every default-1e6 row and teleport to the top
+      if (!list2.every((r) => subEntry(r.key).ord != null)) list2.forEach((r, idx) => setSubField(r.key, "ord", (idx + 1) * 10));
+      const of_ = (k) => +subEntry(k).ord;
+      const target = list2[j], beyond = list2[j + dir];
+      const mid = beyond ? (of_(target.key) + of_(beyond.key)) / 2 : of_(target.key) + dir * 20;
+      setSubField(list2[i].key, "ord", mid);   // fractional — moving ONE sub stamps ONE key (plus the one-time seed)
+      render();
+    };
+    root.querySelectorAll(".fin-up").forEach((b) => b.addEventListener("click", () => move(+b.dataset.i, -1)));
+    root.querySelectorAll(".fin-dn").forEach((b) => b.addEventListener("click", () => move(+b.dataset.i, +1)));
+    drawIcons();
+  }
+  render();
+  loadAll();
+  startTimer();
+}
+(function () { const b = document.getElementById("finBtn"); if (b) b.addEventListener("click", openFinances); })();
 // ── Accessibility ─────────────────────────────────────────────────────────
 // One small system: each need persists in localStorage → is applied as an
 // attribute on <html> → CSS and JS read it. To add a need: add a key here, an
@@ -14124,6 +14316,7 @@ const DOCK_DEFS = [
   { id: "msg", label: "Messages" },
   { id: "daily", label: "The deck (daily check-in)" },
   { id: "cal", label: "Calendar" },
+  { id: "fin", label: "Finances" },
   { id: "base", label: "The Base" },
   { id: "ledger", label: "Visualizer" },
   { id: "status", label: "Status" },
@@ -14176,6 +14369,10 @@ function applyDockConfig(dock) {
   // lands before the deck (order: [msg][＋][cal]).
   const msg = dock.querySelector('[data-dock="msg"]');
   if (msg) { msg.style.display = ""; dock.insertBefore(msg, dock.firstChild); }
+  // finances is the FOURTH anchor — pinned right after the calendar ([msg][＋][cal][🐷]),
+  // always visible: one tap into the money room on every device.
+  const fin = dock.querySelector('[data-dock="fin"]');
+  if (fin && cal) { fin.style.display = ""; cal.after(fin); }
 }
 function renderDockMenu() {
   const host = document.getElementById("dockMenu");
@@ -14183,7 +14380,7 @@ function renderDockMenu() {
   const hidden = dockHiddenSet(), f = favs();
   // the deck + calendar + messages can't be hidden — the day's three anchors. Server is
   // dropped where there's no local backend, so the menu can't offer a pill that never shows.
-  const defs = DOCK_DEFS.filter((d) => d.id !== "daily" && d.id !== "cal" && d.id !== "msg" && !(d.id === "server" && _noLocalBackend));
+  const defs = DOCK_DEFS.filter((d) => d.id !== "daily" && d.id !== "cal" && d.id !== "msg" && d.id !== "fin" && !(d.id === "server" && _noLocalBackend));
   if (autoPinOn()) defs.sort((a, b) => (f.has("dock:" + b.id) ? 1 : 0) - (f.has("dock:" + a.id) ? 1 : 0));
   host.innerHTML = defs.map((d) => {
     const on = !hidden.has(d.id), fav = f.has("dock:" + d.id);
@@ -14318,6 +14515,7 @@ function openClockSettings(anchor) {
     datetime: dt,
     period: pd,
     msg: document.getElementById("msgBtn"),
+    fin: document.getElementById("finBtn"),
     daily: document.getElementById("dailyBtn"),
     cal: document.getElementById("calBtn"),
     base: document.getElementById("baseBtn"),

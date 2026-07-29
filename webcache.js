@@ -875,8 +875,28 @@
           return J({ annuals: window.CacheMoney.annualPredictions(all2) });
         } catch (e) {}
       }
+      // subs decisions live in the vault's own file — serve THAT (the API bundle can lag it,
+      // and a web-only cache has no bundle at all; without this, every boot forgot your tags)
+      if (M === "GET" && key === "subs" && FILES["subs.json"] != null) {
+        try { return J({ ok: true, subs: JSON.parse(FILES["subs.json"]) || {} }); } catch (e) {}
+      }
       if (M === "GET" && API[key] != null) return J(API[key]);
       if (M === "GET") return J({ ok: true });
+      // subs WRITE (the Finances portal's status/order edits + the Money Map's toggles):
+      // the client posts the WHOLE map — diff it against the served copy so only the keys
+      // that actually changed queue as pending per-key edits (newest-per-key at push time)
+      if (M === "POST" && key === "subs") {
+        var sdata = {}; try { sdata = JSON.parse(body || "{}") || {}; } catch (e) {}
+        var next = (sdata && typeof sdata.subs === "object" && sdata.subs) || {};
+        var prev = {}; try { prev = JSON.parse(FILES["subs.json"] || "{}") || {}; } catch (e) {}
+        Object.keys(next).forEach(function (k) {
+          if (JSON.stringify(prev[k]) !== JSON.stringify(next[k])) _applyMapEdit("subs.json", k, next[k]);
+        });
+        Object.keys(prev).forEach(function (k) {
+          if (next[k] === undefined) _applyMapEdit("subs.json", k, null);   // untracked → key removed
+        });
+        return J({ ok: true, subs: next });
+      }
       // categorize + income tags WRITE here in the browser (see the pending-edits block above)
       if (M === "POST" && (key === "categorize" || key === "income") && window.CacheMoney) {
         var data = {}; try { data = JSON.parse(body || "{}") || {}; } catch (e) {}

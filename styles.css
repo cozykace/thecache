@@ -466,6 +466,48 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   padding: clamp(10px, 4cqmin, 16px) clamp(14px, 5cqmin, 20px);
 }
 .is-months .bd-head { padding: 0 2px; }
+/* ── 🐷 Finances portal ─────────────────────────────────────────────────── */
+.fin-scroll { padding: 14px clamp(14px, 4vw, 28px) 40px; }
+.fin-timer { font-family: var(--font-mono); font-size: 13px; color: rgba(var(--ink-rgb), 0.6);
+  padding: 6px 10px; border: 1px solid var(--edge-soft); border-radius: 999px; }
+.fin-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 6px 0 18px; }
+.fin-stat { border: 1px solid var(--edge-soft); border-radius: 14px; padding: 12px 14px; min-width: 0; }
+.fin-stat-l { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.5); }
+.fin-stat-v { font-size: clamp(17px, 4vw, 22px); font-weight: 700; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-stat-s { font-size: 11px; color: rgba(var(--ink-rgb), 0.5); margin-top: 2px; }
+.fin-sec { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 700;
+  color: rgba(var(--ink-rgb), 0.55); margin: 22px 0 8px; }
+.fin-sec-note { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; color: rgba(var(--ink-rgb), 0.4); margin-left: 6px; }
+.fin-queue { display: flex; flex-direction: column; gap: 8px; }
+.fin-q { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px; text-align: left;
+  border: 1px solid var(--edge-soft); border-radius: 12px; background: none; color: var(--ink);
+  font-family: inherit; font-size: 13.5px; cursor: pointer; }
+.fin-q:hover { border-color: var(--accent); }
+.fin-q-info { cursor: default; color: rgba(var(--ink-rgb), 0.7); }
+.fin-q-info:hover { border-color: var(--edge-soft); }
+.fin-q-n { font-weight: 700; color: var(--accent); }
+.fin-clear { font-size: 13px; color: rgba(var(--ink-rgb), 0.5); padding: 8px 2px; }
+.fin-subs { display: flex; flex-direction: column; gap: 8px; }
+.fin-sub { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--edge-soft); border-radius: 12px; }
+.fin-sub.cancelled { opacity: 0.55; }
+.fin-sub.until { border-style: dashed; }
+.fin-sub-move { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; }
+.fin-sub-move button { min-width: 30px; min-height: 21px; padding: 0; border: 1px solid var(--edge-soft); border-radius: 6px;
+  background: none; color: rgba(var(--ink-rgb), 0.6); font-size: 11px; cursor: pointer; }
+.fin-sub-move button:hover { color: var(--accent); border-color: var(--accent); }
+.fin-sub-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fin-sub-name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-sub-ev { font-size: 11px; color: rgba(var(--ink-rgb), 0.55); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-sub-ctl { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; flex: 0 0 auto; }
+.fin-status, .fin-until { font-family: inherit; font-size: 12px; min-height: 34px; padding: 4px 8px;
+  border: 1px solid var(--edge); border-radius: 9px; background: var(--panel); color: var(--ink); max-width: 130px; }
+.fin-sub-note { font-size: 10.5px; color: rgba(var(--ink-rgb), 0.5); }
+.fin-foot { margin-top: 26px; font-size: 11.5px; color: rgba(var(--ink-rgb), 0.45); line-height: 1.5; }
+@media (max-width: 560px) {   /* phone: the row stacks — evidence under name, controls full-width */
+  .fin-sub { flex-wrap: wrap; }
+  .fin-sub-ctl { flex-direction: row; width: 100%; justify-content: flex-end; }
+}
+
 /* Money Map · expected ahead (annual predictions) — calm, display-only rows */
 .mm-annual { align-items: baseline; gap: 8px; }
 .mm-an-when { flex: 0 0 auto; font-size: 11px; font-weight: 600; color: var(--accent); }
@@ -1298,6 +1340,21 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .ledger-pill.msg-cta svg { width: 22px; height: 22px; }
 .ledger-pill.msg-cta:hover { transform: scale(1.06); filter: none; }
 .ledger-pill.msg-cta:active {
+  transform: translateY(4px) scale(0.96);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0.28), inset 0 2px 8px rgba(0, 0, 0, 0.24);
+}
+/* the finances button: the fourth day-anchor — same circular 3-D press as its peers,
+   accent-filled like the calendar, told apart by the piggy bank. Opens the Finances portal. */
+.ledger-pill.fin-cta {
+  background: var(--accent); border: 1px solid var(--accent); color: var(--paper);
+  width: 48px; height: 48px; min-height: 48px; padding: 0; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.28), 0 6px 14px rgba(0, 0, 0, 0.16);
+  transition: transform 0.09s ease, box-shadow 0.09s ease;
+}
+.ledger-pill.fin-cta svg { width: 24px; height: 24px; }
+.ledger-pill.fin-cta:hover { transform: scale(1.06); filter: none; }
+.ledger-pill.fin-cta:active {
   transform: translateY(4px) scale(0.96);
   box-shadow: 0 0 0 rgba(0, 0, 0, 0.28), inset 0 2px 8px rgba(0, 0, 0, 0.24);
 }
