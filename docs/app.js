@@ -13891,52 +13891,52 @@ function openBrandActivity() {
   closeBrandActivity();
   const back = document.createElement("div"); back.className = "cat-backdrop"; back.id = "bkActBackdrop";
   back.addEventListener("pointerdown", (e) => { if (e.target === back) closeBrandActivity(); });
-  const modal = document.createElement("div"); modal.className = "cat-modal resizable bk-act-modal"; modal.id = "bkActModal";
+  const modal = document.createElement("div"); modal.className = "cat-modal resizable bkit-act-modal"; modal.id = "bkActModal";
   modal.innerHTML =
     '<div class="cat-head"><span>🎨 Brand kit activity</span><button class="cat-close" aria-label="Close">✕</button></div>' +
-    '<div class="cat-list bk-act-list"></div>';
+    '<div class="cat-list bkit-act-list"></div>';
   document.body.appendChild(back); document.body.appendChild(modal);   // the .cat-modal observer adds dialog semantics + Escape
   makeModalResizable(modal, "money.brandActModal");
   modal.querySelector(".cat-close").addEventListener("click", closeBrandActivity);
   brandkitPaintActivity();
 }
 function brandkitPaintActivity() {
-  const list = document.querySelector("#bkActModal .bk-act-list"); if (!list) return;
+  const list = document.querySelector("#bkActModal .bkit-act-list"); if (!list) return;
   const log = brandkitGet().log.slice().reverse();   // newest first
   list.innerHTML = log.length
-    ? log.map((e) => '<div class="bk-ev"><span class="bk-ev-d"><b>' + escapeHtml(e.byName || "a founder") + "</b> " + escapeHtml(e.action || "") + "</span>" +
-        '<span class="bk-ev-t">' + (typeof agoStr === "function" ? agoStr(+e.at || 0) : "") + "</span></div>").join("")
+    ? log.map((e) => '<div class="bkit-ev"><span class="bkit-ev-d"><b>' + escapeHtml(e.byName || "a founder") + "</b> " + escapeHtml(e.action || "") + "</span>" +
+        '<span class="bkit-ev-t">' + (typeof agoStr === "function" ? agoStr(+e.at || 0) : "") + "</span></div>").join("")
     : '<div class="char-empty">No changes yet. Every edit any founder makes lands here, attributed.</div>';
 }
 // ── the widget itself (founder-gated in renderLibrary; ALSO defensively no-ops here) ──
 RENDERERS.brandkit = function (el, entry) {
   el.classList.add("is-brandkit");
   if (!isFounder()) {
-    el.innerHTML = '<div class="bk-locked"><i data-lucide="lock"></i><p>The Brand Kit is a founder-only surface.</p></div>';
+    el.innerHTML = '<div class="bkit-locked"><i data-lucide="lock"></i><p>The Brand Kit is a founder-only surface.</p></div>';
     try { localStorage.removeItem(BRANDKIT_KEY); } catch (e) {}   // don't leave the mirror on a shared, non-founder browser
     brandkitRevertLive(); drawIcons();
     return;
   }
   el.innerHTML =
-    '<div class="bk-wrap">' +
-      '<div class="bk-status" data-bk="status">local only</div>' +
-      '<div class="bk-sec">Theme tokens</div>' +
-      '<div class="bk-tokens" data-bk="tokens"></div>' +
-      '<label class="bk-apply"><input type="checkbox" data-bk="apply"><span>Apply to my app</span></label>' +
-      '<div class="bk-sec">Palette<button class="bk-add" data-bk="add-pal" title="Add colour" aria-label="Add colour">+</button></div>' +
-      '<div class="bk-list" data-bk="palette"></div>' +
-      '<div class="bk-sec">Type<button class="bk-add" data-bk="add-type" title="Add typeface" aria-label="Add typeface">+</button></div>' +
-      '<div class="bk-list" data-bk="type"></div>' +
-      '<div class="bk-sec">Logos<label class="bk-add bk-upload" title="Upload a logo" aria-label="Upload a logo">+<input type="file" accept="image/*" data-bk="logo-file" hidden></label></div>' +
-      '<div class="bk-logos" data-bk="logos"></div>' +
-      '<div class="bk-sec">Notes</div>' +
-      '<textarea class="bk-notes" data-bk="notes" placeholder="Brand voice, do &amp; don\'t, usage rules…"></textarea>' +
-      '<div class="bk-sec">Founders<button class="bk-add" data-bk="add-founder" title="Add a founder" aria-label="Add a founder">+</button></div>' +
-      '<div class="bk-roster" data-bk="roster"></div>' +
-      '<div class="bk-foot">' +
-        '<button class="bk-btn" data-bk="activity"><i data-lucide="history"></i>Activity</button>' +
-        '<button class="bk-btn" data-bk="copycss"><i data-lucide="clipboard-copy"></i>Copy CSS</button>' +
-        '<button class="bk-btn" data-bk="tokensjson"><i data-lucide="download"></i>tokens.json</button>' +
+    '<div class="bkit-wrap">' +
+      '<div class="bkit-status" data-bk="status">local only</div>' +
+      '<div class="bkit-sec">Theme tokens</div>' +
+      '<div class="bkit-tokens" data-bk="tokens"></div>' +
+      '<label class="bkit-apply"><input type="checkbox" data-bk="apply"><span>Apply to my app</span></label>' +
+      '<div class="bkit-sec">Palette<button class="bkit-add" data-bk="add-pal" title="Add colour" aria-label="Add colour">+</button></div>' +
+      '<div class="bkit-list" data-bk="palette"></div>' +
+      '<div class="bkit-sec">Type<button class="bkit-add" data-bk="add-type" title="Add typeface" aria-label="Add typeface">+</button></div>' +
+      '<div class="bkit-list" data-bk="type"></div>' +
+      '<div class="bkit-sec">Logos<label class="bkit-add bkit-upload" title="Upload a logo" aria-label="Upload a logo">+<input type="file" accept="image/*" data-bk="logo-file" hidden></label></div>' +
+      '<div class="bkit-logos" data-bk="logos"></div>' +
+      '<div class="bkit-sec">Notes</div>' +
+      '<textarea class="bkit-notes" data-bk="notes" placeholder="Brand voice, do &amp; don\'t, usage rules…"></textarea>' +
+      '<div class="bkit-sec">Founders<button class="bkit-add" data-bk="add-founder" title="Add a founder" aria-label="Add a founder">+</button></div>' +
+      '<div class="bkit-roster" data-bk="roster"></div>' +
+      '<div class="bkit-foot">' +
+        '<button class="bkit-btn" data-bk="activity"><i data-lucide="history"></i>Activity</button>' +
+        '<button class="bkit-btn" data-bk="copycss"><i data-lucide="clipboard-copy"></i>Copy CSS</button>' +
+        '<button class="bkit-btn" data-bk="tokensjson"><i data-lucide="download"></i>tokens.json</button>' +
       '</div>' +
     '</div>';
   const q = (s) => el.querySelector('[data-bk="' + s + '"]');
@@ -13952,38 +13952,38 @@ RENDERERS.brandkit = function (el, entry) {
   function paintTokens(st) {
     const wrap = q("tokens"); if (!wrap) return;
     const t = st.tokens || {};
-    const row = (key, label) => '<label class="bk-token"><span>' + label + '</span>' +
+    const row = (key, label) => '<label class="bkit-token"><span>' + label + '</span>' +
       '<input type="color" data-bk-token="' + key + '" value="' + (isHex(t[key]) ? t[key] : BK_TOKEN_FALLBACK[key]) + '"></label>';
     const fontOpts = (typeof FONTS !== "undefined" ? FONTS : []).map((f) =>
       '<option value="' + esc(f.stack) + '"' + ((t.font || "") === f.stack ? " selected" : "") + ">" + esc(f.label) + "</option>").join("");
     wrap.innerHTML = row("ink", "Ink") + row("paper", "Paper") + row("panel", "Panel") + row("accent", "Accent") +
-      '<label class="bk-token bk-token-font"><span>Font</span><select data-bk-token="font"><option value="">— keep —</option>' + fontOpts + "</select></label>";
+      '<label class="bkit-token bkit-token-font"><span>Font</span><select data-bk-token="font"><option value="">— keep —</option>' + fontOpts + "</select></label>";
   }
   function paintList(section, mapper) {
     const wrap = q(section); if (!wrap) return;
     const live = (brandkitGet()[section] || []).filter((i) => i && !i.deleted);
     wrap.innerHTML = live.length ? live.map((it) =>
-      '<div class="bk-row" data-row="' + esc(it.id) + '">' + mapper(it) +
-        '<button class="bk-del" data-bk="del" data-section="' + section + '" data-id="' + esc(it.id) + '" title="Remove" aria-label="Remove">✕</button></div>').join("")
-      : '<div class="bk-empty">none yet</div>';
+      '<div class="bkit-row" data-row="' + esc(it.id) + '">' + mapper(it) +
+        '<button class="bkit-del" data-bk="del" data-section="' + section + '" data-id="' + esc(it.id) + '" title="Remove" aria-label="Remove">✕</button></div>').join("")
+      : '<div class="bkit-empty">none yet</div>';
   }
   function paintLogos(st) {
     const wrap = q("logos"); if (!wrap) return;
     const live = (st.logos || []).filter((i) => i && !i.deleted);
     wrap.innerHTML = live.length ? live.map((it) =>
-      '<div class="bk-logo" data-row="' + esc(it.id) + '">' +
+      '<div class="bkit-logo" data-row="' + esc(it.id) + '">' +
         '<img alt="' + esc(it.name || "logo") + '" src="' + esc(it.data || "") + '">' +
-        '<span class="bk-logo-name">' + esc(it.name || "") + "</span>" +
-        '<button class="bk-del" data-bk="del" data-section="logos" data-id="' + esc(it.id) + '" title="Remove" aria-label="Remove">✕</button></div>').join("")
-      : '<div class="bk-empty">no logos yet — tap ＋ to add one</div>';
+        '<span class="bkit-logo-name">' + esc(it.name || "") + "</span>" +
+        '<button class="bkit-del" data-bk="del" data-section="logos" data-id="' + esc(it.id) + '" title="Remove" aria-label="Remove">✕</button></div>').join("")
+      : '<div class="bkit-empty">no logos yet — tap ＋ to add one</div>';
   }
   function paintRoster() {
     const wrap = q("roster"); if (!wrap) return;
     brandkitRoster().then((list) => {
       if (!document.body.contains(wrap)) return;
       wrap.innerHTML = list.length
-        ? list.map((m) => '<div class="bk-founder">' + esc(m.name || (m.handle ? "@" + m.handle : m.uid)) + (m.handle ? ' <span class="bk-founder-h">@' + esc(m.handle) + "</span>" : "") + "</div>").join("")
-        : '<div class="bk-empty">' + (_bkShared.ok ? "just you so far" : "sharing not set up yet — this kit is local to this device") + "</div>";
+        ? list.map((m) => '<div class="bkit-founder">' + esc(m.name || (m.handle ? "@" + m.handle : m.uid)) + (m.handle ? ' <span class="bkit-founder-h">@' + esc(m.handle) + "</span>" : "") + "</div>").join("")
+        : '<div class="bkit-empty">' + (_bkShared.ok ? "just you so far" : "sharing not set up yet — this kit is local to this device") + "</div>";
     }).catch(() => {});
   }
   function paint() {
@@ -13992,11 +13992,11 @@ RENDERERS.brandkit = function (el, entry) {
     const ap = q("apply"); if (ap) ap.checked = brandkitApplyOn();
     paintTokens(st);
     paintList("palette", (it) =>
-      '<input class="bk-color" type="color" value="' + (isHex(it.hex) ? it.hex : "#000000") + '" data-id="' + esc(it.id) + '" data-field="hex">' +
-      '<input class="bk-txt" value="' + esc(it.name || "") + '" placeholder="name" data-id="' + esc(it.id) + '" data-field="name">');
+      '<input class="bkit-color" type="color" value="' + (isHex(it.hex) ? it.hex : "#000000") + '" data-id="' + esc(it.id) + '" data-field="hex">' +
+      '<input class="bkit-txt" value="' + esc(it.name || "") + '" placeholder="name" data-id="' + esc(it.id) + '" data-field="name">');
     paintList("type", (it) =>
-      '<input class="bk-txt" value="' + esc(it.label || "") + '" placeholder="label (e.g. Headings)" data-id="' + esc(it.id) + '" data-field="label">' +
-      '<input class="bk-txt bk-txt-wide" value="' + esc(it.stack || "") + '" placeholder="font stack / name" data-id="' + esc(it.id) + '" data-field="stack">');
+      '<input class="bkit-txt" value="' + esc(it.label || "") + '" placeholder="label (e.g. Headings)" data-id="' + esc(it.id) + '" data-field="label">' +
+      '<input class="bkit-txt bkit-txt-wide" value="' + esc(it.stack || "") + '" placeholder="font stack / name" data-id="' + esc(it.id) + '" data-field="stack">');
     paintLogos(st);
     const nt = q("notes"); if (nt && document.activeElement !== nt) nt.value = st.notes || "";
     paintRoster();
@@ -14008,13 +14008,13 @@ RENDERERS.brandkit = function (el, entry) {
   function delItem(section, id, action) { brandkitEdit((st) => { const it = (st[section] || []).find((x) => x && x.id === id); if (it) { it.deleted = 1; it.updated = Date.now(); } }, action); }
   // ── events (delegated) ──
   el.addEventListener("input", (e) => {
-    const t = e.target, list = t.closest(".bk-list");
+    const t = e.target, list = t.closest(".bkit-list");
     if (list && t.matches("[data-field]")) editItem(list.dataset.bk, t.dataset.id, (it) => { it[t.dataset.field] = t.value; });
-    else if (t.matches(".bk-notes")) { clearTimeout(el._bkNotesT); const v = t.value; el._bkNotesT = setTimeout(() => brandkitEdit((st) => { st.notes = v; st.notesAt = Date.now(); }), 500); }
+    else if (t.matches(".bkit-notes")) { clearTimeout(el._bkNotesT); const v = t.value; el._bkNotesT = setTimeout(() => brandkitEdit((st) => { st.notes = v; st.notesAt = Date.now(); }), 500); }
     else if (t.matches("[data-bk-token]")) applyTokenLive(t.dataset.bkToken, t.value);
   });
   el.addEventListener("change", (e) => {
-    const t = e.target, list = t.closest(".bk-list");
+    const t = e.target, list = t.closest(".bkit-list");
     if (t.matches("[data-bk-token]")) brandkitEdit((st) => { st.tokens = Object.assign({}, st.tokens, { [t.dataset.bkToken]: t.value }); st.tokensAt = Date.now(); }, "updated the " + t.dataset.bkToken + " token");
     else if (list && t.matches("[data-field]")) brandkitEdit((st) => {}, "edited a " + list.dataset.bk + " item");
     else if (t.matches('[data-bk="apply"]')) { brandkitSetApply(t.checked); brandkitEdit((st) => {}, t.checked ? "turned Apply-to-my-app on (this device)" : "turned Apply-to-my-app off (this device)"); }
@@ -14054,9 +14054,9 @@ RENDERERS.brandkit = function (el, entry) {
   }
   function openAddFounder() {
     const wrap = q("roster"); if (!wrap) return;
-    wrap.innerHTML = '<div class="bk-addf"><input class="bk-txt" placeholder="@handle" data-bk="founder-handle"><button class="bk-btn" data-bk="founder-go">Add</button><button class="bk-btn ghost" data-bk="founder-cancel">Cancel</button><div class="bk-addf-msg"></div></div>';
+    wrap.innerHTML = '<div class="bkit-addf"><input class="bkit-txt" placeholder="@handle" data-bk="founder-handle"><button class="bkit-btn" data-bk="founder-go">Add</button><button class="bkit-btn ghost" data-bk="founder-cancel">Cancel</button><div class="bkit-addf-msg"></div></div>';
     const inp = wrap.querySelector('[data-bk="founder-handle"]'); if (inp) inp.focus();
-    const msg = wrap.querySelector(".bk-addf-msg");
+    const msg = wrap.querySelector(".bkit-addf-msg");
     wrap.querySelector('[data-bk="founder-cancel"]').addEventListener("click", paintRoster);
     wrap.querySelector('[data-bk="founder-go"]').addEventListener("click", async () => {
       const raw = (inp && inp.value) || ""; if (!raw.trim()) return;

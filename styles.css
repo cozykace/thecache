@@ -3628,62 +3628,62 @@ textarea.ff-in { min-height: 88px; resize: vertical; line-height: 1.5; }
    Theme-aware CSS vars only. Mobile SOP: ≥44px hit areas, fluid widths,
    no hover-only reveals; the widget adapts to its OWN width (container query). */
 .is-brandkit { padding: 0; overflow: hidden; }
-.bk-wrap { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 8px; -webkit-overflow-scrolling: touch; }
-.bk-locked { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: rgba(var(--ink-rgb), 0.55); text-align: center; padding: 20px; }
-.bk-locked svg { width: 22px; height: 22px; opacity: 0.7; }
-.bk-locked p { font-size: 12.5px; margin: 0; }
-.bk-status { align-self: flex-start; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--edge-soft); color: rgba(var(--ink-rgb), 0.55); }
-.bk-status.on { color: var(--accent); border-color: var(--accent); }
-.bk-sec { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.6); font-family: var(--font-mono); }
-.bk-add { flex: 0 0 auto; min-width: 28px; height: 28px; border: 1px solid var(--edge); background: transparent; color: var(--ink); border-radius: 8px; font-size: 17px; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; position: relative; }
-.bk-add::before { content: ""; position: absolute; inset: -9px; }   /* pad the hit area to ~44px without growing the glyph (mobile SOP) */
-.bk-add:hover { border-color: var(--accent); color: var(--accent); }
-.bk-upload { overflow: hidden; }
-.bk-tokens { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
-.bk-token { display: flex; align-items: center; gap: 8px; font-size: 12px; min-width: 0; }
-.bk-token > span { flex: 0 0 auto; color: rgba(var(--ink-rgb), 0.7); }
-.bk-token input[type="color"] { flex: 0 0 auto; width: 36px; height: 30px; padding: 0; border: 1px solid var(--edge); border-radius: 8px; background: transparent; cursor: pointer; }
-.bk-token select { flex: 1; min-width: 0; }
-.bk-token-font { grid-column: 1 / -1; }
-.bk-apply { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--ink); cursor: pointer; padding: 6px 0; min-height: 34px; }
-.bk-apply input { width: 18px; height: 18px; accent-color: var(--accent); flex: 0 0 auto; }
-.bk-list { display: flex; flex-direction: column; gap: 6px; }
-.bk-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.bk-row input[type="color"], .bk-color { flex: 0 0 auto; width: 34px; height: 30px; padding: 0; border: 1px solid var(--edge); border-radius: 8px; background: transparent; cursor: pointer; }
-.bk-txt, .bk-notes { width: 100%; min-width: 0; font: inherit; font-size: 12.5px; color: var(--ink); background: rgba(var(--ink-rgb), 0.04); border: 1px solid var(--edge-soft); border-radius: 8px; padding: 7px 9px; }
-.bk-txt { flex: 1; }
-.bk-txt-wide { flex: 2; }
-.bk-txt:focus, .bk-notes:focus { outline: none; border-color: var(--accent); }
-.bk-del { flex: 0 0 auto; border: none; background: none; color: rgba(var(--ink-rgb), 0.4); font-size: 13px; cursor: pointer; position: relative; width: 22px; height: 22px; line-height: 1; border-radius: 6px; }
-.bk-del::before { content: ""; position: absolute; inset: -11px; }   /* ~44px hit area around a 22px glyph */
-.bk-del:hover { color: var(--accent); }
-.bk-empty { font-size: 11.5px; font-style: italic; color: rgba(var(--ink-rgb), 0.45); padding: 2px 0; }
-.bk-logos { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 8px; }
-.bk-logo { position: relative; border: 1px solid var(--edge-soft); border-radius: 10px; padding: 8px 6px 5px; display: flex; flex-direction: column; align-items: center; gap: 4px; background: rgba(var(--ink-rgb), 0.03); }
-.bk-logo img { max-width: 100%; max-height: 46px; object-fit: contain; }
-.bk-logo-name { font-size: 10px; color: rgba(var(--ink-rgb), 0.55); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bk-logo .bk-del { position: absolute; top: 2px; right: 2px; }
-.bk-notes { resize: vertical; min-height: 60px; }
-.bk-roster { display: flex; flex-direction: column; gap: 4px; }
-.bk-founder { font-size: 12.5px; color: var(--ink); padding: 3px 0; }
-.bk-founder-h { color: rgba(var(--ink-rgb), 0.5); font-family: var(--font-mono); font-size: 11px; }
-.bk-addf { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.bk-addf .bk-txt { flex: 1 1 120px; }
-.bk-addf-msg { flex-basis: 100%; font-size: 11px; color: rgba(var(--ink-rgb), 0.55); }
-.bk-foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--edge-soft); }
-.bk-btn { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 11.5px; color: var(--ink); background: rgba(var(--ink-rgb), 0.04); border: 1px solid var(--edge-soft); border-radius: 8px; padding: 8px 10px; min-height: 34px; cursor: pointer; }
-.bk-btn:hover { border-color: var(--accent); color: var(--accent); }
-.bk-btn.ghost { background: none; }
-.bk-btn svg { width: 14px; height: 14px; }
+.bkit-wrap { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 8px; -webkit-overflow-scrolling: touch; }
+.bkit-locked { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: rgba(var(--ink-rgb), 0.55); text-align: center; padding: 20px; }
+.bkit-locked svg { width: 22px; height: 22px; opacity: 0.7; }
+.bkit-locked p { font-size: 12.5px; margin: 0; }
+.bkit-status { align-self: flex-start; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--edge-soft); color: rgba(var(--ink-rgb), 0.55); }
+.bkit-status.on { color: var(--accent); border-color: var(--accent); }
+.bkit-sec { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(var(--ink-rgb), 0.6); font-family: var(--font-mono); }
+.bkit-add { flex: 0 0 auto; min-width: 28px; height: 28px; border: 1px solid var(--edge); background: transparent; color: var(--ink); border-radius: 8px; font-size: 17px; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; position: relative; }
+.bkit-add::before { content: ""; position: absolute; inset: -9px; }   /* pad the hit area to ~44px without growing the glyph (mobile SOP) */
+.bkit-add:hover { border-color: var(--accent); color: var(--accent); }
+.bkit-upload { overflow: hidden; }
+.bkit-tokens { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.bkit-token { display: flex; align-items: center; gap: 8px; font-size: 12px; min-width: 0; }
+.bkit-token > span { flex: 0 0 auto; color: rgba(var(--ink-rgb), 0.7); }
+.bkit-token input[type="color"] { flex: 0 0 auto; width: 36px; height: 30px; padding: 0; border: 1px solid var(--edge); border-radius: 8px; background: transparent; cursor: pointer; }
+.bkit-token select { flex: 1; min-width: 0; }
+.bkit-token-font { grid-column: 1 / -1; }
+.bkit-apply { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--ink); cursor: pointer; padding: 6px 0; min-height: 34px; }
+.bkit-apply input { width: 18px; height: 18px; accent-color: var(--accent); flex: 0 0 auto; }
+.bkit-list { display: flex; flex-direction: column; gap: 6px; }
+.bkit-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bkit-row input[type="color"], .bkit-color { flex: 0 0 auto; width: 34px; height: 30px; padding: 0; border: 1px solid var(--edge); border-radius: 8px; background: transparent; cursor: pointer; }
+.bkit-txt, .bkit-notes { width: 100%; min-width: 0; font: inherit; font-size: 12.5px; color: var(--ink); background: rgba(var(--ink-rgb), 0.04); border: 1px solid var(--edge-soft); border-radius: 8px; padding: 7px 9px; }
+.bkit-txt { flex: 1; }
+.bkit-txt-wide { flex: 2; }
+.bkit-txt:focus, .bkit-notes:focus { outline: none; border-color: var(--accent); }
+.bkit-del { flex: 0 0 auto; border: none; background: none; color: rgba(var(--ink-rgb), 0.4); font-size: 13px; cursor: pointer; position: relative; width: 22px; height: 22px; line-height: 1; border-radius: 6px; }
+.bkit-del::before { content: ""; position: absolute; inset: -11px; }   /* ~44px hit area around a 22px glyph */
+.bkit-del:hover { color: var(--accent); }
+.bkit-empty { font-size: 11.5px; font-style: italic; color: rgba(var(--ink-rgb), 0.45); padding: 2px 0; }
+.bkit-logos { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 8px; }
+.bkit-logo { position: relative; border: 1px solid var(--edge-soft); border-radius: 10px; padding: 8px 6px 5px; display: flex; flex-direction: column; align-items: center; gap: 4px; background: rgba(var(--ink-rgb), 0.03); }
+.bkit-logo img { max-width: 100%; max-height: 46px; object-fit: contain; }
+.bkit-logo-name { font-size: 10px; color: rgba(var(--ink-rgb), 0.55); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bkit-logo .bkit-del { position: absolute; top: 2px; right: 2px; }
+.bkit-notes { resize: vertical; min-height: 60px; }
+.bkit-roster { display: flex; flex-direction: column; gap: 4px; }
+.bkit-founder { font-size: 12.5px; color: var(--ink); padding: 3px 0; }
+.bkit-founder-h { color: rgba(var(--ink-rgb), 0.5); font-family: var(--font-mono); font-size: 11px; }
+.bkit-addf { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bkit-addf .bkit-txt { flex: 1 1 120px; }
+.bkit-addf-msg { flex-basis: 100%; font-size: 11px; color: rgba(var(--ink-rgb), 0.55); }
+.bkit-foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--edge-soft); }
+.bkit-btn { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 11.5px; color: var(--ink); background: rgba(var(--ink-rgb), 0.04); border: 1px solid var(--edge-soft); border-radius: 8px; padding: 8px 10px; min-height: 34px; cursor: pointer; }
+.bkit-btn:hover { border-color: var(--accent); color: var(--accent); }
+.bkit-btn.ghost { background: none; }
+.bkit-btn svg { width: 14px; height: 14px; }
 /* the resizable, attributed activity dialog (reuses .cat-modal.resizable) */
-.bk-act-modal .bk-act-list { padding: 6px 16px 16px; }
-.bk-ev { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--edge-soft); font-size: 12.5px; }
-.bk-ev:last-child { border-bottom: none; }
-.bk-ev-d { flex: 1; color: var(--ink); line-height: 1.45; }
-.bk-ev-d b { color: var(--accent); font-weight: 600; }
-.bk-ev-t { flex: 0 0 auto; color: rgba(var(--ink-rgb), 0.45); font-size: 10.5px; white-space: nowrap; }
+.bkit-act-modal .bkit-act-list { padding: 6px 16px 16px; }
+.bkit-ev { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--edge-soft); font-size: 12.5px; }
+.bkit-ev:last-child { border-bottom: none; }
+.bkit-ev-d { flex: 1; color: var(--ink); line-height: 1.45; }
+.bkit-ev-d b { color: var(--accent); font-weight: 600; }
+.bkit-ev-t { flex: 0 0 auto; color: rgba(var(--ink-rgb), 0.45); font-size: 10.5px; white-space: nowrap; }
 /* narrow widget → stack the wide type row so nothing overflows its own box */
 @container (max-width: 300px) {
-  .bk-row { flex-wrap: wrap; }
-  .bk-txt-wide { flex-basis: 100%; }
+  .bkit-row { flex-wrap: wrap; }
+  .bkit-txt-wide { flex-basis: 100%; }
 }
