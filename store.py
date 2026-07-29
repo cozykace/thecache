@@ -405,6 +405,12 @@ def save_account_role(acct_id, role):
         m.pop(key, None)   # "auto" → back to the name-based guess
     _write(ROLES, m)
     _stamp_map("account_roles.json", before, m)
+    if before != m:
+        # a role edit changes what every device derives (spendable, the balance split) —
+        # bump rev so their stamp-keyed widgets re-pull instead of going quietly stale
+        bal = _read(BALANCES, {})
+        bal["rev"] = _next_rev(bal)
+        _write(BALANCES, bal)
     return m
 
 

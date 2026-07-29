@@ -231,6 +231,7 @@ let SUBS = {};  // { merchantKey: { mustpay, cadence, paused, name } }
 let _subsSaveTimer = null;
 let _subsLoaded = false;  // the server's map has actually been seen — POSTing before then could wipe it
 let _subsDirty = false;   // an edit is awaiting persistence (retries on next edit / backend recovery)
+const _subsDirtyKeys = new Set();   // WHICH subs this session actually touched — the only keys allowed to override a fresher server map (2026-07-29 cache review: overlaying the whole stale map reverted peer devices' decisions)
 function subEntry(key) { return SUBS[key] || {}; }
 function saveSubs() {
   _subsDirty = true;
@@ -246,7 +247,7 @@ function pushSubs() {
     .then((r) => { if (!r.ok) throw new Error("save failed"); return r.json(); })
     .then((d) => {
       if (d && d.ok === false) { flash(d.error || "read-only here — edit on the desktop app"); return; }   // hosted web mirror answers 200 {ok:false}
-      if (!_subsSaveTimer) _subsDirty = false;   // a timer at resolve time = a NEWER edit queued mid-flight — keep it dirty so recovery retries it
+      if (!_subsSaveTimer) { _subsDirty = false; _subsDirtyKeys.clear(); }   // a timer at resolve time = a NEWER edit queued mid-flight — keep it dirty so recovery retries it
       autoPushSoon();
     })
     .catch(() => { flash("couldn't save — backend down? click the server light"); });
@@ -254,7 +255,13 @@ function pushSubs() {
   // never saw the server's map — pull it and merge (local edits win per-key) so we can't clobber
   return fetch("/api/subs?t=" + Date.now())
     .then((r) => { if (!r.ok) throw new Error("load failed"); return r.json(); })
-    .then((d) => { SUBS = Object.assign({}, (d && d.subs) || {}, SUBS); _subsLoaded = true; })
+    .then((d) => {
+      const mine = {};
+      _subsDirtyKeys.forEach((k) => { if (k in SUBS) mine[k] = SUBS[k]; });
+      SUBS = Object.assign({}, (d && d.subs) || {}, mine);   // fresh server truth + only OUR unsaved keys
+      _subsDirtyKeys.forEach((k) => { if (!(k in mine)) delete SUBS[k]; });
+      _subsLoaded = true;
+    })
     .then(post)
     .catch(() => { flash("couldn't save — backend down? click the server light"); });
 }
@@ -272,13 +279,37 @@ function setSubField(key, field, value) {
   const isDefault = value === false || value == null || value === "" || (field === "cadence" && value === "monthly");
   if (isDefault) delete e[field]; else e[field] = value;
   if (!Object.keys(e).length) delete SUBS[key];  // keep the file tidy — no empty entries
+  _subsDirtyKeys.add(key);   // this key is OURS to defend in a merge; every other key defers to the server
   saveSubs();
+}
+// A cross-device merge just adopted a peer's subs decisions into the backend — the in-memory
+// SUBS cache is now STALE, and the next whole-map POST would stamp the stale copy as newest,
+// silently reverting the peer's edits. Re-pull, overlaying ONLY this session's unsaved keys.
+function subsAdoptFromServer() {
+  _subsLoaded = false;
+  return fetch("/api/subs?t=" + Date.now())
+    .then((r) => { if (!r.ok) throw new Error("subs re-pull failed"); return r.json(); })
+    .then((d) => {
+      const fresh = (d && d.subs) || {};
+      const mine = {};
+      _subsDirtyKeys.forEach((k) => { if (k in SUBS) mine[k] = SUBS[k]; });
+      SUBS = Object.assign({}, fresh, mine);
+      _subsDirtyKeys.forEach((k) => { if (!(k in mine)) delete SUBS[k]; });   // an unsaved local delete stays deleted
+      _subsLoaded = true;
+      if (_subsDirty) pushSubs();
+    })
+    .catch(() => {});   // stays un-loaded → the pushSubs pull-and-merge guard covers the next edit
 }
 function loadSubs() {
   return fetch("/api/subs?t=" + Date.now())
     .then((r) => { if (!r.ok) throw new Error("subs load failed"); return r.json(); })  // a 500 is a FAILURE, not an empty map
     .then((d) => {
-      SUBS = Object.assign({}, (d && d.subs) || {}, SUBS);   // edits made before the load finished win
+      // only the keys THIS session touched may override the server (pre-load edits are all
+      // dirty-marked); overlaying the whole in-memory map could revert another device's edits
+      const mine = {};
+      _subsDirtyKeys.forEach((k) => { if (k in SUBS) mine[k] = SUBS[k]; });
+      SUBS = Object.assign({}, (d && d.subs) || {}, mine);
+      _subsDirtyKeys.forEach((k) => { if (!(k in mine)) delete SUBS[k]; });
       _subsLoaded = true;
       if (!Object.keys(SUBS).length && localStorage.getItem("money.subsMigrated") !== "1") migrateLocalSubs();
       localStorage.setItem("money.subsMigrated", "1");
@@ -477,12 +508,20 @@ function acctType(name) {
 // (newest-per-key, synced) so both devices agree. Role wins; absent → the name guess.
 // "untouchable" and "long" are real money that is NOT money-to-spend: acctSetAside() feeds
 // Safe-to-spend, the portal headline, and the runway verdict.
-let _acctRoles = {};
+let _acctRoles = {}, _acctRolesStr = "{}";
 function fetchAcctRoles() {
+  // resolves TRUE when the roles actually changed — callers repaint only on real change,
+  // so a fetch triggered from inside a Store cycle can never feed back into a loop
   return fetch("data/account_roles.json?t=" + Date.now())
     .then((r) => (r.ok ? r.json() : {}))
-    .then((m) => { _acctRoles = (m && typeof m === "object" && !Array.isArray(m)) ? m : {}; return _acctRoles; })
-    .catch(() => _acctRoles);
+    .then((m) => {
+      const clean = (m && typeof m === "object" && !Array.isArray(m)) ? m : {};
+      const s = JSON.stringify(clean);
+      const changed = s !== _acctRolesStr;
+      _acctRolesStr = s; _acctRoles = clean;
+      return changed;
+    })
+    .catch(() => false);
 }
 const ACCT_ROLES = [["", "auto"], ["liquid", "liquid cash"], ["short", "short-term savings"], ["long", "long-term savings"], ["untouchable", "untouchable"]];
 function acctRole(a) {
@@ -542,7 +581,15 @@ const RENDERERS = {
     });
 
     // point-in-time: the live snapshot total, split into checking / savings cash
+    let _seenRolesStamp = null;
     Store.subscribe(el, (d) => {
+      // roles side-feed: when the data stamp moves (a role edit bumps rev — here or on a peer
+      // device), re-pull the roles file; repaint again only if the roles genuinely changed
+      const _rs = dataStamp(d);
+      if (_rs !== _seenRolesStamp) {
+        _seenRolesStamp = _rs;
+        fetchAcctRoles().then((changed) => { if (changed) { try { Store.emit(); } catch (e) {} } });
+      }
       const accts = d.accounts || [];
       const showNet = localStorage.getItem(NET_KEY) === "1";
       let chk = 0, sav = 0, cash = 0, credit = 0;
@@ -4976,7 +5023,11 @@ async function cloudPush(passphrase, opts) {
           const rf = {}; MAP_FILE_NAMES.forEach((n) => { if (cur.files[n] != null) rf[n] = cur.files[n]; });
           try {
             const mm = await (await fetch("/api/merge-maps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: rf, filesMeta: cur.filesMeta || {} }) })).json();
-            if (mm && mm.changed) { try { if (typeof Store !== "undefined" && Store.refresh) Store.refresh(); } catch (e) {} }   // adopted another device's tags → repaint
+            if (mm && mm.changed) {
+              try { if (typeof Store !== "undefined" && Store.refresh) Store.refresh(); } catch (e) {}   // adopted another device's tags → repaint
+              try { subsAdoptFromServer(); } catch (e) {}     // the SUBS cache is stale now — re-pull or the next save reverts the peer
+              try { fetchAcctRoles(); } catch (e) {}          // roles too
+            }
           } catch (e) {}   // best-effort — a failed merge just means this push carries our own maps
         }
       } catch (e) {}   // v1/keyless blobs just skip the merge
@@ -5735,7 +5786,14 @@ async function cloudAutoPull() {
             const rf = {}; MAP_FILE_NAMES.forEach((n) => { if (obj.files[n] != null) rf[n] = obj.files[n]; });
             const r = await fetch("/api/merge-maps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: rf, filesMeta: obj.filesMeta || {} }) });
             const mm = r.ok ? await r.json() : null;
-            if (mm && mm.ok) { mergeMapsOk = true; if (mm.changed) { try { if (typeof Store !== "undefined" && Store.refresh) Store.refresh(); } catch (e) {} } }   // merged tags → repaint
+            if (mm && mm.ok) {
+              mergeMapsOk = true;
+              if (mm.changed) {
+                try { if (typeof Store !== "undefined" && Store.refresh) Store.refresh(); } catch (e) {}   // merged tags → repaint
+                try { subsAdoptFromServer(); } catch (e) {}   // never let the stale SUBS cache stamp over the adopted decisions
+                try { fetchAcctRoles(); } catch (e) {}
+              }
+            }
           } catch (e) {}
           // Only trust our maps for the witness once the merge actually ran — read them
           // back from export-data (our REAL maps, never the vault's). If merge-maps didn't
@@ -5747,6 +5805,15 @@ async function cloudAutoPull() {
           }
         } else {
           ourMaps = (obj && obj.files) || {};   // web: maps come straight from the vault (read-only) → vault == ours
+          // WEB REHYDRATE (2026-07-29 cache review): until now the decrypted money views were
+          // frozen at unlock — the poll updated the chip but never the numbers. Adopt the fresh
+          // blob into webcache's served store (pending local edits replayed on top), repaint.
+          try {
+            if (window.__cacheVaultAdopt && window.__cacheVaultAdopt(obj)) {
+              try { fetchAcctRoles(); } catch (e2) {}
+              try { if (typeof Store !== "undefined" && Store.refresh) Store.refresh(); } catch (e2) {}
+            }
+          } catch (e2) {}
         }
         if (ourMaps === null) {
           // couldn't merge/read our own authored maps (backend down or pre-merge-maps
@@ -15340,7 +15407,7 @@ Object.keys(layout).forEach((id) => makeAny(id, layout[id]));
 renderLibrary();
 // account roles ride a data file — load once at boot, and repaint the money widgets if any
 // are set (Safe-to-spend + the balance split derive spendable from them)
-fetchAcctRoles().then((m) => { if (m && Object.keys(m).length) { try { Store.emit(); } catch (e) {} } });
+fetchAcctRoles().then((changed) => { if (changed) { try { Store.emit(); } catch (e) {} } });
 renderIcons();
 setSidebar(localStorage.getItem(SIDEBAR_KEY) === "1");
 applyZoom();

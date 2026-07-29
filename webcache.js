@@ -791,6 +791,24 @@
     FILES["balances.json"] = JSON.stringify(bal, null, 2);
   }
   window.__cacheManualOverlay = _applyManualOverlay;   // pullVault re-runs it after adopting a fresh blob
+  // WEB REHYDRATE — adopt a freshly decrypted blob into the served store mid-session (the 75s
+  // poll / Sync now). Pending local map edits replay on top so an in-flight tag never vanishes,
+  // and the manual overlay re-runs so Total stays honest whoever sealed the blob.
+  window.__cacheVaultAdopt = function (obj) {
+    if (!obj || typeof obj !== "object" || !obj.files) return false;
+    FILES = obj.files;
+    API = obj.api || {};
+    try {
+      PENDING_MAP_EDITS.forEach(function (e) {
+        var m = {}; try { m = JSON.parse(FILES[e.file] || "{}") || {}; } catch (er) {}
+        if (e.value === null) delete m[e.key]; else m[e.key] = e.value;
+        FILES[e.file] = JSON.stringify(m, null, 2);
+      });
+    } catch (e) {}
+    try { _applyManualOverlay(); } catch (e) {}
+    if (MONEY_LIVE) delete API.summary;   // this session computes its summary live — a sealed one must not shadow it
+    return true;
+  };
   window.__cacheMapEdits = {
     pending: function () { return PENDING_MAP_EDITS.slice(); },
     // fold the pending edits onto the vault's freshest files, newest-per-key: if another
@@ -934,6 +952,11 @@
         if (!rid) return J({ ok: false, error: "bad request" });
         var ROLE_SET = { liquid: 1, short: 1, long: 1, untouchable: 1 };
         _applyMapEdit("account_roles.json", rid, ROLE_SET[rdata.role] ? rdata.role : null);
+        try {   // rev bump — stamp-keyed widgets on this and other devices re-pull (mirror store.py)
+          var rb = JSON.parse(FILES["balances.json"] || "{}") || {};
+          rb.rev = (parseInt(rb.rev, 10) || 0) + 1;
+          FILES["balances.json"] = JSON.stringify(rb, null, 2);
+        } catch (e) {}
         var rmap = {}; try { rmap = JSON.parse(FILES["account_roles.json"] || "{}") || {}; } catch (e) {}
         return J({ ok: true, roles: rmap });
       }

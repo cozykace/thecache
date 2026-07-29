@@ -34,6 +34,13 @@ store.save_account_role("acct2", "auto")
 ok("'auto' clears back to the name guess (key removed)", "acct2" not in store.load_account_roles())
 ok("the per-key mtime was stamped (merge-ready)",
    "Acct-MiXeD-01" in (store.load_mapmeta().get("account_roles.json") or {}))
+# a role edit must move the data stamp (rev) or every stamp-keyed widget goes quietly stale
+rev1 = store._read(store.BALANCES, {}).get("rev", 0)
+store.save_account_role("Acct-MiXeD-01", "long")
+rev2 = store._read(store.BALANCES, {}).get("rev", 0)
+ok("a role edit bumps rev (widgets re-pull)", rev2 > rev1)
+store.save_account_role("Acct-MiXeD-01", "long")   # no-op — same role again
+ok("a no-op role write does NOT churn rev", store._read(store.BALANCES, {}).get("rev", 0) == rev2)
 
 # cross-device: B's newer edit to the SAME account wins; A's other account survives
 a_map = open(store.ROLES).read()
