@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-28-manual-accounts",
+    "date": "2026-07-28",
+    "title": "Manual accounts — the card a sync can't see stops making your Total lie",
+    "body": "Some real accounts just can't connect — an old card, a small credit union, anything you track by hand. Until now the app's Total quietly pretended they didn't exist. Open Sources → Manual accounts and type one in: a name, a balance (negative for debt), an optional APR. It joins your Total, your net, the balance widget and the money map like any other account — always honestly badged 'manual · as of' the date you last touched it, with a gentle nudge when the number's getting old. Works on your phone and desktop, syncs to every device, and removing one removes it everywhere."
+  },
+  {
     "id": "2026-07-28-debt-cost",
     "date": "2026-07-28",
     "title": "Debt cost — what your cards actually cost, and when they'd be paid off",
