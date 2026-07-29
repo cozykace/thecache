@@ -40,8 +40,16 @@ MAPMETA = os.path.join(DATA, "_mapmeta.json")   # per-key edit times for the mer
 DELETED = os.path.join(DATA, "deleted.json")    # YOUR delete decisions: {txn_key: {deleted:1|0, at, txn:{…}}} — tombstones, so a delete STICKS across devices/restores (and can be undone)
 # the user-authored flat maps that merge key-wise across devices (everything else in
 # data/ is computed by the sync engine and travels whole-file)
+MANUAL = os.path.join(DATA, "manual_accounts.json")   # accounts a sync can't see — typed balances (Money Truth Brick 4)
 MERGE_MAPS = {"categories.json": CATEGORIES, "income.json": INCOME, "subs.json": SUBS,
-              "income_links.json": INCOME_LINKS, "deleted.json": DELETED}
+              "income_links.json": INCOME_LINKS, "deleted.json": DELETED,
+              "manual_accounts.json": MANUAL}
+# MERGE-CLASS DECISION (written down per CLAUDE.md): manual_accounts.json is a MERGE MAP —
+# user-authored cross-device state, newest-per-key by account id via the vault's filesMeta
+# sidecar, exactly like categories/income. Removal is a VALUE ({"removed": 1}), never a
+# deleted key: merge_maps can't propagate an absence, but a newer removed-value wins the
+# per-key merge on every device. app.js MAP_FILE_NAMES carries the same name (the authored
+# witness + push-time merge), or the two runtimes livelock.
 
 # the built-in category keys (mirror of the frontend CAT_META) — so the manager
 # can list them even when they currently hold zero transactions
@@ -53,7 +61,7 @@ BACKUPS = os.path.join(HERE, "backups")     # local snapshots (gitignored, stays
 _BACKUP_FILES = ("balances.json", "transactions.json", "ledger.jsonl", "ledger.json",
                  "history.json", "synclog.json", "categories.json", "income.json",
                  "catmeta.json", "subs.json", "income_links.json",
-                 "monthly.json", "coverage.json", "bugs.json")
+                 "monthly.json", "coverage.json", "bugs.json", "manual_accounts.json")
 
 # Built-in keyword rules (first match wins). User overrides in categories.json
 # are checked first, so anything you teach it takes priority.
@@ -371,6 +379,76 @@ def load_overrides():
 
 
 @_locked
+def load_manual_accounts():
+    """{id: {name, balance, apr, as_of, removed}} — accounts the aggregator can't see."""
+    m = _read(MANUAL, {})
+    return m if isinstance(m, dict) else {}
+
+
+def live_manual_accounts():
+    """The manual accounts that still exist (removed is a value-tombstone, see MERGE_MAPS)."""
+    return {k: v for k, v in load_manual_accounts().items()
+            if isinstance(v, dict) and not v.get("removed")}
+
+
+def save_manual_account(acct_id, fields):
+    """Create/update/remove one manual account. fields: {name, balance, apr, remove}.
+    Stamps the per-key mtime so two devices editing different accounts both survive."""
+    m = load_manual_accounts()
+    key = (acct_id or "").strip()
+    if not key:
+        return m
+    before = dict(m)
+    if fields.get("remove"):
+        cur = m.get(key) if isinstance(m.get(key), dict) else {}
+        m[key] = {"name": cur.get("name", ""), "removed": 1}   # a VALUE, so removal propagates
+    else:
+        cur = m.get(key) if isinstance(m.get(key), dict) else {}
+        apr = fields.get("apr")
+        try:
+            apr = round(float(apr), 2) if apr not in (None, "") else None
+        except (TypeError, ValueError):
+            apr = None
+        m[key] = {
+            "name": str(fields.get("name") or cur.get("name") or "Manual account")[:60],
+            "balance": round(float(fields.get("balance", cur.get("balance", 0)) or 0), 2),
+            "apr": apr,
+            "as_of": datetime.now(timezone.utc).strftime("%Y-%m-%d"),   # every touch refreshes the staleness clock
+        }
+    _write(MANUAL, m)
+    _stamp_map("manual_accounts.json", before, m)
+    return m
+
+
+def _manual_out_accounts():
+    """Manual accounts in the snapshot's accounts[] shape, clearly badged."""
+    out = []
+    for k, v in sorted(live_manual_accounts().items()):
+        bal = round(float(v.get("balance", 0) or 0), 2)
+        out.append({"id": "manual:" + k, "name": v.get("name") or "Manual account",
+                    "org": "manual", "balance": bal, "currency": "USD",
+                    "manual": True, "as_of": v.get("as_of") or "", "apr": v.get("apr")})
+    return out
+
+
+@_locked
+def recompute_manual():
+    """A manual-account edit between syncs must move Total/cash NOW, not at the next bank
+    pull: rewrite balances.json's accounts (synced ones kept verbatim, manual re-appended
+    fresh) and re-derive total/cash from that honest list."""
+    bal = _read(BALANCES, {})
+    synced = [a for a in (bal.get("accounts") or []) if not (isinstance(a, dict) and a.get("manual"))]
+    accounts = synced + _manual_out_accounts()
+    total = round(sum(float(a.get("balance", 0) or 0) for a in accounts), 2)
+    cash = round(sum(float(a.get("balance", 0) or 0) for a in accounts if float(a.get("balance", 0) or 0) > 0), 2)
+    bal["accounts"] = accounts
+    bal["total"] = total
+    bal["cash"] = cash
+    bal["rev"] = _next_rev(bal)
+    _write(BALANCES, bal)
+    return {"accounts": accounts, "total": total, "cash": cash}
+
+
 def save_override(substring, category):
     ov = load_overrides()
     key = (substring or "").strip().lower()
@@ -1170,6 +1248,14 @@ def build_snapshot(accounts, window_days=30, now=None, fetch_days=None, connecti
             "org": _account_org_name(a, conn_by_id),
             "balance": round(bal, 2), "currency": a.get("currency", "USD"),
         })
+
+    # accounts a sync can't see (Money Truth Brick 4): typed balances join the honest
+    # totals — a real card the aggregator doesn't cover must not make Total quietly lie
+    for ma in _manual_out_accounts():
+        total += ma["balance"]
+        if ma["balance"] > 0:
+            cash += ma["balance"]
+        out_accounts.append(ma)
 
     half = window_days / 2.0
     rd, od = recent / half, older / half

@@ -481,7 +481,9 @@ const RENDERERS = {
       let chk = 0, sav = 0, cash = 0, credit = 0;
       accts.forEach((a) => {
         const b = a.balance || 0;
-        const t = acctType(a.name);
+        // a manual account with a negative balance IS card debt, whatever it's named —
+        // that's the whole reason it was typed in (the card the aggregator can't see)
+        const t = (a.manual && b < 0) ? "credit" : acctType(a.name);
         if (t === "checking") chk += b;
         else if (t === "savings") sav += b;
         if (t === "credit") credit += b;          // negative = debt owed
@@ -501,13 +503,21 @@ const RENDERERS = {
           " " + when.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
         : "no bank connected yet — that can wait";
       list.innerHTML = accts
-        .map((a, i) =>
-          '<div class="acct" style="--i:' + i + '">' +
+        .map((a, i) => {
+          // manual accounts wear their honesty on the row: typed in, and as-of when.
+          // Past ~45 days the date gets a gentle nudge (staleness = quiet drift from truth).
+          let badge = "";
+          if (a.manual) {
+            const days = a.as_of ? Math.floor((Date.now() - new Date(a.as_of + "T00:00:00").getTime()) / 86400000) : null;
+            badge = '<span class="acct-manual' + (days != null && days > 45 ? " stale" : "") + '">manual · as of ' +
+              escapeHtml(a.as_of || "?") + (days != null && days > 45 ? " · worth a refresh (Sources)" : "") + "</span>";
+          }
+          return '<div class="acct' + (a.manual ? " is-manual" : "") + '" style="--i:' + i + '">' +
             '<span class="acct-dot" style="background:' + ACCT_COLORS[i % ACCT_COLORS.length] + '"></span>' +
-            '<span class="acct-name">' + escapeHtml(a.name || "Account") + '</span>' +
+            '<span class="acct-name">' + escapeHtml(a.name || "Account") + badge + "</span>" +
             '<span class="acct-bal">' + fmtUSD(a.balance || 0) + '</span>' +
-          '</div>'
-        )
+          "</div>";
+        })
         .join("");
     });
   },
@@ -4539,7 +4549,7 @@ const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "mone
 // bundle is engine-computed and travels whole-file. catmeta.json (your category
 // renames, fold-ins and custom categories) is user-authored too, so it merges here
 // rather than being stranded per-device.
-const MAP_FILE_NAMES = ["categories.json", "income.json", "subs.json", "income_links.json", "catmeta.json", "deleted.json"];
+const MAP_FILE_NAMES = ["categories.json", "income.json", "subs.json", "income_links.json", "catmeta.json", "deleted.json", "manual_accounts.json"];   // + manual accounts (Brick 4) — newest-per-key by account id; removal is a VALUE ({removed:1}), never a deleted key
 function isInternalKey(k) { return CLOUD_INTERNAL_KEYS.indexOf(k) !== -1 || DEVICE_LOCAL_KEYS.indexOf(k) !== -1; }
 function isSpecialKey(k) { return SPECIAL_MERGE_KEYS.indexOf(k) !== -1; }
 function isGenericKey(k) { return k.indexOf("money.") === 0 && !isInternalKey(k) && !isSpecialKey(k); }
@@ -6338,11 +6348,14 @@ function openConnect() {
             '<div class="cn-result" id="sfResult"></div>' +
             '<div class="cn-or">— or —</div>' +
             '<div class="cn-intro">Prefer a one-time file? <button class="cn-linkbtn" id="sfCsv">Import a bank CSV</button> — same cache, no subscription.</div>') +
+        '<div class="cn-or">— accounts a sync can’t see —</div>' +
+        '<div class="cn-manage"><button class="cn-linkbtn" id="cnManual">Manual accounts — type a balance in</button></div>' +
       '</div>';
     document.body.appendChild(back);
     document.body.appendChild(modal);
     if (typeof makeModalResizable === "function") makeModalResizable(modal, "money.connect");
     modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer());
+    const _mbw = modal.querySelector("#cnManual"); if (_mbw) _mbw.addEventListener("click", () => { closeCategorizer(); openManualAccounts(); });
     const R = modal.querySelector("#sfResult");
     const say = (html, cls) => { if (R) R.innerHTML = cls ? ('<span class="' + cls + '">' + html + "</span>") : html; };
     const note = (p) => (p && p.errors && p.errors.length) ? (" Note: " + escapeHtml(p.errors.join("; "))) : "";
@@ -6418,12 +6431,15 @@ function openConnect() {
           '<button class="cn-csv">Import a bank CSV</button>' +
         '</div>' +
         '<div class="cn-result"></div>' +
+        '<div class="cn-or">— accounts a sync can’t see —</div>' +
+        '<div class="cn-manage"><button class="cn-linkbtn" id="cnManual">Manual accounts — type a balance in</button></div>' +
       '</div>';
   }
   document.body.appendChild(back);
   document.body.appendChild(modal);
   if (typeof makeModalResizable === "function") makeModalResizable(modal, "money.connect");
   modal.querySelector(".cat-close").addEventListener("click", () => closeCategorizer());
+  const _mb = modal.querySelector("#cnManual"); if (_mb) _mb.addEventListener("click", () => { closeCategorizer(); openManualAccounts(); });
   const result = modal.querySelector(".cn-result");
   const statusEl = modal.querySelector(".cn-status");
   let connected = false;
@@ -6459,6 +6475,77 @@ function openConnect() {
     doConnect({ demo: true }, "Loading demo data");
   });
   modal.querySelector(".cn-csv").addEventListener("click", () => { closeCategorizer(); document.getElementById("importStatement").click(); });
+}
+// ── Manual accounts (Money Truth Brick 4) — the debt a sync can't see ────────
+// Type in a balance for a real account the aggregator doesn't cover (an old card, a
+// medical plan) so Total stops quietly lying. Each account is badged "manual · as of
+// <date>" everywhere it shows, joins Total/net and the money map like any account, and
+// nudges gently when the number's gone stale. Storage: data/manual_accounts.json, a
+// MERGE MAP (newest-per-key by account id; removal is a {removed:1} VALUE so it
+// propagates) — see store.py's merge-class note. Works on web too (webcache route).
+function openManualAccounts() {
+  const ex = document.getElementById("catBackdrop"); if (ex) ex.remove();
+  const back = document.createElement("div");
+  back.className = "cat-backdrop"; back.id = "catBackdrop";
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) closeCategorizer(); });
+  const modal = document.createElement("div");
+  modal.className = "cat-modal manual-modal";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  const post = (body) => fetch("/api/manual-account", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then((r) => r.json());
+  const mintId = () => "m" + Date.now().toString(36) + "-" + ((typeof devId === "function" ? devId() : "") + "xxxx").slice(0, 4) + "-" + Math.random().toString(36).slice(2, 6);
+  function render(accounts) {
+    const manual = (accounts || []).filter((a) => a.manual);
+    modal.innerHTML =
+      '<div class="cat-head"><span>Manual accounts</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+      '<div class="connect-body">' +
+        '<div class="cn-intro">For the accounts a sync can’t see — an old card, anything you track by hand. Type the balance (negative for debt, like <b>-450</b>) and your Total tells the whole truth. It joins every widget, badged honestly.</div>' +
+        (manual.length ? '<div class="mn-list">' + manual.map((a) => {
+          const days = a.as_of ? Math.floor((Date.now() - new Date(a.as_of + "T00:00:00").getTime()) / 86400000) : null;
+          return '<div class="mn-row" data-id="' + escapeHtml(a.id.replace(/^manual:/, "")) + '">' +
+            '<input class="mn-name" value="' + escapeHtml(a.name || "") + '" maxlength="60" aria-label="account name">' +
+            '<input class="mn-bal" type="number" inputmode="decimal" step="0.01" value="' + (+a.balance || 0) + '" aria-label="balance">' +
+            '<button class="mn-save" title="save">✓</button><button class="mn-x" title="remove" aria-label="remove">✕</button>' +
+            '<div class="mn-sub">as of ' + escapeHtml(a.as_of || "?") + (days != null && days > 45 ? " · this number is getting old — still right?" : "") +
+              (a.apr != null ? " · APR " + a.apr + "%" : "") + "</div>" +
+          "</div>";
+        }).join("") + "</div>" : '<div class="mn-empty">none yet</div>') +
+        '<div class="cn-or">— add one —</div>' +
+        '<div class="mn-add">' +
+          '<input class="mn-name" id="mnNewName" placeholder="name (e.g. Old Card)" maxlength="60" aria-label="name">' +
+          '<input class="mn-bal" id="mnNewBal" type="number" inputmode="decimal" step="0.01" placeholder="balance (- for debt)" aria-label="balance">' +
+          '<input class="mn-bal" id="mnNewApr" type="number" inputmode="decimal" step="0.1" min="0" placeholder="APR % (optional)" aria-label="APR">' +
+          '<button class="cn-connect" id="mnAdd">Add account</button>' +
+        '</div>' +
+        '<div class="cn-result" id="mnResult"></div>' +
+      "</div>";
+    modal.querySelector(".cat-close").addEventListener("click", closeCategorizer);
+    const say = (t, cls) => { const R = modal.querySelector("#mnResult"); if (R) R.innerHTML = '<span class="' + (cls || "cn-ok") + '">' + t + "</span>"; };
+    const refresh = (d) => { try { Store.refresh(); } catch (e) {} render((d && d.accounts) || []); };
+    modal.querySelector("#mnAdd").addEventListener("click", () => {
+      const name = modal.querySelector("#mnNewName").value.trim();
+      const balV = modal.querySelector("#mnNewBal").value.trim();
+      if (!name || balV === "") { say("A name and a balance — that's all it needs.", "cn-err"); return; }
+      post({ id: mintId(), name: name, balance: parseFloat(balV) || 0, apr: modal.querySelector("#mnNewApr").value.trim() || null })
+        .then((d) => { if (d && d.ok) refresh(d); else say((d && d.error) || "couldn't save", "cn-err"); })
+        .catch(() => say("couldn't reach your cache", "cn-err"));
+    });
+    modal.querySelectorAll(".mn-row").forEach((row) => {
+      const id = row.dataset.id;
+      row.querySelector(".mn-save").addEventListener("click", () => {
+        post({ id: id, name: row.querySelector(".mn-name").value.trim(), balance: parseFloat(row.querySelector(".mn-bal").value) || 0 })
+          .then((d) => { if (d && d.ok) refresh(d); else say((d && d.error) || "couldn't save", "cn-err"); })
+          .catch(() => say("couldn't reach your cache", "cn-err"));
+      });
+      row.querySelector(".mn-x").addEventListener("click", () => {
+        confirmDelete(row.querySelector(".mn-name").value || "this account", () => {
+          post({ id: id, remove: 1 }).then((d) => { if (d && d.ok) refresh(d); }).catch(() => say("couldn't reach your cache", "cn-err"));
+        });
+      });
+    });
+  }
+  render([]);
+  fetch("data/balances.json?t=" + Date.now()).then((r) => (r.ok ? r.json() : {})).then((d) => render(d.accounts || [])).catch(() => {});
 }
 // ── Accessibility ─────────────────────────────────────────────────────────
 // One small system: each need persists in localStorage → is applied as an

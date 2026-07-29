@@ -466,6 +466,21 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   padding: clamp(10px, 4cqmin, 16px) clamp(14px, 5cqmin, 20px);
 }
 .is-months .bd-head { padding: 0 2px; }
+/* Manual accounts — the editor rows + the badge on balance-widget rows */
+.mn-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 2px; }
+.mn-row { display: grid; grid-template-columns: 1fr 110px 44px 44px; gap: 6px; align-items: center; }
+.mn-row .mn-sub { grid-column: 1 / -1; font-size: 11px; color: rgba(var(--ink-rgb), 0.5); padding-left: 2px; }
+.mn-add { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.mn-name, .mn-bal { min-height: 44px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 10px;
+  background: var(--panel); color: var(--ink); font-family: inherit; font-size: 14px; width: 100%; box-sizing: border-box; min-width: 0; }
+.mn-save, .mn-x { min-width: 44px; min-height: 44px; border: 1px solid var(--edge); border-radius: 10px;
+  background: none; color: var(--ink); font-size: 15px; cursor: pointer; }
+.mn-save:hover { border-color: var(--accent); color: var(--accent); }
+.mn-x:hover { border-color: #c9542e; color: #c9542e; }
+.mn-empty { font-size: 12.5px; color: rgba(var(--ink-rgb), 0.45); margin: 8px 2px; }
+.acct-manual { display: block; font-size: 10px; color: rgba(var(--ink-rgb), 0.5); }
+.acct-manual.stale { color: var(--accent); }
+
 /* Debt cost — the pace line is the widget's point: readable, calm, room to breathe */
 .widget-body.is-debt { display: flex; flex-direction: column; align-items: stretch; text-align: left;
   padding: clamp(10px, 4cqmin, 16px) clamp(14px, 5cqmin, 20px); }

@@ -217,6 +217,7 @@
     if (url.indexOf("data/balances.json") !== -1) return J(balances);
     if (url.indexOf("data/monthly.json") !== -1) return J(monthly);
     if (url.indexOf("/api/ping") !== -1) return J({ ok: true });
+    if (url.indexOf("/api/manual-account") !== -1) return J({ ok: false, error: "The demo keeps its own books — in your real cache this saves instantly." });
     if (url.indexOf("/api/downloads") !== -1) return J({ ok: true, downloads: 0 });
     if (url.indexOf("/api/export-data") !== -1) return J({ ok: true, files: {}, exported: 0, count: 0 });
     if (url.indexOf("/api/import-data") !== -1) return J({ ok: true, written: 0, files: [], snapshot: "demo" });

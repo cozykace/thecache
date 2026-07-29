@@ -511,6 +511,7 @@
     catch (e) { if ((e && e.message) === "ZK") throw e; throw new Error("wrong passphrase or corrupt vault"); }
     FILES = (obj && obj.files) || {};
     API = (obj && obj.api) || {};
+    try { _applyManualOverlay(); } catch (e) {}   // typed-in accounts join Total no matter which device sealed this blob
     // ── Recovery net (DECIDE here, ISSUE later) ─────────────────────────────────────────
     // The vault just OPENED (passphrase/key proven correct). Issuing a recovery file used to
     // only happen from the desktop "Restore from cloud" button, so web-first users had NO net —
@@ -761,6 +762,32 @@
     if (window.__cacheWebMoney) window.__cacheWebMoney.commit(out);
     else Object.keys(out || {}).forEach(function (n) { FILES[n] = out[n]; });
   }
+  // overlay the manual accounts onto the served balances (mirror store.recompute_manual):
+  // strip prior manual rows, re-append the live ones, re-derive total/cash. Runs after any
+  // manual edit AND after every vault pull — so totals are honest no matter which device
+  // (or which app version) sealed the blob.
+  function _applyManualOverlay() {
+    var man = {}; try { man = JSON.parse(FILES["manual_accounts.json"] || "{}") || {}; } catch (e) { return; }
+    var bal; try { bal = JSON.parse(FILES["balances.json"] || "{}") || {}; } catch (e) { return; }
+    if (!Object.keys(man).length && !(bal.accounts || []).some(function (a) { return a && a.manual; })) return;   // nothing to do
+    var synced = (bal.accounts || []).filter(function (a) { return !(a && a.manual); });
+    var ids = Object.keys(man).sort();
+    ids.forEach(function (k) {
+      var v = man[k];
+      if (!v || typeof v !== "object" || v.removed) return;
+      synced.push({ id: "manual:" + k, name: v.name || "Manual account", org: "manual",
+        balance: Math.round((parseFloat(v.balance) || 0) * 100) / 100, currency: "USD",
+        manual: true, as_of: v.as_of || "", apr: v.apr != null ? v.apr : null });
+    });
+    var total = 0, cash = 0;
+    synced.forEach(function (a) { var b = parseFloat(a.balance) || 0; total += b; if (b > 0) cash += b; });
+    bal.accounts = synced;
+    bal.total = Math.round(total * 100) / 100;
+    bal.cash = Math.round(cash * 100) / 100;
+    bal.rev = (parseInt(bal.rev, 10) || 0) + 1;   // widgets key re-pulls on rev — Total must move NOW
+    FILES["balances.json"] = JSON.stringify(bal, null, 2);
+  }
+  window.__cacheManualOverlay = _applyManualOverlay;   // pullVault re-runs it after adopting a fresh blob
   window.__cacheMapEdits = {
     pending: function () { return PENDING_MAP_EDITS.slice(); },
     // fold the pending edits onto the vault's freshest files, newest-per-key: if another
@@ -859,6 +886,29 @@
         } catch (e) {
           return J({ ok: false, error: "couldn't save that tag — " + ((e && e.message) || "unknown error") });
         }
+      }
+      // manual accounts (Money Truth Brick 4) — typed balances WRITE here too: the map file
+      // updates + queues as a pending edit (newest-per-key on the account id), and the served
+      // balances re-overlay so Total moves NOW. _applyManualOverlay re-runs after every pull,
+      // so a vault sealed by a device that hasn't recomputed still serves honest totals.
+      if (M === "POST" && key === "manual-account") {
+        var mdata = {}; try { mdata = JSON.parse(body || "{}") || {}; } catch (e) {}
+        var mid = (mdata.id || "").trim();
+        if (!mid) return J({ ok: false, error: "bad request" });
+        var cur = {}; try { cur = (JSON.parse(FILES["manual_accounts.json"] || "{}") || {})[mid] || {}; } catch (e) {}
+        var val;
+        if (mdata.remove) val = { name: cur.name || "", removed: 1 };
+        else {
+          var apr = null;
+          if (mdata.apr != null && mdata.apr !== "") { apr = Math.round(parseFloat(mdata.apr) * 100) / 100; if (!isFinite(apr)) apr = null; }
+          val = { name: String(mdata.name || cur.name || "Manual account").slice(0, 60),
+                  balance: Math.round((parseFloat(mdata.balance != null ? mdata.balance : cur.balance) || 0) * 100) / 100,
+                  apr: apr, as_of: new Date().toISOString().slice(0, 10) };
+        }
+        _applyMapEdit("manual_accounts.json", mid, val);
+        _applyManualOverlay();
+        var nb2 = {}; try { nb2 = JSON.parse(FILES["balances.json"] || "{}") || {}; } catch (e) {}
+        return J({ ok: true, accounts: nb2.accounts || [], total: nb2.total, cash: nb2.cash });
       }
       // other writes aren't supported on the web yet — desktop-only for now
       return J({ ok: false, web: true, error: "Editing from the web is coming soon — for now, changes are made in the desktop app and synced here." });

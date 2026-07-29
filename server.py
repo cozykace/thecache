@@ -360,6 +360,7 @@ class Handler(SimpleHTTPRequestHandler):
                 try:
                     store.recompute_spending()
                     store.recompute_income()
+                    store.recompute_manual()   # an adopted manual-account edit must move Total now
                 except Exception:
                     pass
             return self._json(200, res)
@@ -405,6 +406,15 @@ class Handler(SimpleHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError):
                 return self._json(400, {"error": "bad request"})
             return self._json(200, store.bucket_remove(data.get("id", "")))
+        if self.path == "/api/manual-account":
+            # create / update / remove an account the aggregator can't see (Money Truth Brick 4)
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            store.save_manual_account(data.get("id", ""), data)
+            return self._json(200, dict({"ok": True}, **store.recompute_manual()))
         if self.path == "/api/categorize":
             try:
                 n = int(self.headers.get("Content-Length", 0))
