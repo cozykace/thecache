@@ -219,11 +219,40 @@
     if (url.indexOf("/api/ping") !== -1) return J({ ok: true });
     if (url.indexOf("/api/manual-account") !== -1) return J({ ok: false, error: "The demo keeps its own books — in your real cache this saves instantly." });
     if (url.indexOf("/api/runway") !== -1) {
-      // a payday ~26 days out, so the demo's monthly subs (Adobe due ~24d, Spotify ~18d) land
-      // INSIDE the window and the runway sentence shows real play numbers, never a $0 shrug
-      var payday = new Date(Date.now() + 26 * 86400000);
-      var pymd = payday.getFullYear() + "-" + String(payday.getMonth() + 1).padStart(2, "0") + "-" + String(payday.getDate()).padStart(2, "0");
-      return J({ next_deposit: { key: "payroll", source: "Payroll Co", days: 26, amount: 900, ymd: pymd, next: Math.floor(payday.getTime() / 1000) } });
+      // rhythms[] drive the calendar's $ layer — each income source's `last` + `gap_days`
+      // projected forward exactly like the app's finIncomeOnDay (gap-based, not calendar-month),
+      // so the week view paints a green +$ badge on every payday. We anchor two monthly deposits
+      // with an occurrence in THIS week so the demo shows live badges; next_deposit stays the
+      // head (a few weeks out) so the money portal's runway sentence keeps its real play numbers.
+      // (Red −$ bill badges come from the demo's monthly subs on their own due days.)
+      var nowSec = Math.floor(Date.now() / 1000), DAYSEC = 86400;
+      var base = new Date();
+      var weekSun = new Date(base.getFullYear(), base.getMonth(), base.getDate() - base.getDay(), 12, 0, 0);  // this week's Sunday, local noon
+      function dOff(off) { return new Date(weekSun.getFullYear(), weekSun.getMonth(), weekSun.getDate() + off, 12, 0, 0); }
+      function ymdOf(dd) { return dd.getFullYear() + "-" + String(dd.getMonth() + 1).padStart(2, "0") + "-" + String(dd.getDate()).padStart(2, "0"); }
+      function rhythm(key, source, gap, amount, landOff) {
+        var landSec = Math.floor(dOff(landOff).getTime() / 1000);   // the in-week occurrence
+        var lastSec = landSec - gap * DAYSEC;                       // the previous real deposit
+        var nextSec = landSec; while (nextSec < nowSec) nextSec += gap * DAYSEC;   // nearest FUTURE occurrence
+        return { key: key, source: source, last: lastSec, gap_days: gap, next: nextSec,
+                 ymd: ymdOf(new Date(nextSec * 1000)), days: Math.round((nextSec - nowSec) / DAYSEC), amount: amount };
+      }
+      // Anchor the in-week occurrences to days that are already PAST relative to today so
+      // next_deposit (the nearest FUTURE occurrence) stays weeks out — never a "$0, deposit is
+      // today" shrug in the runway sentence. Two days back covers Tue–Sat; Monday falls back to
+      // Sunday; only on a literal Sunday (no earlier in-week day) do we place them a couple days
+      // ahead — still >=2 days out, so next_deposit.days is never 0. A badge always lands this week.
+      var todayOff = base.getDay();   // 0 = Sun … 6 = Sat
+      var offA, offB;
+      if (todayOff >= 2) { offA = todayOff - 2; offB = todayOff - 1; }   // two past days this week
+      else if (todayOff === 1) { offA = 0; offB = 0; }                    // Monday -> yesterday (Sun)
+      else { offA = 2; offB = 4; }                                        // Sunday -> a couple days ahead (>=2d out)
+      var rhythms = [
+        rhythm("retainer", "Lakeside Studio", 30, 1800, offA),   // monthly retainer
+        rhythm("payroll",  "Payroll Co",      30, 900,  offB),   // monthly paycheck
+      ].sort(function (a, b) { return a.next - b.next; });
+      var head = rhythms[0];
+      return J({ next_deposit: { key: head.key, source: head.source, next: head.next, ymd: head.ymd, days: head.days, amount: head.amount }, rhythms: rhythms });
     }
     if (url.indexOf("/api/annuals") !== -1) return J({ annuals: [
       { name: "Summit Card Annual Fee", key: "summit card annual fee", amount: 95, days: 21, confidence: "yearly", when: "Aug 18", last: 0, next: 0 },

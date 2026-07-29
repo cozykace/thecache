@@ -11272,6 +11272,22 @@ function calFinOccursOn(lastTs, cadence, ymd) {
   const monthEnd = new Date(D.getFullYear(), D.getMonth() + 1, 0).getDate();
   return D.getDate() === Math.min(L.getDate(), monthEnd);
 }
+// the income twin of calFinOccursOn: does an income rhythm land on `ymd`? Stepped forward
+// from its LAST real deposit by its own median gap in DAYS — gap-based, never calendar-month,
+// because a biweekly paycheck doesn't care what a month is. Same 370-day horizon, same
+// "strictly after the last real one" rule. A missing/junk gap projects nothing (an older
+// sealed vault bundle carries no gap_days — the layer just stays quiet rather than guessing).
+function calIncomeOccursOn(lastTs, gapDays, ymd) {
+  const gap = Math.round(+gapDays || 0);
+  if (!lastTs || !(gap > 0)) return false;
+  const L = new Date(lastTs * 1000);
+  const Lmid = new Date(L.getFullYear(), L.getMonth(), L.getDate());
+  const D = _ymd2date(ymd);
+  if (!D || D <= Lmid) return false;
+  const days = Math.round((D - Lmid) / 86400000);
+  if (days > 370) return false;
+  return days % gap === 0;
+}
 // every "YYYY-MM-DD" from startYmd..endYmd inclusive (local days). `new Date(y,m,d+1)` rolls
 // month/year over automatically, so short months / year boundaries just work. Capped (default
 // 400 ≈ a year + a month grid's overflow) so a bad range can't loop away.
@@ -12694,24 +12710,27 @@ function openCalendar() {
   let weekStart = prefs.weekStart === 1 ? 1 : 0;                                  // 0 = Sunday (default), 1 = Monday
   let view = (prefs.view === "day" || prefs.view === "week") ? prefs.view : "month";
   let density = prefs.density === "chips" ? "chips" : "dots";                     // month grid: routines as dots (calm) or names
-  let finView = prefs.fin === 1;          // 💸 financial layer — projected bill/sub due-dates painted into the calendar (synced pref)
+  let finView = prefs.fin === 1;          // $ financial layer — projected bill/sub due-dates + payday rhythms painted into the calendar (synced pref)
   let settingsOpen = false;
   let infinite = false;                   // endless-scroll mode (∞ toggle) — OFF by default, transient per open
   let infAnchors = [];                    // period-anchor ymds currently stacked, in order (infinite mode)
   let cursor = todayKey();                // the focused day (its month/week, in those views)
   const savePrefs = () => { try { localStorage.setItem("money.calview", JSON.stringify({ view: view, weekStart: weekStart, density: density, fin: finView ? 1 : 0 })); } catch (e) {} };
-  // ── the financial layer's data: detected recurring charges + annual predictions, fetched
-  //    once per open (and on toggle-on). Projection is pure math from each sub's LAST real
-  //    charge + its cadence — the calendar never invents a bill the ledger hasn't seen.
-  let finSubs = [], finAnnuals = [], finLoaded = false;
+  // ── the financial layer's data: detected recurring charges + annual predictions + the
+  //    income rhythms, fetched once per open (and on toggle-on). Projection is pure math
+  //    from each sub's LAST real charge + its cadence, and each income source's LAST real
+  //    deposit + its median gap — the calendar never invents money the ledger hasn't seen.
+  let finSubs = [], finAnnuals = [], finRhythms = [], finLoaded = false;
   function loadFin() {
     const t = Date.now();
     Promise.all([
       fetch("/api/recurring?t=" + t).then((r) => r.json()).catch(() => ({})),
       fetch("/api/annuals?t=" + t).then((r) => r.json()).catch(() => ({})),
-    ]).then(([rec, ann]) => {
+      fetch("/api/runway?t=" + t).then((r) => r.json()).catch(() => ({})),
+    ]).then(([rec, ann, run]) => {
       finSubs = (rec && rec.recurring) || [];
       finAnnuals = (ann && ann.annuals) || [];
+      finRhythms = (run && run.rhythms) || [];   // a vault sealed before rhythms shipped has none — the income badges just stay quiet
       finLoaded = true;
       if (root.isConnected) render();
     });
@@ -12732,6 +12751,18 @@ function openCalendar() {
       if (subKeys[a.key]) return;   // already projected via its sub entry
       if (a.next && ymdOf(new Date(a.next * 1000)) === ymd) {
         out.push({ kind: "annual", key: a.key, name: a.name, amount: a.amount, confidence: a.confidence });
+      }
+    });
+    return out;
+  }
+  // the income side of the layer: every detected rhythm (payday, retainer…) that lands on
+  // this day — see calIncomeOccursOn for the projection rule.
+  function finIncomeOnDay(ymd) {
+    if (!finView) return [];
+    const out = [];
+    finRhythms.forEach((r) => {
+      if (r && calIncomeOccursOn(r.last, r.gap_days, ymd)) {
+        out.push({ key: r.key, source: r.source || r.key, amount: +r.amount || 0 });
       }
     });
     return out;
@@ -12803,13 +12834,27 @@ function openCalendar() {
     const log = loadLog(), things = thingsVisible(loadThings()), today = todayKey(), days = calWeekDays(cursor, weekStart);
     const blocks = days.map((ymd) => {
       const j = calThingsOnDay(things, ymd), d = _ymd2date(ymd), rows = [];
+      // the day's money, totalled once: bills projected out, paydays projected in
+      const spends = finView ? finSpendsOnDay(ymd) : [], incomes = finView ? finIncomeOnDay(ymd) : [];
+      const outSum = spends.reduce((n, s) => n + (+s.amount || 0), 0), inSum = incomes.reduce((n, s) => n + (+s.amount || 0), 0);
       j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime : e.allDay ? "all day" : ""), false, false)));
       (j.sessions || []).forEach((se) => rows.push(itemRow("session", se.id, se.emoji || "🎯", se.title || "Session", (+se.goalMins ? sessionTimeOn(log, se.id, ymd) + "/" + se.goalMins + " min" : ""), false, false, ymd)));
-      if (finView) finSpendsOnDay(ymd).forEach((s) => rows.push(itemRow("spend", (s.kind === "annual" ? "a:" : "s:") + s.key, "💸", (s.name || "") + " ~" + fmtUSD(s.amount || 0), s.kind === "annual" ? "yearly" : cadenceInfo(s.cadence).abbr, false, false, ymd)));
+      spends.forEach((s) => rows.push(itemRow("spend", (s.kind === "annual" ? "a:" : "s:") + s.key, "💸", (s.name || "") + " ~" + fmtUSD(s.amount || 0), s.kind === "annual" ? "yearly" : cadenceInfo(s.cadence).abbr, false, false, ymd)));
       j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "", !!t.done, true)));
       j.habits.forEach((h) => rows.push(itemRow("detail", h.id, "↻", h.title || "Habit", "", thingDoneOn(log, h.id, ymd), (h.track || "check") === "check", ymd)));
       j.routines.forEach((r) => { const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, ymd)).length; rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length : "", members.length > 0 && doneCt === members.length, false)); });
-      return '<div class="cal-wday' + (ymd === today ? " today" : "") + '"><button class="cal-wday-head" data-ymd="' + ymd + '"><span class="cal-wday-dow">' + d.toLocaleDateString("en-US", { weekday: "short" }) + '</span><span class="cal-wday-num">' + d.getDate() + "</span></button>" +
+      // the day's totals, right there on its header: red out, green in. The rows below still
+      // name every charge, so the badge is a summary — never the only carrier of the detail.
+      let finBadge = "";
+      if (outSum > 0 || inSum > 0) {
+        const said = [];
+        if (outSum > 0) said.push(fmtUSD(outSum) + " of bills due");
+        if (inSum > 0) said.push(fmtUSD(inSum) + " expected in");
+        finBadge = '<span class="cal-wfin" aria-label="' + esc(said.join(" · ")) + '" title="' + esc(said.join(" · ")) + '">' +
+          (outSum > 0 ? '<b class="neg">−' + esc(fmtUSD(outSum)) + "</b>" : "") +
+          (inSum > 0 ? '<b class="pos">+' + esc(fmtUSD(inSum)) + "</b>" : "") + "</span>";
+      }
+      return '<div class="cal-wday' + (ymd === today ? " today" : "") + '"><button class="cal-wday-head" data-ymd="' + ymd + '"><span class="cal-wday-dow">' + d.toLocaleDateString("en-US", { weekday: "short" }) + '</span><span class="cal-wday-num">' + d.getDate() + "</span>" + finBadge + "</button>" +
         (rows.length ? '<div class="cal-wrows">' + rows.join("") + "</div>" : '<div class="cal-wempty" aria-hidden="true">·</div>') + "</div>";
     }).join("");
     return '<div class="cal-week">' + blocks + "</div>";
@@ -12831,7 +12876,7 @@ function openCalendar() {
       '<div class="daily-top">' +
         '<button class="daily-icn" id="calClose" aria-label="close">✕</button>' +
         '<div class="cal-titlewrap"><button class="cal-nav" id="calPrev" aria-label="previous">‹</button><div class="cal-title">' + esc(calTitle()) + '</div><button class="cal-nav" id="calNext" aria-label="next">›</button></div>' +
-        '<div class="cal-headright"><button class="cal-today" id="calToday">Today</button><button class="daily-icn cal-fin-btn' + (finView ? " on" : "") + '" id="calFin" aria-pressed="' + (finView ? "true" : "false") + '" aria-label="financial layer" title="financial layer — your bills &amp; subscriptions painted onto the days">💸</button><button class="daily-icn cal-inf-btn' + (infinite ? " on" : "") + '" id="calInf" aria-pressed="' + (infinite ? "true" : "false") + '" aria-label="endless scroll" title="endless scroll — flow through the calendar">∞</button><button class="daily-icn cal-gear' + (settingsOpen ? " on" : "") + '" id="calGear" aria-label="calendar settings" title="week start &amp; density">⚙</button></div>' +
+        '<div class="cal-headright"><button class="cal-today" id="calToday">Today</button><button class="daily-icn cal-fin-btn' + (finView ? " on" : "") + '" id="calFin" aria-pressed="' + (finView ? "true" : "false") + '" aria-label="financial layer" title="financial layer — your bills painted on their days, plus each day&#39;s money in &amp; out totalled in the week view">$</button><button class="daily-icn cal-inf-btn' + (infinite ? " on" : "") + '" id="calInf" aria-pressed="' + (infinite ? "true" : "false") + '" aria-label="endless scroll" title="endless scroll — flow through the calendar">∞</button><button class="daily-icn cal-gear' + (settingsOpen ? " on" : "") + '" id="calGear" aria-label="calendar settings" title="week start &amp; density">⚙</button></div>' +
       "</div>" +
       '<div class="cal-viewbar"><div class="td-seg cal-seg" id="calSeg">' +
         '<button data-view="month"' + (view === "month" ? ' class="on"' : "") + ">Month</button>" +

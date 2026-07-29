@@ -2188,11 +2188,14 @@ def monthly_hours_history():
 
 
 # ── Recurrence detection (your real subscriptions, tagged or not) ──
-def next_deposit(txns=None, now=None):
-    """The next EXPECTED income deposit (the paycheck-runway anchor): each income source's
-    rhythm read forward — median gap between its deposits (≥2 seen, gaps of 3–45 days, so
-    same-day split deposits and one-offs never fake a rhythm) — nearest upcoming wins.
-    Returns {key, source, next, ymd, days, amount} or None when no rhythm is visible."""
+def income_rhythms(txns=None, now=None):
+    """EVERY income source with a visible rhythm, read forward — median gap between its
+    deposits (≥2 seen, gaps of 3–45 days, so same-day split deposits and one-offs never
+    fake a rhythm), nearest upcoming first. Each entry carries `last` (the newest real
+    deposit) and `gap_days` (the rhythm's step) on top of the next-deposit fields, so a
+    client can project the whole beat forward — the calendar's week view paints every
+    payday in the week, not just the nearest one.
+    Returns [{key, source, last, gap_days, next, ymd, days, amount}] (possibly empty)."""
     if txns is None:
         txns = _ledger_txns()
     now = now or int(time.time())
@@ -2212,7 +2215,7 @@ def next_deposit(txns=None, now=None):
         if not is_inc:
             continue
         by.setdefault(key, []).append((posted, amt))
-    best = None
+    out = []
     for key, rows in by.items():
         rows.sort()
         posts = [r[0] for r in rows]
@@ -2228,12 +2231,37 @@ def next_deposit(txns=None, now=None):
         while nxt < now:
             nxt += med
         amt_med = sorted(r[1] for r in rows)[len(rows) // 2]
-        cand = {"key": key, "source": prettify_merchant(key, key.title()),
-                "next": nxt, "ymd": datetime.fromtimestamp(nxt).strftime("%Y-%m-%d"),
-                "days": round((nxt - now) / day), "amount": round(amt_med, 2)}
-        if best is None or cand["next"] < best["next"]:
-            best = cand
+        # key order matters: next_deposit pops last/gap_days and its dict must stay
+        # byte-identical to the shape shipped before this refactor.
+        out.append({"key": key, "source": prettify_merchant(key, key.title()),
+                    "last": posts[-1], "gap_days": max(1, int(round(med / day))),
+                    "next": nxt, "ymd": datetime.fromtimestamp(nxt).strftime("%Y-%m-%d"),
+                    "days": round((nxt - now) / day), "amount": round(amt_med, 2)})
+    out.sort(key=lambda r: (r["next"], r["key"]))   # key breaks a tie so both runtimes order the same
+    return out
+
+
+def next_deposit_of(rhythms):
+    """The head of an already-computed income_rhythms() list, in the next_deposit shape —
+    so a caller that wants BOTH (the /api/runway route) never walks the ledger twice."""
+    if not rhythms:
+        return None
+    best = dict(rhythms[0])
+    best.pop("last", None)
+    best.pop("gap_days", None)
     return best
+
+
+def next_deposit(txns=None, now=None):
+    """The next EXPECTED income deposit (the paycheck-runway anchor) — the head of
+    income_rhythms(). Returns {key, source, next, ymd, days, amount} or None."""
+    return next_deposit_of(income_rhythms(txns, now))
+
+
+def runway_payload(txns=None, now=None):
+    """/api/runway's body, computed once: the anchor + every visible income rhythm."""
+    rhythms = income_rhythms(txns, now)
+    return {"next_deposit": next_deposit_of(rhythms), "rhythms": rhythms}
 
 
 def annual_predictions(txns=None, now=None, limit=12):
@@ -2726,7 +2754,7 @@ def api_snapshot():
     grab("categories", lambda: {"categories": category_summary()})
     grab("recurring", lambda: {"recurring": detect_recurring()})
     grab("annuals", lambda: {"annuals": annual_predictions()})   # phones read the sealed bundle — without this they'd show zero annual warnings
-    grab("runway", lambda: {"next_deposit": next_deposit()})     # the paycheck-runway anchor rides too
+    grab("runway", lambda: runway_payload())                     # the paycheck-runway anchor + every income rhythm (the calendar's income layer) ride too
     grab("transfers", lambda: {"transfers": recurring_transfers()})
     grab("deposits", lambda: {"deposits": deposit_sources(txns)})
     grab("merchants", lambda: {"merchants": top_merchants(txns, ov)})
