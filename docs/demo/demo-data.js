@@ -34,8 +34,29 @@
       mk({ id: "demo-e1", type: "event", title: "Coffee with Sam", emoji: "☕", start: ymd(12), end: null, allDay: 0, startTime: "15:00", endTime: null }),
       mk({ id: "demo-e2", type: "event", title: "Weekend trip", emoji: "✈️", start: ymd(20), end: ymd(22), allDay: 1, startTime: null, endTime: null }),
       mk({ id: "demo-e3", type: "event", title: "Team standup", emoji: "📞", start: ymd(1), end: null, allDay: 0, startTime: "09:00", endTime: "09:15", sched: { freq: "weekly", days: [1], start: ymd(1) } }),
+      // a Session so the Visualizer's Sessions well + Rhythms scene demo full (all made up)
+      mk({ id: "demo-s1", type: "session", title: "Deep work", emoji: "🎯", start: ymd(1), end: null, allDay: 1, sched: null }),
     ];
     seed("money.things", JSON.stringify(things));
+  })();
+  // ── seed a lived-in activity log + character journey so the Visualizer's Constellation,
+  //    Rhythms and (via things) Sessions scenes all show PLAY numbers. All fabricated. ──
+  (function () {
+    function ymdBack(days) { var d = new Date(Date.now() - days * 86400000); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+    var log = [], feats = [], at = 1;
+    // a scatter of check-ins + habit ticks + session minutes over the last ~50 days
+    for (var i = 50; i >= 0; i--) {
+      if (i % 7 === 3) continue;                                  // a few quiet days, so the heatmap isn't a solid block
+      var day = ymdBack(i);
+      log.push({ ts: day, at: at++, itemId: "energy", prompt: "How's your energy right now?", input: "scale", value: 3 + (i % 3), dest: { kind: "health", target: "energy" } });
+      if (i % 2 === 0) log.push({ ts: day, at: at++, itemId: "spend", prompt: "Spend anything today?", input: "amount", value: 10 + (i % 40), dest: { kind: "money", target: "" } });
+      if (i % 3 === 0) log.push({ ts: day, at: at++, itemId: "demo-m2", kind: "done", root: "demo-r1" });   // Meditate (a routine member)
+      if (i % 4 === 1) { var mins = 25 * (1 + (i % 3)); log.push({ ts: day, at: at++, itemId: "demo-s1:time", kind: "habit", root: "demo-s1", value: { done: 1, qty: mins, unit: "min" } }); }
+    }
+    // a handful of character feats (charLog speaks epoch MS)
+    [2, 9, 16, 23, 30].forEach(function (d, n) { feats.push({ k: n % 2 ? "feat" : "level", d: "A demo milestone", t: Date.now() - d * 86400000 }); });
+    seed("money.log", JSON.stringify(log));
+    seed("money.charLog", JSON.stringify(feats));
   })();
   // a curated board (key order = stack order on narrow screens)
   var LAYOUT = {
@@ -118,6 +139,19 @@
       { ym: "2026-06", label: "Jun", income: 3200, spending: 1951, net: 1249, count: 142, live: 142, imported: 0, interest: 9.1,  ccpay: 120, categories: [{ key: "groceries", amount: 520 }, { key: "dining", amount: 290 }, { key: "gas", amount: 210 }] },
     ],
   };
+
+  // daily snapshots for the Visualizer's "Balance over time" line — a gently climbing
+  // total with a payday bump, one entry per day for the last 45 days. All made up.
+  var history = (function () {
+    var out = [], t = 6400, c = 2900;
+    for (var i = 45; i >= 0; i--) {
+      t += 18 + (i % 5) * 4 - (i % 3) * 6;                        // a wobbly upward drift
+      c += (i % 6 === 0) ? 220 : -14;                             // cash dips between paydays, jumps on them
+      var d = new Date(now - i * DAY);
+      out.push({ date: d.toISOString(), total: Math.round(t), cash: Math.round(Math.max(400, c)), spend_30d: 1900 + (i % 7) * 20 });
+    }
+    return out;
+  })();
 
   var work = {
     updated: iso,
@@ -216,6 +250,7 @@
     var m = (method || "GET").toUpperCase();
     if (url.indexOf("data/balances.json") !== -1) return J(balances);
     if (url.indexOf("data/monthly.json") !== -1) return J(monthly);
+    if (url.indexOf("data/history.json") !== -1) return J(history);   // Visualizer: balance-over-time scene
     if (url.indexOf("/api/ping") !== -1) return J({ ok: true });
     if (url.indexOf("/api/manual-account") !== -1) return J({ ok: false, error: "The demo keeps its own books — in your real cache this saves instantly." });
     if (url.indexOf("/api/runway") !== -1) {
@@ -321,7 +356,7 @@
       }
       return Promise.resolve(J({ ok: true, items: demoBucket }));
     }
-    if (url.indexOf("/api/") !== -1 || url.indexOf("data/balances.json") !== -1 || url.indexOf("data/monthly.json") !== -1) {
+    if (url.indexOf("/api/") !== -1 || url.indexOf("data/balances.json") !== -1 || url.indexOf("data/monthly.json") !== -1 || url.indexOf("data/history.json") !== -1) {
       var method = (init && init.method) || (typeof input === "object" && input && input.method) || "GET";
       return Promise.resolve(route(url, method, init && init.body));
     }

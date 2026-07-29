@@ -29,6 +29,7 @@ A calm, private **life OS** built for people with executive function challenges 
 - **Data flow.** Widgets `fetch("data/balances.json")`. Editing data (categories, income) POSTs to a `server.py` endpoint that calls a `recompute_*` and rewrites `balances.json`; the widget re-fetches.
 - **Persistence.** UI state → `localStorage` (keys namespaced `money.*`). Layout → `saveLayout()`. Backend writes are atomic.
 - **Shared helpers in app.js:** `fmtUSD`, `fmtUSDk`, `windowRange`, `escapeHtml`, `incomeBubbles`, `drawIcons`, `springIn`. Reuse them.
+- **D3 is vendored + lazy-loaded** for the Visualizer (the trip → `openLedger`), never a CDN, injected on first open with a graceful fallback — see the WIKI SOP (`Working Docs/WIKI/30-infrastructure/d3-sop.md`).
 
 ## Mobile-friendly (SOP)
 

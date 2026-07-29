@@ -4,7 +4,7 @@ A living, product-facing list of what THE CACHE does — kept current as we ship
 
 **The promise:** have a good time facing the skeletons in your closet. THE CACHE is a **free**, calm, playful, provably-private **life OS** — one secure home for the parts of your life you want to track, built from real research to work for brains that struggle with executive function (ADHD, autism, brain injury — and honestly, anyone overwhelmed). Your executive energy varies day to day; that's not a flaw. Cache exists to show you your own pattern and help you plan around it, instead of fighting it. Money is the first area of life it masters — because money has the highest stakes — and the same home is growing to hold your health, tasks, meals, and more.
 
-_Last updated: 2026-07-25_
+_Last updated: 2026-07-29_
 
 ## Log your life in one tap
 - **🃏 The deck** — the one button to remember. Always in the same spot on every device, it opens your day one card at a time: big friendly buttons, one question per screen, confetti and EXP when you finish. One minute keeps your whole cache fed — and a one-time coaching card teaches the habit the first day.
@@ -57,6 +57,14 @@ _Last updated: 2026-07-25_
 - **Work planner** — how many hours of gig work would close the gap.
 - **Core vs. flex** — your non-negotiable spending versus what you could cut.
 - **Subscriptions** — every recurring charge in one place, each markable core or flex.
+
+## Take a trip through your cache
+- **🦄 Book a trip** — tap the unicorn and warp out to visit your cache in person: a full-screen starfield journey (calm and instant if you prefer reduced motion), a little travel music, and +25 EXP every time you go.
+- **The Constellation** — you arrive to your whole life as one night sky. Each area — money, tasks, sessions, habits, check-ins — is its own gravity well, and everything you've done is a star, sized by how much of it there is. It settles gently into place on its own (and sits perfectly still if you've asked for less motion).
+- **Money flows** — a flowing river from your income sources, through your cache, out to where it actually went. A good month shows what you **kept**; a lean one is honest about it — the gap shows as money you already had, never invented income.
+- **Rhythms** — a year of your days as a calendar heatmap: the days you checked in, put in session time, or earned a feat glow brighter. See your streaks and your quiet stretches at a glance.
+- **Balance over time** — your daily total drawn as a line, cash alongside it. It fills in as your history grows, and says so plainly until there's enough to draw — never a faked trend.
+- **Made for every screen and every brain** — flip between scenes from a little dock, read each one's plain-language summary before you touch anything, and explore it with a thumb. Every scene matches your theme and accent and respects color-blind, high-contrast, and reduced-motion settings. It all runs on your own data, on your device.
 
 ## Make it yours
 - **Three modes** — **Minimalist** keeps it simple, **Standard** is the balanced view, **Legendary** shows every button. Plain names, your choice, changeable any time.

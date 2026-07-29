@@ -10179,6 +10179,615 @@ function fadeAudio(a, to, ms, then) {
   };
   step();
 }
+
+// ══ THE VISUALIZER ═══════════════════════════════════════════════════════════
+// Where the trip lands. Four scenes over the whole cache — the constellation, the
+// money flows, the rhythms of your days, and your balance over time — all drawn
+// from data that is already on this machine. Nothing here phones anywhere.
+//
+// D3 is VENDORED (assets/vendor/d3, pinned + hashed — see PROVENANCE.md there) and
+// LAZY: the two scripts inject on the first Visualizer open, never at boot, so the
+// board still starts on a tired laptop. If either fails to load, openLedger keeps
+// its original month-constellation scene and nothing about the trip changes.
+// Vendoring, upgrading, and how to adapt an Observable example safely:
+// Working Docs/WIKI/30-infrastructure/d3-sop.md.
+const D3_FILES = ["assets/vendor/d3/d3.min.js", "assets/vendor/d3/d3-sankey.min.js"];   // ORDER MATTERS: sankey extends the global d3
+let _d3Loading = null;
+function d3ready() { return !!(window.d3 && window.d3.forceSimulation && window.d3.sankey); }   // BOTH files' exports — a partial load (d3 ok, sankey failed) is NOT ready
+function d3Load() {
+  if (d3ready()) return Promise.resolve(window.d3);
+  if (_d3Loading) return _d3Loading;
+  const one = (src) => new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = src; s.async = false;                       // async=false keeps d3 before d3-sankey
+    s.addEventListener("load", () => res());
+    s.addEventListener("error", () => rej(new Error("d3: could not load " + src)));
+    document.head.appendChild(s);
+  });
+  _d3Loading = D3_FILES.reduce((p, f) => p.then(() => one(f)), Promise.resolve())
+    .then(() => {
+      if (!d3ready()) throw new Error("d3: loaded but incomplete");   // e.g. d3 arrived but d3-sankey didn't → treat as not-loaded so the next open re-injects
+      return window.d3;
+    })
+    .catch((e) => { _d3Loading = null; throw e; });     // a failed load must not poison the next try — and d3ready() stays false, so a later open retries
+  return _d3Loading;
+}
+
+// ── The Visualizer's data layer — PURE (no DOM, no fetch, no d3) ──────────────
+// Every scene is shaped here from the person's own cache, so tests/viz_test.js can
+// pin the math without a browser. Fixtures there are placeholders only, never real
+// bank data. Nothing in this block may touch document/window/localStorage.
+function vizYmd(ms) {                                   // epoch ms → LOCAL YYYY-MM-DD (charLog speaks ms, the log speaks ymd)
+  const d = new Date(+ms || 0);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function vizYmdAdd(ymd, days) {
+  const p = String(ymd || "").split("-");
+  const d = new Date(+p[0] || 1970, (+p[1] || 1) - 1, +p[2] || 1);
+  d.setDate(d.getDate() + (+days || 0));
+  return vizYmd(d.getTime());
+}
+// The life areas the constellation clusters around — the ones the cache actually holds
+// data for today (2_STRUCTURE.md's 12 areas, filtered to what exists). Adding an area
+// here is all it takes for its nodes to get a gravity well.
+const VIZ_AREAS = [
+  { key: "money", label: "Money", emoji: "💰" },
+  { key: "tasks", label: "Tasks", emoji: "✅" },
+  { key: "sessions", label: "Sessions", emoji: "🎯" },
+  { key: "habits", label: "Habits", emoji: "🔁" },
+  { key: "journal", label: "Check-ins", emoji: "📓" },
+];
+const VIZ_NODE_CAP = 14;    // per area — a readable sky beats a complete one, and the caption always says what's hidden
+const VIZ_FLOW_CAP = 10;    // per side of the Sankey, rest rolled into one honest "everything else" band
+// Your whole cache as one sky. Node size is normalized WITHIN its area: areas measure
+// different things (dollars vs. tasks vs. minutes), so a node is only ever sized against
+// the biggest thing in its own well — never across units.
+function vizConstellation(src) {
+  src = src || {};
+  const snap = src.snap || {};
+  const things = (src.things || []).filter((t) => t && t.id && !t.deleted);
+  const log = src.log || [];
+  const raw = {};
+  VIZ_AREAS.forEach((a) => { raw[a.key] = []; });
+  const add = (area, id, label, value, note) => {
+    const v = +value;
+    if (!(v > 0) || !raw[area]) return;                 // a zero-activity node is noise, not data
+    raw[area].push({ id: area + "|" + id, area: area, label: String(label == null || label === "" ? "—" : label).slice(0, 30), value: v, note: note || "" });
+  };
+  // MONEY — what you hold, where it goes, where it comes from.
+  (snap.accounts || []).forEach((a, i) => add("money", "acct" + i, a && a.name, Math.abs(+(a && a.balance) || 0), "account"));
+  (((snap.spending || {}).categories) || []).forEach((c) => add("money", "out:" + (c && c.key), c && c.key, Math.abs(+(c && c.amount) || 0), "spending"));
+  (((snap.income || {}).sources) || []).forEach((s) => { if (s && s.tagged) add("money", "in:" + s.key, s.source || s.key, Math.abs(+s.amount || 0), "income"); });
+  // TASKS — a project is sized by what's inside it; a loose task counts as one.
+  const kids = {};
+  things.forEach((t) => { if (t.project) kids[t.project] = (kids[t.project] || 0) + 1; });
+  things.forEach((t) => {
+    if (t.type === "project") add("tasks", t.id, t.name || t.title, 1 + (kids[t.id] || 0), (kids[t.id] || 0) + " in this project");
+    else if (t.type === "task" && !t.routine && !t.parent && !t.project) add("tasks", t.id, t.title, 1, t.done ? "done" : "open");
+  });
+  // SESSIONS — sized by the minutes actually banked into them. The credit re-logs a
+  // CUMULATIVE day total under "<sessionId>:time", so per day it's latest-`at`-wins
+  // (summing the entries would count the same minutes over and over).
+  const sessDay = {};
+  log.forEach((e) => {
+    if (!e || typeof e.itemId !== "string" || e.itemId.slice(-5) !== ":time") return;
+    const id = e.itemId.slice(0, -5), day = String(e.ts || ""), at = +e.at || 0, q = (e.value && +e.value.qty) || 0;
+    sessDay[id] = sessDay[id] || {};
+    const cur = sessDay[id][day];
+    if (!cur || at >= cur.at) sessDay[id][day] = { at: at, qty: q };
+  });
+  things.forEach((t) => {
+    if (t.type !== "session") return;
+    const per = sessDay[t.id] || {};
+    let m = 0; Object.keys(per).forEach((d) => { m += per[d].qty; });
+    add("sessions", t.id, t.title, m > 0 ? m : 1, m > 0 ? Math.round(m) + " min banked" : "no time banked yet");
+  });
+  // HABITS + ROUTINES — sized by how often you've actually touched them.
+  const hits = {};
+  log.forEach((e) => { if (e && e.itemId) hits[e.itemId] = (hits[e.itemId] || 0) + 1; });
+  things.forEach((t) => {
+    if (t.type === "habit") add("habits", t.id, t.title, 1 + (hits[t.id] || 0), (hits[t.id] || 0) + " logged");
+    else if (t.type === "routine") add("habits", t.id, t.name, 1 + (hits[t.id] || 0), (hits[t.id] || 0) + " logged");
+  });
+  // CHECK-INS — every deck question you've answered, sized by how many answers it holds.
+  const asked = {};
+  log.forEach((e) => {
+    if (!e || !e.prompt) return;
+    const k = String(e.itemId || e.prompt);
+    if (!asked[k]) asked[k] = { label: e.prompt, n: 0 };
+    asked[k].n++;
+  });
+  Object.keys(asked).sort().forEach((k) => add("journal", k, asked[k].label, asked[k].n, asked[k].n + " answered"));
+  const areas = [], nodes = [];
+  VIZ_AREAS.forEach((a) => {
+    const all = raw[a.key].slice().sort((x, y) => y.value - x.value || (x.id < y.id ? -1 : 1));   // id tiebreak so two devices draw the same sky
+    const shown = all.slice(0, VIZ_NODE_CAP), top = shown.length ? shown[0].value : 0;
+    shown.forEach((n, i) => { n.weight = top > 0 ? n.value / top : 0; n.rank = i; nodes.push(n); });
+    areas.push({ key: a.key, label: a.label, emoji: a.emoji, shown: shown.length, total: all.length,
+                 hidden: Math.max(0, all.length - shown.length), sum: all.reduce((s, n) => s + n.value, 0) });
+  });
+  return { areas: areas, nodes: nodes, empty: nodes.length === 0 };
+}
+// Money flows — income sources → your cache → where it went, over the snapshot's window.
+// Returns a d3-sankey graph (links carry node INDEXES). The two sides are balanced by
+// naming the difference, never by inventing one: a surplus becomes "kept", and a window
+// where you spent more than came in shows the gap as money you already had.
+function vizFlows(snap) {
+  snap = snap || {};
+  const roll = (list, cap, label) => {
+    const s = list.slice().sort((a, b) => b.value - a.value || (a.name < b.name ? -1 : 1));
+    if (s.length <= cap) return s;
+    const keep = s.slice(0, cap - 1);
+    keep.push({ name: label, value: s.slice(cap - 1).reduce((t, x) => t + x.value, 0) });
+    return keep;
+  };
+  const ins = roll((((snap.income || {}).sources) || []).filter((s) => s && s.tagged && +s.amount > 0)
+    .map((s) => ({ name: String(s.source || s.key || "income").slice(0, 26), value: Math.abs(+s.amount) })), VIZ_FLOW_CAP, "other income");
+  const outs = roll((((snap.spending || {}).categories) || []).filter((c) => c && +c.amount > 0)
+    .map((c) => ({ name: String(c.key || "other").slice(0, 26), value: Math.abs(+c.amount) })), VIZ_FLOW_CAP, "everything else");
+  const days = +((snap.spending || {}).window_days) || +((snap.income || {}).window_days) || 0;
+  if (!ins.length && !outs.length) return { nodes: [], links: [], empty: true, totalIn: 0, totalOut: 0, kept: 0, windowDays: days };
+  const nodes = [], links = [], idx = {};
+  const node = (name, kind) => {
+    const k = kind + "|" + name;
+    if (idx[k] == null) { idx[k] = nodes.length; nodes.push({ name: name, kind: kind }); }
+    return idx[k];
+  };
+  const hub = node("your cache", "hub");
+  let tIn = 0, tOut = 0;
+  ins.forEach((s) => { tIn += s.value; links.push({ source: node(s.name, "in"), target: hub, value: s.value }); });
+  outs.forEach((s) => { tOut += s.value; links.push({ source: hub, target: node(s.name, "out"), value: s.value }); });
+  const diff = Math.round((tIn - tOut) * 100) / 100;
+  if (diff > 0.5) links.push({ source: hub, target: node("kept", "kept"), value: diff });
+  else if (diff < -0.5) links.push({ source: node("from what you had", "in"), target: hub, value: -diff });
+  return { nodes: nodes, links: links, empty: false, totalIn: tIn, totalOut: tOut, kept: diff, windowDays: days };
+}
+// Rhythms — one cell per day for the last N days: check-in answers, thing events,
+// session minutes, character feats. Days with nothing stay zero; the window is filled
+// edge to edge so the calendar never lies about a gap.
+function vizRhythm(src, endYmd, days) {
+  src = src || {};
+  const n = Math.max(1, +days || 365);
+  const end = endYmd || vizYmd(Date.now());
+  const start = vizYmdAdd(end, -(n - 1));
+  const cells = {}, order = [];
+  for (let i = 0; i < n; i++) {
+    const y = vizYmdAdd(start, i);
+    cells[y] = { ymd: y, count: 0, checkins: 0, things: 0, feats: 0, mins: 0 };
+    order.push(y);
+  }
+  const seen = {};                                       // sessionId|day → the cumulative total already counted
+  (src.log || []).forEach((e) => {
+    if (!e) return;
+    const c = cells[String(e.ts || "").slice(0, 10)];
+    if (!c) return;
+    if (typeof e.itemId === "string" && e.itemId.slice(-5) === ":time") {
+      const k = e.itemId + "|" + c.ymd, at = +e.at || 0, q = (e.value && +e.value.qty) || 0, cur = seen[k];
+      if (!cur || at >= cur.at) { c.mins += q - (cur ? cur.qty : 0); seen[k] = { at: at, qty: q }; }   // only ever add the DELTA of the running total
+      c.count++;
+      return;
+    }
+    if (e.prompt) c.checkins++; else c.things++;
+    c.count++;
+  });
+  (src.charLog || []).forEach((e) => {
+    if (!e || !e.t) return;
+    const c = cells[vizYmd(+e.t)];
+    if (!c) return;
+    c.feats++; c.count++;
+  });
+  let max = 0, total = 0, active = 0, mins = 0;
+  order.forEach((y) => { const c = cells[y]; if (c.count > max) max = c.count; total += c.count; mins += c.mins; if (c.count) active++; });
+  return { days: order.map((y) => cells[y]), start: start, end: end, max: max, total: total, active: active, mins: mins, empty: total === 0 };
+}
+// Balance over time — history.json is one snapshot a day ({date,total,cash,spend_30d}).
+// Fewer than two real days is an honest empty state: a single dot is not a trend, and we
+// never interpolate days the cache didn't actually see.
+function vizBalance(hist) {
+  const by = {};
+  (hist || []).forEach((e) => {
+    if (!e || !e.date) return;
+    const y = String(e.date).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(y)) return;
+    const prev = by[y];
+    if (!prev || String(e.date) >= prev.at) by[y] = { ymd: y, at: String(e.date), total: +e.total || 0, cash: +e.cash || 0, spend: +e.spend_30d || 0 };
+  });
+  const pts = Object.keys(by).sort().map((y) => by[y]);
+  if (pts.length < 2) return { points: pts, empty: true, min: 0, max: 0, change: 0 };
+  let lo = Infinity, hi = -Infinity;
+  pts.forEach((p) => { lo = Math.min(lo, p.total, p.cash); hi = Math.max(hi, p.total, p.cash); });
+  return { points: pts, empty: false, min: lo, max: hi, first: pts[0], last: pts[pts.length - 1],
+           change: pts[pts.length - 1].total - pts[0].total };
+}
+
+// ── The Visualizer's drawing layer (d3 + DOM) ─────────────────────────────────
+// Colors NEVER hardcode ink: the scenes read CSS custom properties off the surface,
+// so a theme change or the color-vision setting reaches every mark.
+const VIZ_COLORS = { money: "#00c875", tasks: "#0aa5e8", sessions: "#a25ddc", habits: "#fdab3d", journal: "#e2445c" };
+const VIZ_COLORS_SAFE = { money: "#009E73", tasks: "#0072B2", sessions: "#CC79A7", habits: "#E69F00", journal: "#D55E00" };   // Okabe-Ito
+function vizPalette() { return colorBlindMode() ? VIZ_COLORS_SAFE : VIZ_COLORS; }
+function vizInk(el) {
+  const cs = getComputedStyle(el || document.documentElement);
+  const g = (n, f) => ((cs.getPropertyValue(n) || "").trim() || f);
+  return { ink: g("--lg-ink", "#eef0ff"), dim: g("--lg-dim", "rgba(238,240,255,0.55)"),
+           faint: g("--lg-faint", "rgba(238,240,255,0.16)"), grid: g("--lg-grid", "rgba(238,240,255,0.10)"),
+           // --lg-accent (fixed, legible on the near-black surface), NOT the theme's --accent —
+           // which in the default Water theme is a near-invisible deep blue on #06040f.
+           accent: g("--lg-accent", g("--accent", "#ffd409")) };
+}
+function vizMoney(n) {                                   // compact + signed, and correct for negatives (fmtUSDk isn't)
+  const a = Math.abs(Math.round(+n || 0)), s = (+n || 0) < 0 ? "-" : "";
+  if (a >= 10000) return s + "$" + Math.round(a / 1000) + "k";
+  if (a >= 1000) return s + "$" + (a / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+  return s + "$" + a;
+}
+const VIZ_SCENES = [
+  { key: "constellation", label: "Constellation", emoji: "✦" },
+  { key: "flows", label: "Money flows", emoji: "🌊" },
+  { key: "rhythms", label: "Rhythms", emoji: "🗓" },
+  { key: "balance", label: "Balance", emoji: "📈" },
+];
+function vizBox(host) {
+  const r = host.getBoundingClientRect();
+  return { w: Math.max(260, Math.round(r.width) || 640), h: Math.max(150, Math.round(r.height) || 300) };
+}
+function vizSvg(host, box, label) {
+  host.textContent = "";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 " + box.w + " " + box.h);
+  svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", label || "");
+  svg.setAttribute("focusable", "false");
+  host.appendChild(svg);
+  return svg;
+}
+// Honest empty state — says what's missing and what would fill it, never a blank box.
+function vizEmpty(d3, host, box, ink, lines) {
+  const svg = d3.select(vizSvg(host, box, lines.join(" ")));
+  const g = svg.append("g").attr("transform", "translate(" + box.w / 2 + "," + (box.h / 2 - (lines.length - 1) * 11) + ")");
+  lines.forEach((t, i) => {
+    g.append("text").attr("x", 0).attr("y", i * 22).attr("text-anchor", "middle")
+      .attr("font-family", "ui-monospace,Menlo,monospace").attr("font-size", i ? 12 : 14)
+      .attr("fill", i ? ink.dim : ink.ink).attr("opacity", i ? 0.8 : 1).text(t);
+  });
+  return { summary: lines.join(" ") };
+}
+// The arrival scene: your whole cache as one sky, each life area its own gravity well.
+// Adapted from d3-force's clustered-layout idiom (https://d3js.org/d3-force, ISC).
+function vizDrawConstellation(d3, host, box, data, o) {
+  if (data.empty) {
+    return vizEmpty(d3, host, box, o.ink, ["Your constellation lights up as your cache fills.",
+      "Sync a bank, add a task, answer a check-in — anything real."]);
+  }
+  const live = data.areas.filter((a) => a.shown > 0), pal = o.palette;
+  const summary = "Your cache holds " + live.map((a) => a.total + " " + a.label.toLowerCase()).join(", ") + ".";
+  const svg = d3.select(vizSvg(host, box, summary));
+  const rx = box.w * 0.30, ry = box.h * 0.30, cxy = {};
+  live.forEach((a, i) => {
+    if (live.length === 1) { cxy[a.key] = { x: box.w / 2, y: box.h / 2 }; return; }
+    const ang = -Math.PI / 2 + (Math.PI * 2 * i) / live.length;
+    cxy[a.key] = { x: box.w / 2 + Math.cos(ang) * rx, y: box.h / 2 + Math.sin(ang) * ry };
+  });
+  const wellR = Math.min(rx, ry) * (live.length > 3 ? 0.72 : 0.9);
+  const scale = Math.max(0.62, Math.min(1, Math.min(box.w, box.h) / 380));
+  const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h; };
+  const nodes = data.nodes.map((n) => {
+    const c = cxy[n.area] || { x: box.w / 2, y: box.h / 2 };
+    const h = hash(n.id), ang = (h % 360) * Math.PI / 180, rad = 6 + ((h >>> 9) % 46);   // deterministic seed: the same cache draws the same sky twice
+    return Object.assign({}, n, { r: (5 + 15 * Math.sqrt(n.weight)) * scale, x: c.x + Math.cos(ang) * rad, y: c.y + Math.sin(ang) * rad });
+  });
+  const wells = svg.append("g");
+  live.forEach((a) => {
+    const c = cxy[a.key];
+    wells.append("circle").attr("cx", c.x).attr("cy", c.y).attr("r", wellR).attr("fill", pal[a.key]).attr("opacity", 0.07);
+    wells.append("circle").attr("cx", c.x).attr("cy", c.y).attr("r", wellR).attr("fill", "none")
+      .attr("stroke", pal[a.key]).attr("stroke-opacity", 0.22).attr("stroke-dasharray", "2 6");
+    const ly = Math.min(box.h - 6, c.y + wellR + 15);
+    wells.append("text").attr("x", c.x).attr("y", ly).attr("text-anchor", "middle")
+      .attr("font-family", "ui-monospace,Menlo,monospace").attr("font-size", 10).attr("letter-spacing", "0.14em")
+      .attr("fill", pal[a.key]).attr("opacity", 0.95)
+      .text((a.emoji + " " + a.label + " · " + a.total).toUpperCase());   // the count is VISIBLE, never hover-only
+  });
+  const gN = svg.append("g");
+  const gs = gN.selectAll("g").data(nodes).join("g");
+  gs.append("circle").attr("r", (d) => d.r).attr("fill", (d) => pal[d.area]).attr("opacity", 0.85)
+    .attr("stroke", (d) => pal[d.area]).attr("stroke-opacity", 0.5).attr("stroke-width", 1);
+  gs.append("title").text((d) => d.label + (d.note ? " · " + d.note : ""));
+  const labelled = {};
+  nodes.forEach((n) => { labelled[n.id] = n.rank < 3; });    // the top three per well carry a visible name
+  gs.filter((d) => labelled[d.id]).append("text").attr("text-anchor", "middle")
+    .attr("font-family", "ui-monospace,Menlo,monospace").attr("font-size", 10).attr("fill", o.ink.ink).attr("opacity", 0.8)
+    .attr("dy", (d) => -d.r - 5).text((d) => (d.label.length > 16 ? d.label.slice(0, 15) + "…" : d.label));
+  // a fat invisible hit circle so a fingertip can land a node on a phone (SOP: ≥44px)
+  gs.append("circle").attr("r", (d) => Math.max(d.r, 22)).attr("fill", "transparent").style("cursor", "pointer")
+    .on("pointerenter click", (ev, d) => o.scrub(d.label + " · " + areaLabel(d.area) + (d.note ? " · " + d.note : "")));
+  function areaLabel(k) { const a = VIZ_AREAS.find((x) => x.key === k); return a ? a.label : k; }
+  const place = () => {
+    nodes.forEach((d) => {
+      d.x = Math.max(d.r + 2, Math.min(box.w - d.r - 2, d.x));
+      d.y = Math.max(d.r + 12, Math.min(box.h - d.r - 4, d.y));
+    });
+    gs.attr("transform", (d) => "translate(" + d.x.toFixed(1) + "," + d.y.toFixed(1) + ")");
+  };
+  const sim = d3.forceSimulation(nodes)
+    .force("x", d3.forceX((d) => (cxy[d.area] || { x: box.w / 2 }).x).strength(0.15))
+    .force("y", d3.forceY((d) => (cxy[d.area] || { y: box.h / 2 }).y).strength(0.15))
+    .force("charge", d3.forceManyBody().strength(-11))
+    .force("collide", d3.forceCollide((d) => d.r + 3).iterations(2))
+    .alpha(0.9).alphaDecay(0.022);
+  if (o.calm) {                                            // reduced motion: settle it OFF-screen, paint once, never jitter
+    sim.stop();
+    for (let i = 0; i < 260; i++) sim.tick();
+    place();
+  } else {
+    sim.on("tick", place);                                 // a calm, slow settle — it comes to rest on its own
+  }
+  return { summary: summary, stop: () => sim.stop() };
+}
+// Money flows — d3-sankey (BSD-3, vendored). Layout idiom adapted from
+// https://observablehq.com/@d3/sankey-diagram (ISC); code copied in, never fetched.
+function vizDrawFlows(d3, host, box, data, o) {
+  if (data.empty || !d3.sankey) {
+    return vizEmpty(d3, host, box, o.ink, ["No flows to draw yet.",
+      "Tag an income source or categorize some spending and the river appears."]);
+  }
+  const win = data.windowDays ? " over the last " + data.windowDays + " days" : "";
+  const summary = vizMoney(data.totalIn) + " in, " + vizMoney(data.totalOut) + " out" + win +
+    (data.kept > 0.5 ? " · " + vizMoney(data.kept) + " kept" : data.kept < -0.5 ? " · " + vizMoney(-data.kept) + " came from what you had" : "");
+  const svg = d3.select(vizSvg(host, box, summary));
+  const narrow = box.w < 520;
+  const padL = narrow ? 4 : 6, padR = narrow ? 4 : 6;
+  const g = { nodes: data.nodes.map((n) => Object.assign({}, n)), links: data.links.map((l) => Object.assign({}, l)) };
+  let laid;
+  try {
+    laid = d3.sankey().nodeWidth(narrow ? 9 : 13).nodePadding(Math.max(6, Math.min(14, box.h / 22)))
+      .extent([[padL, 14], [box.w - padR, box.h - 6]])(g);
+  } catch (e) {
+    return vizEmpty(d3, host, box, o.ink, ["This scene couldn't lay out your flows.", "The other scenes still work."]);
+  }
+  const kindColor = { in: o.palette.money, hub: o.ink.accent, out: o.palette.journal, kept: o.palette.tasks };
+  svg.append("g").attr("fill", "none").selectAll("path").data(laid.links).join("path")
+    .attr("d", d3.sankeyLinkHorizontal())
+    .attr("stroke", (d) => kindColor[d.source.kind] || o.ink.dim)
+    .attr("stroke-opacity", 0.34)
+    .attr("stroke-width", (d) => Math.max(1, d.width))
+    .append("title").text((d) => d.source.name + " → " + d.target.name + " · " + vizMoney(d.value));
+  const nodeG = svg.append("g").selectAll("g").data(laid.nodes).join("g");
+  nodeG.append("rect").attr("x", (d) => d.x0).attr("y", (d) => d.y0)
+    .attr("width", (d) => Math.max(1, d.x1 - d.x0)).attr("height", (d) => Math.max(1, d.y1 - d.y0))
+    .attr("rx", 2).attr("fill", (d) => kindColor[d.kind] || o.ink.dim).attr("opacity", 0.92)
+    .style("cursor", "pointer")
+    .on("pointerenter click", (ev, d) => o.scrub(d.name + " · " + vizMoney(d.value)));
+  nodeG.append("title").text((d) => d.name + " · " + vizMoney(d.value));
+  nodeG.append("text").attr("font-family", "ui-monospace,Menlo,monospace").attr("font-size", narrow ? 9 : 11)
+    .attr("fill", o.ink.ink).attr("opacity", 0.86)
+    .attr("x", (d) => (d.x0 < box.w / 2 ? d.x1 + 5 : d.x0 - 5))
+    .attr("y", (d) => (d.y0 + d.y1) / 2).attr("dy", "0.35em")
+    .attr("text-anchor", (d) => (d.x0 < box.w / 2 ? "start" : "end"))
+    .text((d) => {
+      const room = (d.y1 - d.y0) >= (narrow ? 7 : 9);
+      if (!room) return "";                                // never stack unreadable labels on top of each other
+      const n = narrow ? d.name.slice(0, 11) : d.name.slice(0, 20);
+      return n + (narrow ? "" : " " + vizMoney(d.value));
+    });
+  return { summary: summary };
+}
+// Rhythms — a year of your days. Calendar-heatmap idiom adapted from
+// https://observablehq.com/@d3/calendar (ISC); code copied in, never fetched.
+function vizDrawRhythm(d3, host, box, data, o) {
+  if (data.empty) {
+    return vizEmpty(d3, host, box, o.ink, ["No rhythm to show yet.",
+      "Check-ins, tasks and session minutes fill this in a day at a time."]);
+  }
+  const padL = 24, padT = 16, gap = 2;
+  const cellFit = Math.floor(Math.min((box.w - padL - 4) / 53, (box.h - padT - 14) / 7));
+  const cell = Math.max(5, Math.min(16, cellFit));
+  const weeksFit = Math.max(6, Math.floor((box.w - padL - 4) / (cell + 0)));
+  const shown = data.days.slice(Math.max(0, data.days.length - weeksFit * 7));   // narrow screen → fewer weeks, and the caption says so
+  const first = shown[0];
+  // Column = week (aligned to Sunday), row = weekday. The first column starts on the
+  // week that contains the first day shown, so partial weeks never shift the grid.
+  const dow = (ymd) => { const p = ymd.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]).getDay(); };
+  const col0 = dow(first.ymd);
+  const weeks = Math.ceil((shown.length + col0) / 7);
+  const gridW = weeks * cell, x0 = padL, y0 = padT;
+  const summary = data.total + " things logged across " + data.active + " of the last " + shown.length + " days" +
+    (data.mins > 0 ? " · " + Math.round(data.mins / 60) + "h of session time" : "");
+  const svg = d3.select(vizSvg(host, box, summary));
+  // 5 quantized steps beat a smooth ramp: near-equal shades are unreadable, and a
+  // quantized legend is something a person can actually match a cell to.
+  const steps = 5, ramp = d3.scaleLinear().domain([0, 1]).range([o.ink.faint, o.ink.accent]).interpolate(d3.interpolateRgb);
+  const shade = (c) => (c <= 0 ? o.ink.grid : ramp(Math.min(1, 0.28 + 0.72 * (Math.ceil(c / Math.max(1, data.max) * steps) / steps))));
+  const at = (i) => ({ x: x0 + Math.floor((i + col0) / 7) * cell, y: y0 + ((i + col0) % 7) * cell });
+  const cells = svg.append("g").selectAll("rect").data(shown).join("rect")
+    .attr("x", (d, i) => at(i).x).attr("y", (d, i) => at(i).y)
+    .attr("width", Math.max(2, cell - gap)).attr("height", Math.max(2, cell - gap)).attr("rx", 1.5)
+    .attr("fill", (d) => shade(d.count));
+  cells.append("title").text((d) => d.ymd + " · " + d.count + (d.count === 1 ? " thing" : " things") + (d.mins ? " · " + Math.round(d.mins) + " min" : ""));
+  ["S", "", "T", "", "T", "", "S"].forEach((lab, i) => {
+    if (!lab) return;
+    svg.append("text").attr("x", x0 - 6).attr("y", y0 + i * cell + cell / 2).attr("dy", "0.32em").attr("text-anchor", "end")
+      .attr("font-family", "ui-monospace,Menlo,monospace").attr("font-size", 9).attr("fill", o.ink.dim).text(lab);
+  });
+  // month ticks along the top
+  let lastM = "";
+  shown.forEach((d, i) => {
+    const m = d.ymd.slice(0, 7);
+    if (m === lastM) return;
+    lastM = m;
+    const p = at(i);
+    if (p.x + 22 > x0 + gridW) return;
+    svg.append("text").attr("x", p.x).attr("y", y0 - 5)
+      .attr("font-family", "ui-monospace,Menlo,monospace").attr("font-size", 9).attr("fill", o.ink.dim)
+      .text(new Date(+d.ymd.slice(0, 4), +d.ymd.slice(5, 7) - 1, 1).toLocaleDateString("en-US", { month: "short" }));
+  });
+  // legend (visible, so the shading is never a hover-only secret)
+  const ly = y0 + 7 * cell + 12;
+  if (ly + 6 < box.h) {
+    svg.append("text").attr("x", x0).attr("y", ly).attr("font-family", "ui-monospace,Menlo,monospace")
+      .attr("font-size", 9).attr("fill", o.ink.dim).text("quiet");
+    for (let i = 0; i <= steps; i++) {
+      svg.append("rect").attr("x", x0 + 34 + i * (cell + 1)).attr("y", ly - 8).attr("width", cell - 1).attr("height", cell - 1)
+        .attr("rx", 1.5).attr("fill", i === 0 ? o.ink.grid : shade(Math.max(1, Math.round(data.max * i / steps))));
+    }
+    svg.append("text").attr("x", x0 + 40 + (steps + 1) * (cell + 1)).attr("y", ly)
+      .attr("font-family", "ui-monospace,Menlo,monospace").attr("font-size", 9).attr("fill", o.ink.dim).text("busy");
+  }
+  // A tap ANYWHERE picks the nearest day. A 10px cell can never be a 44px target, so the
+  // forgiving hit test is the target — no pinching, no hover, works with a thumb.
+  const pick = (ev) => {
+    const pt = d3.pointer(ev, svg.node());
+    const c = Math.max(0, Math.min(weeks - 1, Math.floor((pt[0] - x0) / cell)));
+    const r = Math.max(0, Math.min(6, Math.floor((pt[1] - y0) / cell)));
+    const i = c * 7 + r - col0;
+    const d = shown[i];
+    if (!d) return;
+    const nice = new Date(+d.ymd.slice(0, 4), +d.ymd.slice(5, 7) - 1, +d.ymd.slice(8, 10))
+      .toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    const bits = [];
+    if (d.checkins) bits.push(d.checkins + " check-in" + (d.checkins > 1 ? "s" : ""));
+    if (d.things) bits.push(d.things + " logged");
+    if (d.feats) bits.push(d.feats + " feat" + (d.feats > 1 ? "s" : ""));
+    if (d.mins) bits.push(Math.round(d.mins) + " min");
+    o.scrub(nice + " · " + (bits.length ? bits.join(" · ") : "a quiet day"));
+  };
+  svg.style("cursor", "crosshair").on("pointerdown", pick).on("pointermove", (ev) => { if (ev.pressure !== undefined && ev.buttons === 0 && ev.pointerType === "mouse") pick(ev); });
+  return { summary: summary + (shown.length < data.days.length ? " (showing the last " + shown.length + " days that fit)" : "") };
+}
+// Balance over time — the daily snapshots history.json already keeps.
+function vizDrawBalance(d3, host, box, data, o) {
+  if (data.empty) {
+    return vizEmpty(d3, host, box, o.ink, ["Your balance line needs a couple of days of history.",
+      "The cache saves one snapshot a day — this fills itself in."]);
+  }
+  const change = data.change;
+  // The caption is the ≥12px carrier: it names cash and the range so the small axis/key text is
+  // never the SOLE place the scale or the total-vs-cash meaning lives (mobile SOP).
+  const summary = "Total " + vizMoney(data.last.total) + " · cash " + vizMoney(data.last.cash) + " today · " +
+    (change >= 0 ? "up " : "down ") + vizMoney(Math.abs(change)) + " across " + data.points.length + " days · ranged " +
+    vizMoney(data.min) + "–" + vizMoney(data.max);
+  const svg = d3.select(vizSvg(host, box, summary));
+  const mL = 46, mR = 10, mT = 14, mB = 20;
+  const iw = Math.max(20, box.w - mL - mR), ih = Math.max(20, box.h - mT - mB);
+  const pad = Math.max(1, (data.max - data.min) * 0.12) || 1;
+  const x = d3.scaleLinear().domain([0, Math.max(1, data.points.length - 1)]).range([mL, mL + iw]);
+  const y = d3.scaleLinear().domain([data.min - pad, data.max + pad]).nice().range([mT + ih, mT]);
+  y.ticks(4).forEach((t) => {
+    svg.append("line").attr("x1", mL).attr("x2", mL + iw).attr("y1", y(t)).attr("y2", y(t))
+      .attr("stroke", o.ink.grid).attr("stroke-width", 1);
+    svg.append("text").attr("x", mL - 6).attr("y", y(t)).attr("dy", "0.32em").attr("text-anchor", "end")
+      .attr("font-family", "ui-monospace,Menlo,monospace").attr("font-size", 11).attr("fill", o.ink.dim).text(vizMoney(t));
+  });
+  const area = d3.area().x((d, i) => x(i)).y0(y.range()[0]).y1((d) => y(d.total)).curve(d3.curveMonotoneX);
+  const line = d3.line().x((d, i) => x(i)).y((d) => y(d.total)).curve(d3.curveMonotoneX);
+  const cashLine = d3.line().x((d, i) => x(i)).y((d) => y(d.cash)).curve(d3.curveMonotoneX);
+  svg.append("path").datum(data.points).attr("d", area).attr("fill", o.ink.accent).attr("opacity", 0.12);
+  svg.append("path").datum(data.points).attr("d", cashLine).attr("fill", "none")
+    .attr("stroke", o.palette.tasks).attr("stroke-width", 1.5).attr("stroke-dasharray", "4 4").attr("opacity", 0.8);
+  svg.append("path").datum(data.points).attr("d", line).attr("fill", "none")
+    .attr("stroke", o.ink.accent).attr("stroke-width", 2);
+  const last = data.points[data.points.length - 1];
+  svg.append("circle").attr("cx", x(data.points.length - 1)).attr("cy", y(last.total)).attr("r", 3.5).attr("fill", o.ink.accent);
+  [[data.points[0], "start"], [last, "end"]].forEach((p) => {
+    svg.append("text").attr("x", p[1] === "start" ? mL : mL + iw).attr("y", mT + ih + 14).attr("text-anchor", p[1])
+      .attr("font-family", "ui-monospace,Menlo,monospace").attr("font-size", 9).attr("fill", o.ink.dim).text(p[0].ymd.slice(5));
+  });
+  // visible key — the dashed line means something and the meaning has to be on screen (and the
+  // caption mirrors it, so this small mark is never the only carrier)
+  svg.append("text").attr("x", mL + 2).attr("y", mT + 9).attr("font-family", "ui-monospace,Menlo,monospace")
+    .attr("font-size", 11).attr("fill", o.ink.dim).text("— total    ---- cash");
+  const pick = (ev) => {
+    const pt = d3.pointer(ev, svg.node());
+    const i = Math.max(0, Math.min(data.points.length - 1, Math.round(x.invert(pt[0]))));
+    const p = data.points[i];
+    o.scrub(p.ymd + " · total " + vizMoney(p.total) + " · cash " + vizMoney(p.cash));
+  };
+  svg.style("cursor", "crosshair").on("pointerdown", pick).on("pointermove", (ev) => { if (ev.pointerType === "mouse") pick(ev); });
+  return { summary: summary };
+}
+// Pull everything the scenes need — the snapshot and the daily history off disk, the
+// Things / check-in log / character log out of this browser. All local, all the person's own.
+function vizGather() {
+  const j = (u) => fetch(u + (u.indexOf("?") < 0 ? "?t=" : "&t=") + Date.now())
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  let things = [], log = [], feats = [];
+  try { things = loadThings(); } catch (e) {}
+  try { log = loadLog(); } catch (e) {}
+  try { feats = charLog(); } catch (e) {}
+  return Promise.all([j("data/balances.json"), j("data/history.json")]).then((r) => ({
+    snap: r[0] || {}, history: Array.isArray(r[1]) ? r[1] : [], things: things, log: log, charLog: feats,
+  }));
+}
+// Mount the Visualizer inside an open ledger surface. Resolves once the first scene has
+// drawn; REJECTS if d3 can't load, which is openLedger's cue to keep its original scene.
+function vizMount(root) {
+  const wrap = root.querySelector("#lgViz"), stage = root.querySelector("#lgStage"),
+    cap = root.querySelector("#lgCap"), tabs = root.querySelector("#lgScenes");
+  if (!wrap || !stage || !tabs) return Promise.reject(new Error("no stage"));
+  return Promise.all([d3Load(), vizGather()]).then((r) => {
+    const d3 = r[0], src = r[1];
+    const built = {
+      constellation: vizConstellation(src),
+      flows: vizFlows(src.snap),
+      rhythms: vizRhythm(src, vizYmd(Date.now()), 365),
+      balance: vizBalance(src.history),
+    };
+    let cur = "constellation", live = null, ro = null, redrawT = null;
+    const scrubEl = root.querySelector("#lgScrub");
+    const say = (t) => { if (cap) cap.textContent = t; };            // stable summary → aria-live #lgCap
+    const scrub = (t) => { if (scrubEl) scrubEl.textContent = t; };  // transient hover/tap readout → non-live #lgScrub (never overwrites the summary)
+    tabs.innerHTML = VIZ_SCENES.map((s, i) =>
+      '<button class="lg-scene-btn" role="tab" type="button" data-scene="' + s.key + '" id="lgTab-' + s.key + '"' +
+      ' aria-selected="' + (i === 0 ? "true" : "false") + '" tabindex="' + (i === 0 ? "0" : "-1") + '">' +
+      '<span aria-hidden="true">' + s.emoji + "</span> " + escapeHtml(s.label) + "</button>").join("");
+    const draw = () => {
+      if (live && live.stop) { try { live.stop(); } catch (e) {} }
+      const box = vizBox(stage);
+      const o = { ink: vizInk(root), palette: vizPalette(), calm: reduceMotion(), say: say, scrub: scrub };
+      const fn = { constellation: vizDrawConstellation, flows: vizDrawFlows, rhythms: vizDrawRhythm, balance: vizDrawBalance }[cur];
+      scrub("");                                            // a fresh scene starts with no stale readout under it
+      live = fn(d3, stage, box, built[cur], o);
+      say(live.summary || "");                             // the scene explains itself in words BEFORE anyone touches it
+    };
+    const select = (key, focus) => {
+      if (!VIZ_SCENES.some((s) => s.key === key)) return;
+      cur = key;
+      tabs.querySelectorAll(".lg-scene-btn").forEach((b) => {
+        const on = b.dataset.scene === key;
+        b.setAttribute("aria-selected", on ? "true" : "false");
+        b.tabIndex = on ? 0 : -1;
+        b.classList.toggle("on", on);
+        if (on && focus) b.focus();
+      });
+      stage.setAttribute("aria-busy", "false");
+      draw();
+    };
+    tabs.addEventListener("click", (e) => {
+      const b = e.target.closest(".lg-scene-btn");
+      if (b) select(b.dataset.scene, false);
+    });
+    tabs.addEventListener("keydown", (e) => {              // a tablist has to answer the arrow keys
+      const keys = VIZ_SCENES.map((s) => s.key), i = keys.indexOf(cur);
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); select(keys[(i + 1) % keys.length], true); }
+      else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); select(keys[(i - 1 + keys.length) % keys.length], true); }
+      else if (e.key === "Home") { e.preventDefault(); select(keys[0], true); }
+      else if (e.key === "End") { e.preventDefault(); select(keys[keys.length - 1], true); }
+    });
+    wrap.classList.remove("lg-off");
+    select("constellation", false);
+    try {
+      ro = new ResizeObserver(() => { clearTimeout(redrawT); redrawT = setTimeout(draw, 160); });   // debounced: the board must never reflow on every frame
+      ro.observe(stage);
+    } catch (e) { ro = null; }
+    return { stop: () => {
+      clearTimeout(redrawT);
+      if (ro) { try { ro.disconnect(); } catch (e) {} }
+      if (live && live.stop) { try { live.stop(); } catch (e) {} }
+    } };
+  });
+}
 function openLedger() {
   if (document.getElementById("ledgerSpace")) return;
   const root = document.createElement("div"); root.id = "ledgerSpace"; root.className = "lg-space";
@@ -10198,7 +10807,20 @@ function openLedger() {
         '<div class="lg-title">YOUR LIFE, IN DATA</div>' +
         '<div class="lg-headline" id="lgHeadline"></div>' +
         '<div class="lg-reward lg-hidden" id="lgReward"></div>' +
-        '<svg class="lg-const" id="lgConst" viewBox="0 0 1000 320" preserveAspectRatio="xMidYMid meet"></svg>' +
+        // The Visualizer mounts here. Both live in the markup on purpose: #lgViz is the
+        // D3 surface, #lgConst is the original month constellation, and exactly ONE of
+        // them is ever un-hidden — so a failed D3 load lands on a real scene, not a blank.
+        '<div class="lg-viz lg-off" id="lgViz">' +
+          '<div class="lg-scenes" id="lgScenes" role="tablist" aria-label="Visualizer scenes"></div>' +
+          '<div class="lg-stage" id="lgStage" aria-busy="true"></div>' +
+          // #lgCap = the STABLE scene summary (aria-live: read once when a scene draws).
+          // #lgScrub = the TRANSIENT hover/tap readout (NOT live: it changes on every mouse
+          // move, which would otherwise spam the live region and destroy the summary a
+          // screen-reader user relies on as the always-present, non-hover carrier).
+          '<div class="lg-cap" id="lgCap" role="status" aria-live="polite"></div>' +
+          '<div class="lg-scrub" id="lgScrub" aria-hidden="true"></div>' +
+        '</div>' +
+        '<svg class="lg-const lg-off" id="lgConst" viewBox="0 0 1000 320" preserveAspectRatio="xMidYMid meet"></svg>' +
         '<button class="lg-back">↩ Return</button>' +
       '</div>' +
       '<div class="lg-dash" id="lgDash"></div>' +             // …and the dash sits in-flow below it, so the two can never overlap
@@ -10248,7 +10870,7 @@ function openLedger() {
   loop();
   const flash = root.querySelector(".lg-flash"), board = root.querySelector(".lg-board"),
     intro = root.querySelector(".lg-intro"), led = root.querySelector(".lg-ledger"), muteBtn = root.querySelector(".lg-mute");
-  let booked = false;
+  let booked = false, _lgViz = null, _closed = false, _arriveT = null;   // _lgViz: the mounted Visualizer, so close() can stop its sim + observer; _arriveT: the arrival timer, so a close DURING the warp cancels it
   const bookTrip = () => {
     if (booked) return; booked = true;
     const calm = reduceMotion();                                 // seizure-safe path: no warp strobe, no flash, no whoosh
@@ -10260,13 +10882,25 @@ function openLedger() {
       try { const warp = new Audio("av%20assets/warp.wav"); warp.volume = 0.5; warp.play().catch(() => {}); } catch (e) {}  // the whoosh
       setTimeout(() => flash.classList.add("on"), 1050);
     }
-    setTimeout(() => {                                            // arrive: you're at your cache
+    _arriveT = setTimeout(() => {                                 // arrive: you're at your cache
+      _arriveT = null;
+      if (_closed) return;                                        // closed mid-warp → don't mount onto a detached surface
       intro.classList.add("lg-hidden"); led.classList.remove("lg-hidden"); mode = "idle"; target = 0.5; flash.classList.remove("on");
       if (!calm && !(song && song.muted)) playApplause();         // the crowd cheers as you land
 
       const head = root.querySelector("#lgHeadline"), svg = root.querySelector("#lgConst");
       fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
-      fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
+      // The trip lands in the Visualizer. D3 loads NOW — on arrival, never at boot — and
+      // if it can't, we fall straight back to the month constellation this scene has
+      // always drawn. Either way you land on something real.
+      vizMount(root).then((v) => {
+        if (_closed) { try { v.stop(); } catch (e) {} return; }   // resolved AFTER a close → tear itself down, never leak a sim/observer behind a gone surface
+        _lgViz = v;
+      }).catch(() => {
+        if (_closed) return;
+        svg.classList.remove("lg-off");
+        fetch("data/monthly.json?t=" + Date.now()).then((r) => r.json()).then((d) => buildConstellation(svg, (d.months || []).slice(-10))).catch(() => buildConstellation(svg, []));
+      });
       awardTripExp();                                             // every trip pays out EXP
       track("trip_booked", {});                                  // flagship action — booked a trip to the cache
       buildDash();                                                // light up the cockpit
@@ -10307,7 +10941,11 @@ function openLedger() {
     countUp();
   };
   const close = () => {
+    _closed = true;
+    if (_arriveT) { clearTimeout(_arriveT); _arriveT = null; }           // closed during the warp → cancel the pending arrival so it never mounts onto a detached surface
     cancelAnimationFrame(raf); window.removeEventListener("resize", size); document.removeEventListener("keydown", onKey);
+    if (_lgViz && _lgViz.stop) { try { _lgViz.stop(); } catch (e) {} }   // stop the force simulation + ResizeObserver, never leave them running behind a closed surface
+    _lgViz = null;
     if (song) { const s = song; song = null; fadeAudio(s, 0, 450, () => { try { s.pause(); } catch (e) {} }); }
     root.remove();
   };
@@ -10321,7 +10959,7 @@ function openLedger() {
   // click-drag to orbit the visualizer in 3D (empty space only — never on a control/the viz)
   let dragging = false, lastX = 0, lastY = 0;
   led.addEventListener("pointerdown", (e) => {
-    if (e.target.closest("button, a, .lg-dash, #lgConst")) return;
+    if (e.target.closest("button, a, .lg-dash, #lgConst, #lgViz")) return;   // the Visualizer owns its own pointer — a scrub across the heatmap must never orbit the starfield
     dragging = true; lastX = e.clientX; lastY = e.clientY; led.classList.add("lg-dragging");
   });
   root.addEventListener("pointermove", (e) => {
