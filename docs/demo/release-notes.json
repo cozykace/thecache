@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-28-annual-ambush",
+    "date": "2026-07-28",
+    "title": "Annual charges stop being ambushes",
+    "body": "The $95 card fee that lands once a year and torpedoes an otherwise-fine month — your Money Map now sees it coming. A new 'expected ahead · yearly' section reads your own transaction history forward: charges that repeat on a yearly rhythm show up with their expected date and amount ('~Aug 18 · Card annual fee · ~$95'), and a one-off from about a year ago shows as 'might renew'. Nothing to configure — it's your own history, read forward. And for the yearly subscriptions you track, the cadence setting already spreads them across the year as a monthly equivalent, so your must-pay total stays honest all twelve months."
+  },
+  {
     "id": "2026-07-28-manual-accounts",
     "date": "2026-07-28",
     "title": "Manual accounts — the card a sync can't see stops making your Total lie",
