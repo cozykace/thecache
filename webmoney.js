@@ -377,6 +377,44 @@
     return rows.slice(0, limit);
   }
 
+  // next_deposit (mirror store.next_deposit) — the paycheck-runway anchor: each income
+  // source's rhythm read forward, nearest upcoming deposit wins. Same rules, same output.
+  function nextDeposit(txns, incomeOverrides, overrides, remap, now) {
+    now = now || Math.floor(Date.now() / 1000);
+    var day = 86400;
+    var by = Object.create(null), order = [];
+    (txns || []).forEach(function (t) {
+      var amt = parseFloat(t.amount || 0) || 0, posted = t.posted || 0;
+      if (amt <= 0 || !posted) return;
+      var dec = incomeDecision(t.description || "", incomeOverrides, overrides, remap);
+      if (!dec[1]) return;
+      var key = dec[0];
+      if (!by[key]) { by[key] = []; order.push(key); }
+      by[key].push([posted, amt]);
+    });
+    var best = null;
+    order.forEach(function (key) {
+      var rows = by[key]; rows.sort(function (a, b) { return a[0] - b[0]; });
+      var posts = rows.map(function (r) { return r[0]; });
+      var gaps = [];
+      for (var i = 0; i < posts.length - 1; i++) { var g = posts[i + 1] - posts[i]; if (g >= 3 * day) gaps.push(g); }
+      if (!gaps.length) return;
+      gaps.sort(function (a, b) { return a - b; });
+      var med = gaps[Math.floor(gaps.length / 2)];
+      if (med > 45 * day) return;
+      if (now - posts[posts.length - 1] > Math.max(2 * med, 21 * day)) return;   // silent two cycles — the rhythm is dead
+      var nxt = posts[posts.length - 1] + med;
+      while (nxt < now) nxt += med;
+      var amts = rows.map(function (r) { return r[1]; }).sort(function (a, b) { return a - b; });
+      var d = new Date(nxt * 1000);
+      var cand = { key: key, source: prettifyMerchant(key, _titleCase(key)), next: nxt,
+        ymd: d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"),
+        days: pyRound((nxt - now) / day), amount: round2(amts[Math.floor(rows.length / 2)]) };
+      if (best === null || cand.next < best.next) best = cand;
+    });
+    return best;
+  }
+
   // annual_predictions (mirror store.annual_predictions) — yearly charges forecast forward
   // so the anniversary stops ambushing Safe-to-spend. Same deterministic rules, same output.
   function annualPredictions(txns, now, limit) {
@@ -1089,7 +1127,7 @@
     incomeDecision: incomeDecision, subscriptionItems: subscriptionItems,
     categoriesFromTxns: categoriesFromTxns,
     topMerchants: topMerchants, otherMerchants: otherMerchants, depositSources: depositSources,
-    annualPredictions: annualPredictions,
+    annualPredictions: annualPredictions, nextDeposit: nextDeposit,
     ledgerKey: ledgerKey, isDeleted: isDeleted, mergeLedger: mergeLedger,
     parseJsonl: parseJsonl, serializeJsonl: serializeJsonl,
     buildSnapshot: buildSnapshot,

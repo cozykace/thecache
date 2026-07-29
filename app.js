@@ -6653,7 +6653,7 @@ function openFinances() {
   root.tabIndex = -1;   // focusable container — focus moves IN on open, back to the piggy on close
   document.body.appendChild(root);
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
-  let bal = {}, months = [], detected = [], deposits = [], others = [], annuals = [];
+  let bal = {}, months = [], detected = [], deposits = [], others = [], annuals = [], nextDep = null;
   // ── the auto-session ──
   // Counts WALL time while the portal is actually VISIBLE (a hidden tab pauses — you're not
   // "in" a room you can't see, and browsers throttle hidden timers anyway, which used to
@@ -6739,10 +6739,12 @@ function openFinances() {
       fetch("/api/deposits?t=" + t).then((r) => r.json()).catch(() => ({})),
       fetch("/api/other-merchants?t=" + t).then((r) => r.json()).catch(() => ({})),
       fetch("/api/annuals?t=" + t).then((r) => r.json()).catch(() => ({})),
-    ]).then(([b, mo, rec, dep, om, ann]) => {
+      fetch("/api/runway?t=" + t).then((r) => r.json()).catch(() => ({})),
+    ]).then(([b, mo, rec, dep, om, ann, rw]) => {
       bal = b || {}; months = (mo && mo.months) || [];
       detected = (rec && rec.recurring) || []; deposits = (dep && dep.deposits) || [];
       others = (om && om.merchants) || []; annuals = (ann && ann.annuals) || [];
+      nextDep = (rw && rw.next_deposit) || null;
       render();
     });
   }
@@ -6757,7 +6759,33 @@ function openFinances() {
       statCard("burn / day", fmtUSD(bal.burn_per_day || 0), "transfers excluded") +
       statCard("this month", fmtUSD(cur.income || 0) + " in · " + fmtUSD(cur.spending || 0) + " out") +
       (debt > 0 ? statCard("card debt", fmtUSD(debt), cur.interest ? "cost " + fmtUSD(cur.interest) + " so far" : "") : statCard("card debt", fmtUSD(0), "nothing feeding interest")) +
-    "</div>";
+    "</div>" + runwayLine();
+  }
+  function runwayLine() {
+    // the paycheck runway — the single most useful sentence in the room: what's already
+    // committed before money next arrives, and whether cash carries it. Deterministic:
+    // income rhythm (next_deposit) × the same charge projections the calendar paints.
+    if (!nextDep || !nextDep.ymd) return "";
+    let due = 0;
+    const start = new Date(); start.setDate(start.getDate() + 1);
+    for (let d = new Date(start); ; d.setDate(d.getDate() + 1)) {
+      const ymd = ymdOf(d);
+      if (ymd > nextDep.ymd) break;
+      detected.forEach((r) => {
+        if (!subAlive(r.key) || !r.last) return;
+        const e = subEntry(r.key);
+        if (subStatus(r.key) === "until" && e.until && ymd > e.until) return;
+        if (calFinOccursOn(r.last, subCadence(r.key), ymd)) due += (r.amount || 0);
+      });
+    }
+    annuals.forEach((a) => { if (subAlive(a.key) && a.next && a.next * 1000 <= new Date(nextDep.ymd + "T23:59:59").getTime()) due += (a.amount || 0); });
+    const cash = +bal.cash || 0, reserve = parseFloat(localStorage.getItem("money.reserve")) || 0;
+    const when = "~" + new Date(nextDep.ymd + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    let verdict;
+    if (cash - due >= reserve) verdict = "cash covers it with your floor intact.";
+    else if (cash >= due) verdict = "cash covers it — it brushes your reserve floor.";
+    else verdict = "it runs " + fmtUSD(due - cash) + " ahead of cash — worth a look before then.";
+    return '<div class="fin-runway">' + fmtUSD(due) + " of recurring charges land before your next expected deposit (" + esc(when) + ", " + esc(nextDep.source || "") + ") — " + verdict + "</div>";
   }
   function queue() {
     const untagged = deposits.filter((d) => !d.tagged).length;
@@ -6769,6 +6797,12 @@ function openFinances() {
     if (uncat) rows.push('<button class="fin-q" data-q="cats"><span class="fin-q-n">' + uncat + "</span> merchant" + (uncat === 1 ? "" : "s") + " sitting in “other” — give them a home</button>");
     if (staleMan) rows.push('<button class="fin-q" data-q="manual"><span class="fin-q-n">' + staleMan + "</span> manual account" + (staleMan === 1 ? "" : "s") + " with an aging balance — still right?</button>");
     soon.forEach((a) => rows.push('<div class="fin-q fin-q-info">~' + esc(a.when) + " · " + esc(a.name) + " expected (~" + fmtUSD(a.amount) + ")</div>"));
+    // price changes — "this went up" said plainly, once, in the queue (never an alert storm)
+    detected.forEach((r) => {
+      if (r.flag !== "changed" || !subAlive(r.key)) return;
+      const dir = (r.recent || 0) > (r.amount || 0) ? "up" : "down";
+      rows.push('<div class="fin-q fin-q-info">💵 ' + esc(subName(r)) + " changed: was " + fmtUSD(r.amount) + ", now " + fmtUSD(r.recent) + (dir === "up" ? " — worth a glance" : " — it went down") + "</div>");
+    });
     // the surprise-charge WATCHER — the promise the cancelled state makes, kept: a charge
     // that lands after the cancel date (or past the paid-through date) surfaces here.
     detected.forEach((r) => {
@@ -6824,11 +6858,14 @@ function openFinances() {
     const rows = ordered.map((r, i) => {
       const st = subStatus(r.key), nm = subName(r), e = subEntry(r.key);
       const ago = r.last ? Math.round(Date.now() / 1000 / 86400 - r.last / 86400) : null;
-      const evidence = fmtUSD(r.amount) + "/" + cadenceAbbr(r.key) + " · " + (r.count || 0) + "× · " +
+      const perYr = (r.amount || 0) * cadenceInfo(subCadence(r.key)).perYear;
+      const evidence = fmtUSD(r.amount) + "/" + cadenceAbbr(r.key) + " · " + fmtUSD(perYr) + "/yr · " + (r.count || 0) + "× · " +
         (ago != null ? "last " + ago + "d ago" : "no charge seen") + ((r.accounts || []).length ? " · " + esc((r.accounts || [])[0]) : "");
+      const changed = r.flag === "changed" && st !== "cancelled"
+        ? '<span class="fin-flag">was ' + fmtUSD(r.amount) + " → now " + fmtUSD(r.recent) + "</span>" : "";
       return '<div class="fin-sub' + (st !== "active" ? " " + st : "") + '" data-key="' + esc(r.key) + '">' +
         '<span class="fin-sub-move"><button class="fin-up" data-i="' + i + '" aria-label="move up">↑</button><button class="fin-dn" data-i="' + i + '" aria-label="move down">↓</button></span>' +
-        '<span class="fin-sub-main"><span class="fin-sub-name">' + esc(nm) + '</span><span class="fin-sub-ev">' + evidence + "</span></span>" +
+        '<span class="fin-sub-main"><span class="fin-sub-name">' + esc(nm) + changed + '</span><span class="fin-sub-ev">' + evidence + "</span></span>" +
         '<span class="fin-sub-ctl"><select class="fin-status" data-key="' + esc(r.key) + '" aria-label="status">' +
           '<option value=""' + (!e.status ? " selected" : "") + ">active</option>" +
           '<option value="until"' + (e.status === "until" ? " selected" : "") + ">active until…</option>" +
@@ -6838,7 +6875,10 @@ function openFinances() {
         (st === "until" && e.until ? '<span class="fin-sub-note">runs until ' + esc(e.until) + "</span>" : st === "cancelled" ? '<span class="fin-sub-note">' + _cancelNote(r) + "</span>" : "") +
         "</span></div>";
     }).join("");
-    return '<div class="fin-sec">recurring & subscriptions <span class="fin-sec-note">every detected repeat-charge, with its real bank evidence</span></div>' +
+    // the honest yearly load — the multiplication an EF-focused app should never outsource
+    const yrTotal = ordered.filter((r) => subAlive(r.key)).reduce((s, r) => s + (r.amount || 0) * cadenceInfo(subCadence(r.key)).perYear, 0);
+    const loadNote = yrTotal > 0 ? " — " + fmtUSD(yrTotal) + "/yr all told (~" + fmtUSD(yrTotal / 12) + "/mo run-rate)" : "";
+    return '<div class="fin-sec">recurring & subscriptions <span class="fin-sec-note">every detected repeat-charge, with its real bank evidence' + loadNote + "</span></div>" +
       (rows ? '<div class="fin-subs">' + rows + "</div>" : '<div class="fin-clear">no recurring charges detected yet</div>');
   }
   function aheadSection() {

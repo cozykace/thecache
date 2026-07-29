@@ -514,6 +514,10 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 }
 .fin-q-warn { border-color: color-mix(in srgb, var(--cal-spend) 55%, transparent); color: var(--ink); cursor: default; }
 .fin-q-warn:hover { border-color: color-mix(in srgb, var(--cal-spend) 55%, transparent); }
+.fin-runway { margin: 2px 0 6px; padding: 10px 14px; border: 1px solid var(--edge-soft); border-radius: 12px;
+  font-size: 13px; line-height: 1.5; color: rgba(var(--ink-rgb), 0.8); }
+.fin-flag { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 600; padding: 2px 7px;
+  border-radius: 6px; background: color-mix(in srgb, var(--cal-spend) 14%, transparent); color: var(--cal-spend); }
 /* your plan — the definition fields */
 .fin-plan { display: flex; flex-direction: column; gap: 8px; max-width: 460px; }
 .fin-plan-f { display: flex; align-items: center; gap: 10px; }

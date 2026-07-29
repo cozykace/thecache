@@ -875,6 +875,15 @@
           return J({ annuals: window.CacheMoney.annualPredictions(all2) });
         } catch (e) {}
       }
+      // the paycheck-runway anchor — income rhythm read live from the ledger
+      if (M === "GET" && key === "runway" && window.CacheMoney) {
+        try {
+          var led3 = window.CacheMoney.parseJsonl(FILES["ledger.jsonl"] || "");
+          var all3 = Object.keys(led3).map(function (k) { return led3[k]; });
+          var cx3 = _moneyCtx();
+          return J({ next_deposit: window.CacheMoney.nextDeposit(all3, cx3.incomeOverrides, cx3.overrides, cx3.remap) });
+        } catch (e) {}
+      }
       // subs decisions live in the vault's own file — serve THAT (the API bundle can lag it,
       // and a web-only cache has no bundle at all; without this, every boot forgot your tags)
       if (M === "GET" && key === "subs" && FILES["subs.json"] != null) {

@@ -218,6 +218,7 @@
     if (url.indexOf("data/monthly.json") !== -1) return J(monthly);
     if (url.indexOf("/api/ping") !== -1) return J({ ok: true });
     if (url.indexOf("/api/manual-account") !== -1) return J({ ok: false, error: "The demo keeps its own books — in your real cache this saves instantly." });
+    if (url.indexOf("/api/runway") !== -1) return J({ next_deposit: { key: "payroll", source: "Payroll Co", days: 4, amount: 900, ymd: iso.slice(0, 10), next: 0 } });
     if (url.indexOf("/api/annuals") !== -1) return J({ annuals: [
       { name: "Summit Card Annual Fee", key: "summit card annual fee", amount: 95, days: 21, confidence: "yearly", when: "Aug 18", last: 0, next: 0 },
       { name: "Domain Renewal", key: "domain renewal", amount: 24, days: 64, confidence: "maybe", when: "Sep 30", last: 0, next: 0 },

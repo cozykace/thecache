@@ -2145,6 +2145,51 @@ def monthly_hours_history():
 
 
 # ── Recurrence detection (your real subscriptions, tagged or not) ──
+def next_deposit(txns=None, now=None):
+    """The next EXPECTED income deposit (the paycheck-runway anchor): each income source's
+    rhythm read forward — median gap between its deposits (≥2 seen, gaps of 3–45 days, so
+    same-day split deposits and one-offs never fake a rhythm) — nearest upcoming wins.
+    Returns {key, source, next, ymd, days, amount} or None when no rhythm is visible."""
+    if txns is None:
+        txns = _ledger_txns()
+    now = now or int(time.time())
+    day = 86400
+    income_overrides = load_income_overrides()
+    overrides = load_overrides()
+    by = {}
+    for t in txns:
+        amt = t.get("amount", 0) or 0
+        posted = t.get("posted") or 0
+        if amt <= 0 or not posted:
+            continue
+        key, is_inc, _tag = income_decision(t.get("description", ""), income_overrides, overrides)
+        if not is_inc:
+            continue
+        by.setdefault(key, []).append((posted, amt))
+    best = None
+    for key, rows in by.items():
+        rows.sort()
+        posts = [r[0] for r in rows]
+        gaps = sorted(g for g in (posts[i + 1] - posts[i] for i in range(len(posts) - 1)) if g >= 3 * day)
+        if not gaps:
+            continue
+        med = gaps[len(gaps) // 2]
+        if med > 45 * day:
+            continue
+        if now - posts[-1] > max(2 * med, 21 * day):
+            continue   # silent for over two cycles — the rhythm is dead, promise nothing
+        nxt = posts[-1] + med
+        while nxt < now:
+            nxt += med
+        amt_med = sorted(r[1] for r in rows)[len(rows) // 2]
+        cand = {"key": key, "source": prettify_merchant(key, key.title()),
+                "next": nxt, "ymd": datetime.fromtimestamp(nxt).strftime("%Y-%m-%d"),
+                "days": round((nxt - now) / day), "amount": round(amt_med, 2)}
+        if best is None or cand["next"] < best["next"]:
+            best = cand
+    return best
+
+
 def annual_predictions(txns=None, now=None, limit=12):
     """Yearly charges forecast FORWARD (Money Truth Brick 5a) — card annual fees, yearly
     renewals — so the anniversary stops ambushing Safe-to-spend. Deterministic rules:
@@ -2635,6 +2680,7 @@ def api_snapshot():
     grab("categories", lambda: {"categories": category_summary()})
     grab("recurring", lambda: {"recurring": detect_recurring()})
     grab("annuals", lambda: {"annuals": annual_predictions()})   # phones read the sealed bundle — without this they'd show zero annual warnings
+    grab("runway", lambda: {"next_deposit": next_deposit()})     # the paycheck-runway anchor rides too
     grab("transfers", lambda: {"transfers": recurring_transfers()})
     grab("deposits", lambda: {"deposits": deposit_sources(txns)})
     grab("merchants", lambda: {"merchants": top_merchants(txns, ov)})
