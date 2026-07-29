@@ -2145,6 +2145,56 @@ def monthly_hours_history():
 
 
 # ── Recurrence detection (your real subscriptions, tagged or not) ──
+def annual_predictions(txns=None, now=None, limit=12):
+    """Yearly charges forecast FORWARD (Money Truth Brick 5a) — card annual fees, yearly
+    renewals — so the anniversary stops ambushing Safe-to-spend. Deterministic rules:
+      · a merchant whose charge gaps are ALL ~a year (330–430d) → "yearly" (proven pattern)
+      · a single charge 270–430 days old (≥ $15)               → "maybe" (might renew)
+      · any gap under 200 days → the monthly radar's job, never predicted here
+    The permanent ledger already holds the history; this just reads it forward."""
+    if txns is None:
+        txns = _ledger_txns()
+    now = now or int(time.time())
+    day = 86400
+    by = {}
+    for t in txns:
+        amt = t.get("amount", 0) or 0
+        posted = t.get("posted") or 0
+        if amt >= 0 or not posted:
+            continue
+        key = _clean(t.get("description", "")) or "unknown"
+        by.setdefault(key, []).append((posted, -amt))
+    out = []
+    for key, rows in by.items():
+        rows.sort()
+        posts = [r[0] for r in rows]
+        gaps = [posts[i + 1] - posts[i] for i in range(len(posts) - 1)]
+        if any(g < 200 * day for g in gaps):
+            continue
+        last_p, last_amt = rows[-1]
+        age = now - last_p
+        yearly = [g for g in gaps if 330 * day <= g <= 430 * day]
+        if gaps and len(yearly) == len(gaps):
+            conf = "yearly"
+        elif not gaps and 270 * day <= age <= 430 * day and last_amt >= 15:
+            conf = "maybe"
+        else:
+            continue
+        step = sorted(yearly)[len(yearly) // 2] if yearly else 365 * day
+        nxt = last_p + step
+        while nxt < now:
+            nxt += step   # roll forward to the NEXT anniversary
+        days = round((nxt - now) / day)
+        if days > 400:
+            continue
+        out.append({"name": prettify_merchant(key, key.title()), "key": key,
+                    "amount": round(last_amt, 2), "last": last_p, "next": nxt,
+                    "days": days, "confidence": conf,
+                    "when": datetime.fromtimestamp(nxt).strftime("%b ") + str(datetime.fromtimestamp(nxt).day)})
+    out.sort(key=lambda r: (r["days"], r["key"]))
+    return out[:limit]
+
+
 def detect_recurring(txns=None, min_months=3):
     """Merchants charging on a roughly monthly cadence across ALL accounts —
     your real recurring bills/subscriptions whether or not you've tagged them.

@@ -867,6 +867,14 @@
           } catch (e) {}
         }
       }
+      // annual predictions read the FULL ledger (a year of history), not the 30d window
+      if (M === "GET" && key === "annuals" && window.CacheMoney) {
+        try {
+          var led2 = window.CacheMoney.parseJsonl(FILES["ledger.jsonl"] || "");
+          var all2 = Object.keys(led2).map(function (k) { return led2[k]; });
+          return J({ annuals: window.CacheMoney.annualPredictions(all2) });
+        } catch (e) {}
+      }
       if (M === "GET" && API[key] != null) return J(API[key]);
       if (M === "GET") return J({ ok: true });
       // categorize + income tags WRITE here in the browser (see the pending-edits block above)

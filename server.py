@@ -142,6 +142,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {"categories": store.category_summary()})
         if path == "/api/recurring":
             return self._json(200, {"recurring": store.detect_recurring()})
+        if path == "/api/annuals":
+            return self._json(200, {"annuals": store.annual_predictions()})
         if path == "/api/transfers":
             return self._json(200, {"transfers": store.recurring_transfers()})
         if path == "/api/match-count":

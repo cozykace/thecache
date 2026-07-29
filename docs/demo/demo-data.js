@@ -218,6 +218,10 @@
     if (url.indexOf("data/monthly.json") !== -1) return J(monthly);
     if (url.indexOf("/api/ping") !== -1) return J({ ok: true });
     if (url.indexOf("/api/manual-account") !== -1) return J({ ok: false, error: "The demo keeps its own books — in your real cache this saves instantly." });
+    if (url.indexOf("/api/annuals") !== -1) return J({ annuals: [
+      { name: "Summit Card Annual Fee", key: "summit card annual fee", amount: 95, days: 21, confidence: "yearly", when: "Aug 18", last: 0, next: 0 },
+      { name: "Domain Renewal", key: "domain renewal", amount: 24, days: 64, confidence: "maybe", when: "Sep 30", last: 0, next: 0 },
+    ] });
     if (url.indexOf("/api/downloads") !== -1) return J({ ok: true, downloads: 0 });
     if (url.indexOf("/api/export-data") !== -1) return J({ ok: true, files: {}, exported: 0, count: 0 });
     if (url.indexOf("/api/import-data") !== -1) return J({ ok: true, written: 0, files: [], snapshot: "demo" });

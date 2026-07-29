@@ -466,6 +466,12 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   padding: clamp(10px, 4cqmin, 16px) clamp(14px, 5cqmin, 20px);
 }
 .is-months .bd-head { padding: 0 2px; }
+/* Money Map · expected ahead (annual predictions) — calm, display-only rows */
+.mm-annual { align-items: baseline; gap: 8px; }
+.mm-an-when { flex: 0 0 auto; font-size: 11px; font-weight: 600; color: var(--accent); }
+.mm-an-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-an-maybe { font-size: 10px; color: rgba(var(--ink-rgb), 0.5); font-style: italic; }
+
 /* Manual accounts — the editor rows + the badge on balance-widget rows */
 .mn-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 2px; }
 .mn-row { display: grid; grid-template-columns: 1fr 110px 44px 44px; gap: 6px; align-items: center; }

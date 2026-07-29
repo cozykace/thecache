@@ -2521,21 +2521,24 @@ const RENDERERS = {
     const sub = el.querySelector(".mm-sub");
     const inEl = el.querySelector(".mm-in");
     const list = el.querySelector(".cf-list");
-    let detected = [], deposits = [], projects = [], incomeLinks = {};
+    let detected = [], deposits = [], projects = [], incomeLinks = {}, annuals = [];
     let offline = false, seenStamp;   // the snapshot stamp (updated|rev) the four feeds were last pulled for
     function loadData() {
       const t = Date.now();
-      // all four hit the same backend — fail together so a down backend reads as
+      // the four core feeds hit the same backend — fail together so a down backend reads as
       // OFFLINE, never as an authentic "$0 must-pay · no deposits" empty state
       Promise.all([
         fetch("/api/recurring?t=" + t).then((r) => r.json()),
         fetch("/api/deposits?t=" + t).then((r) => r.json()),
         fetch("/api/work?t=" + t).then((r) => r.json()),
         fetch("/api/income-links?t=" + t).then((r) => r.json()),
-      ]).then(([rec, dep, work, lk]) => {
+        // annual predictions (Brick 5a) — additive, so a missing route can never take the map down
+        fetch("/api/annuals?t=" + t).then((r) => r.json()).catch(() => ({})),
+      ]).then(([rec, dep, work, lk, ann]) => {
         offline = false;
         detected = rec.recurring || []; deposits = dep.deposits || [];
         projects = (work && work.projects_month) || []; incomeLinks = (lk && lk.links) || {};
+        annuals = (ann && ann.annuals) || [];
         render();
       }).catch(() => { offline = true; render(); });   // keep any last good data on screen
     }
@@ -2659,7 +2662,19 @@ const RENDERERS = {
           (on ? "must-pay" : "optional") + "</button>" +
           (r.tagged ? '<button class="sub-x" data-key="' + escapeHtml(r.key) + '" title="remove from tracked subscriptions">×</button>' : '<span class="sub-x sub-x-empty"></span>') +
         "</div>";
-      }).join("");
+      }).join("") + (() => {
+        // expected ahead (Brick 5a) — yearly charges read forward from your OWN history, so
+        // an annual fee stops being an ambush. Display-only, calm, hidden when there are none.
+        const soon = (annuals || []).filter((a) => a && a.days <= 120);
+        if (!soon.length) return "";
+        return '<div class="mm-sec">expected ahead · yearly <span class="mm-sec-note">from your own history — no more anniversary ambushes</span></div>' +
+          soon.slice(0, 4).map((a) =>
+            '<div class="cf-row mm-annual" title="last charged ' + (a.last ? new Date(a.last * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—") + '">' +
+              '<span class="mm-an-when">~' + escapeHtml(a.when || "") + "</span>" +
+              '<span class="mm-an-name">' + escapeHtml(a.name || "") + (a.confidence === "maybe" ? ' <span class="mm-an-maybe">might renew</span>' : "") + "</span>" +
+              '<span class="cf-amt">~' + fmtUSD(a.amount || 0) + "</span>" +
+            "</div>").join("");
+      })();
       list.querySelectorAll(".pin-btn").forEach((b) => b.addEventListener("click", () => {
         togglePin("sub", b.dataset.pin); Store.emit();
       }));

@@ -377,6 +377,47 @@
     return rows.slice(0, limit);
   }
 
+  // annual_predictions (mirror store.annual_predictions) — yearly charges forecast forward
+  // so the anniversary stops ambushing Safe-to-spend. Same deterministic rules, same output.
+  function annualPredictions(txns, now, limit) {
+    now = now || Math.floor(Date.now() / 1000);
+    limit = limit || 12;
+    var day = 86400;
+    var by = Object.create(null), order = [];
+    (txns || []).forEach(function (t) {
+      var amt = parseFloat(t.amount || 0) || 0, posted = t.posted || 0;
+      if (amt >= 0 || !posted) return;
+      var key = _clean(t.description || "") || "unknown";
+      if (!by[key]) { by[key] = []; order.push(key); }
+      by[key].push([posted, -amt]);
+    });
+    var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    var out = [];
+    order.forEach(function (key) {
+      var rows = by[key]; rows.sort(function (a, b) { return a[0] - b[0]; });
+      var posts = rows.map(function (r) { return r[0]; });
+      var gaps = []; for (var i = 0; i < posts.length - 1; i++) gaps.push(posts[i + 1] - posts[i]);
+      if (gaps.some(function (g) { return g < 200 * day; })) return;
+      var lastP = rows[rows.length - 1][0], lastAmt = rows[rows.length - 1][1];
+      var age = now - lastP;
+      var yearly = gaps.filter(function (g) { return g >= 330 * day && g <= 430 * day; });
+      var conf;
+      if (gaps.length && yearly.length === gaps.length) conf = "yearly";
+      else if (!gaps.length && age >= 270 * day && age <= 430 * day && lastAmt >= 15) conf = "maybe";
+      else return;
+      var step = yearly.length ? yearly.slice().sort(function (a, b) { return a - b; })[Math.floor(yearly.length / 2)] : 365 * day;
+      var nxt = lastP + step;
+      while (nxt < now) nxt += step;
+      var days = pyRound((nxt - now) / day);
+      if (days > 400) return;
+      var d = new Date(nxt * 1000);
+      out.push({ name: prettifyMerchant(key, _titleCase(key)), key: key, amount: round2(lastAmt),
+        last: lastP, next: nxt, days: days, confidence: conf, when: MONTHS[d.getMonth()] + " " + d.getDate() });
+    });
+    out.sort(function (a, b) { return a.days !== b.days ? a.days - b.days : (a.key < b.key ? -1 : 1); });
+    return out.slice(0, limit);
+  }
+
   // subscription_items (mirror store.subscription_items) — the "subscriptions" category
   // grouped by merchant. NOTE this is the cheap grouping, NOT detect_recurring (deferred).
   function subscriptionItems(txns, overrides, remap) {
@@ -1048,6 +1089,7 @@
     incomeDecision: incomeDecision, subscriptionItems: subscriptionItems,
     categoriesFromTxns: categoriesFromTxns,
     topMerchants: topMerchants, otherMerchants: otherMerchants, depositSources: depositSources,
+    annualPredictions: annualPredictions,
     ledgerKey: ledgerKey, isDeleted: isDeleted, mergeLedger: mergeLedger,
     parseJsonl: parseJsonl, serializeJsonl: serializeJsonl,
     buildSnapshot: buildSnapshot,
