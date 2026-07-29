@@ -6723,7 +6723,7 @@ function openFinances() {
   root.tabIndex = -1;   // focusable container — focus moves IN on open, back to the piggy on close
   document.body.appendChild(root);
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
-  let bal = {}, months = [], detected = [], deposits = [], others = [], annuals = [], nextDep = null;
+  let bal = {}, months = [], detected = [], deposits = [], others = [], annuals = [], nextDep = null, txns = [];
   // ── the auto-session ──
   // Counts WALL time while the portal is actually VISIBLE (a hidden tab pauses — you're not
   // "in" a room you can't see, and browsers throttle hidden timers anyway, which used to
@@ -6810,12 +6810,14 @@ function openFinances() {
       fetch("/api/other-merchants?t=" + t).then((r) => r.json()).catch(() => ({})),
       fetch("/api/annuals?t=" + t).then((r) => r.json()).catch(() => ({})),
       fetch("/api/runway?t=" + t).then((r) => r.json()).catch(() => ({})),
+      fetch("data/transactions.json?t=" + t).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
       fetchAcctRoles(),
-    ]).then(([b, mo, rec, dep, om, ann, rw]) => {
+    ]).then(([b, mo, rec, dep, om, ann, rw, tj]) => {
       bal = b || {}; months = (mo && mo.months) || [];
       detected = (rec && rec.recurring) || []; deposits = (dep && dep.deposits) || [];
       others = (om && om.merchants) || []; annuals = (ann && ann.annuals) || [];
       nextDep = (rw && rw.next_deposit) || null;
+      txns = (tj && tj.transactions) || [];
       render();
     });
   }
@@ -6987,9 +6989,11 @@ function openFinances() {
   const SECTIONS = [
     ["overview", "🏠", "Overview"],
     ["queue", "⚡", "Needs a minute"],
-    ["bills", "🧾", "Bills & subs"],
+    ["accounts", "🏦", "Accounts"],
+    ["txns", "💳", "Transactions"],
+    ["flow", "📊", "Cash flow"],
+    ["bills", "🔁", "Bills & subs"],
     ["plan", "🧭", "Your plan"],
-    ["ahead", "📅", "Expected ahead"],
   ];
   function queueCount() {
     const untagged = deposits.filter((d) => !d.tagged).length;
@@ -6999,11 +7003,77 @@ function openFinances() {
   }
   function sectionBody() {
     if (section === "queue") return queue();
-    if (section === "bills") return subsSection();
+    if (section === "accounts") return accountsSection();
+    if (section === "txns") return txnsSection();
+    if (section === "flow") return flowSection();
+    if (section === "bills") return subsSection() + aheadSection();
     if (section === "plan") return planSection();
-    if (section === "ahead") return aheadSection() || '<div class="fin-clear">nothing yearly on the horizon</div>';
     return headlines() +
       '<div class="fin-foot" style="margin-top:18px">time in here banks into your “Finances” session — schedule one on the calendar and the portal logs into it automatically.</div>';
+  }
+  // ── Accounts — the grouped truth: cash on top, cards below, roles editable in place ──
+  function accountsSection() {
+    const accts = bal.accounts || [];
+    if (!accts.length) return '<div class="fin-clear">no accounts yet — connect a bank or add a manual account (Sources)</div>';
+    const cashA = accts.filter((a) => acctRole(a) !== "credit");
+    const credA = accts.filter((a) => acctRole(a) === "credit");
+    const sum = (l) => l.reduce((s, a) => s + (+a.balance || 0), 0);
+    const row = (a) => {
+      const days = a.manual && a.as_of ? Math.floor((Date.now() - new Date(a.as_of + "T00:00:00").getTime()) / 86400000) : null;
+      const roleSel = acctRole(a) === "credit" && !_acctRoles[a.id] ? "" :
+        '<select class="fin-acct-role" data-id="' + esc(a.id || "") + '" aria-label="role">' +
+          ACCT_ROLES.map((ro) => '<option value="' + ro[0] + '"' + ((_acctRoles[a.id] || "") === ro[0] ? " selected" : "") + ">" + ro[1] + "</option>").join("") +
+        "</select>";
+      return '<div class="fin-acct">' +
+        '<span class="fin-acct-main"><span class="fin-acct-name">' + esc(a.name || "Account") + "</span>" +
+          '<span class="fin-acct-sub">' + esc(a.org && a.org !== "manual" ? a.org : (a.manual ? "manual · as of " + (a.as_of || "?") + (days != null && days > 45 ? " · aging" : "") : "")) + "</span></span>" +
+        roleSel +
+        '<span class="fin-acct-bal">' + fmtUSD(a.balance || 0) + "</span>" +
+      "</div>";
+    };
+    const grp = (label, list2) => list2.length
+      ? '<div class="fin-sec">' + label + ' <span class="fin-sec-note">' + fmtUSD(sum(list2)) + "</span></div>" +
+        '<div class="fin-accts">' + list2.map(row).join("") + "</div>"
+      : "";
+    return grp("cash", cashA) + grp("cards & debt", credA) +
+      '<div class="fin-foot">roles feed the math: untouchable + long-term money leaves Safe-to-spend and the runway. Manual balances update in Sources.</div>';
+  }
+  // ── Transactions — the real feed, newest first (the 30-day window every widget trusts) ──
+  function txnsSection() {
+    const list2 = (txns || []).slice().sort((a, b) => (b.posted || 0) - (a.posted || 0)).slice(0, 60);
+    if (!list2.length) return '<div class="fin-clear">no transactions in the window yet — sync your bank or import a CSV</div>';
+    const rows = list2.map((t) => {
+      const amt = +t.amount || 0;
+      const d = t.posted ? new Date(t.posted * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+      return '<div class="fin-txn">' +
+        '<span class="fin-txn-d">' + esc(d) + "</span>" +
+        '<span class="fin-txn-desc">' + esc((t.description || "").slice(0, 64)) + "</span>" +
+        '<span class="fin-txn-amt' + (amt > 0 ? " in" : "") + '">' + (amt > 0 ? "+" : "") + fmtUSD(amt) + "</span>" +
+      "</div>";
+    }).join("");
+    return '<div class="fin-sec">last 30 days <span class="fin-sec-note">' + list2.length + " transactions</span></div>" +
+      '<div class="fin-txns">' + rows + "</div>" +
+      '<button class="fin-q" data-q="cats" style="margin-top:12px">⚙ fix categories — teach any of these where it belongs</button>';
+  }
+  // ── Cash flow — each month's in / out / net, bars scaled to the biggest month ──
+  function flowSection() {
+    const ms = (months || []).slice(0, 6);
+    if (!ms.length) return '<div class="fin-clear">no month history yet — it builds as your ledger grows</div>';
+    const max = Math.max(1, ...ms.map((m) => Math.max(+m.income || 0, +m.spending || 0)));
+    const rows = ms.map((m) => {
+      const net = +m.net || 0;
+      return '<div class="fin-mo">' +
+        '<span class="fin-mo-l">' + esc(m.label || m.ym) + "</span>" +
+        '<span class="fin-mo-bars">' +
+          '<span class="fin-mo-bar in" style="width:' + Math.max(2, (+m.income || 0) / max * 100) + '%"></span>' +
+          '<span class="fin-mo-bar out" style="width:' + Math.max(2, (+m.spending || 0) / max * 100) + '%"></span>' +
+        "</span>" +
+        '<span class="fin-mo-nums">' + fmtUSD(m.income || 0) + " in · " + fmtUSD(m.spending || 0) + " out · " +
+          '<b class="' + (net >= 0 ? "fin-net-up" : "fin-net-dn") + '">' + (net >= 0 ? "+" : "") + fmtUSD(net) + "</b></span>" +
+      "</div>";
+    }).join("");
+    return '<div class="fin-sec">months <span class="fin-sec-note">income vs spending, transfers excluded</span></div>' +
+      '<div class="fin-mos">' + rows + "</div>";
   }
   function render() {
     const keep = root.querySelector(".fin-main") ? root.querySelector(".fin-main").scrollTop : 0;
@@ -7047,6 +7117,15 @@ function openFinances() {
     }));
     root.querySelectorAll(".fin-reg").forEach((b) => b.addEventListener("click", () => {
       setSubField(b.dataset.key, "notbill", null); Store.emit(); render();   // back to the bills list — fully reversible
+    }));
+    root.querySelectorAll(".fin-acct-role").forEach((s) => s.addEventListener("change", () => {
+      const id = s.dataset.id, role = s.value;
+      if (role) _acctRoles[id] = role; else delete _acctRoles[id];
+      fetch("/api/account-role", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: id, role: role }) })
+        .then((r) => r.json()).then((d) => { if (d && d.ok === false) flash(d.error || "couldn't save"); })
+        .catch(() => flash("couldn't reach your cache"));
+      try { autoPushSoon(); } catch (e) {}
+      Store.emit(); render();
     }));
     root.querySelectorAll(".fin-until").forEach((inp) => inp.addEventListener("change", () => {
       setSubField(inp.dataset.key, "until", inp.value || null); Store.emit(); render();

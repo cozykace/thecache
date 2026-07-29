@@ -485,6 +485,36 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
   background: color-mix(in srgb, var(--cal-spend) 18%, transparent); color: var(--cal-spend); padding: 0 6px; }
 .fin-main { flex: 1; min-width: 0; overflow-y: auto; padding: 18px clamp(16px, 3vw, 32px) 44px; }
 .fin-main .fin-sec:first-child { margin-top: 0; }
+/* Accounts room */
+.fin-accts { display: flex; flex-direction: column; gap: 8px; }
+.fin-acct { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border: 1px solid var(--edge-soft); border-radius: 12px; }
+.fin-acct-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fin-acct-name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-acct-sub { font-size: 11px; color: rgba(var(--ink-rgb), 0.5); }
+.fin-acct-bal { flex: 0 0 auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.fin-acct-role { flex: 0 0 auto; max-width: 130px; min-height: 34px; font-family: inherit; font-size: 11px;
+  padding: 4px 8px; border: 1px solid var(--edge-soft); border-radius: 9px; background: var(--panel); color: rgba(var(--ink-rgb), 0.7); }
+/* Transactions room */
+.fin-txns { display: flex; flex-direction: column; }
+.fin-txn { display: flex; align-items: baseline; gap: 12px; padding: 9px 4px; font-size: 13px;
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.05); }
+.fin-txn-d { flex: 0 0 52px; font-size: 11px; color: rgba(var(--ink-rgb), 0.5); }
+.fin-txn-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-txn-amt { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+.fin-txn-amt.in { color: var(--dot-ok); }
+/* Cash-flow room */
+.fin-mos { display: flex; flex-direction: column; gap: 12px; }
+.fin-mo { display: flex; flex-direction: column; gap: 4px; }
+.fin-mo-l { font-size: 12px; font-weight: 600; }
+.fin-mo-bars { display: flex; flex-direction: column; gap: 2px; }
+.fin-mo-bar { height: 7px; border-radius: 4px; }
+.fin-mo-bar.in { background: color-mix(in srgb, var(--dot-ok) 55%, transparent); }
+.fin-mo-bar.out { background: color-mix(in srgb, var(--cal-spend) 55%, transparent); }
+.fin-mo-nums { font-size: 11.5px; color: rgba(var(--ink-rgb), 0.6); }
+.fin-net-up { color: var(--dot-ok); } .fin-net-dn { color: var(--cal-spend); }
+@media (hover: none) and (pointer: coarse) { .fin-acct-role { min-height: 44px; font-size: 12px; } }
+
 @media (max-width: 760px) {   /* phone / narrow: the sidebar becomes a scrollable tab row */
   .fin-shell { flex-direction: column; }
   .fin-nav { flex: 0 0 auto; flex-direction: row; border-right: none; border-bottom: 1px solid var(--edge-soft);
