@@ -6781,6 +6781,34 @@ function openFinances() {
     return '<div class="fin-sec">needs a minute</div>' +
       (rows.length ? '<div class="fin-queue">' + rows.join("") + "</div>" : '<div class="fin-clear">nothing waiting — the books are tidy ✨</div>');
   }
+  function planSection() {
+    // YOUR PLAN — the numbers the whole app plans around, defined HERE (they used to hide in
+    // Settings + the Budget widget's build mode). All GENERIC synced keys; every edit ripples
+    // through Store so the Gap, Budget, Safe-to-spend and work planner re-derive instantly.
+    const v = (k) => { const x = localStorage.getItem(k); return x == null ? "" : String(x).replace(/[^0-9.]/g, ""); };
+    let rent = {}; try { rent = JSON.parse(localStorage.getItem("money.rent") || "{}") || {}; } catch (e) {}
+    const accts = (bal.accounts || []);
+    const curAcct = localStorage.getItem("money.rentAccount") || "";
+    const field = (label, cls, val, ph, hint) =>
+      '<label class="fin-plan-f"><span class="fin-plan-l">' + label + '</span><input class="' + cls + '" type="number" inputmode="decimal" value="' + esc(val) + '" placeholder="' + ph + '"></label>' +
+      (hint ? '<div class="fin-plan-h">' + hint + "</div>" : "");
+    return '<div class="fin-sec">your plan <span class="fin-sec-note">the numbers everything else is derived from — edits ripple instantly</span></div>' +
+      '<div class="fin-plan">' +
+        field("monthly need", "fp-need", v("money.need"), "what a month really costs", "rent + bills + food + everything — the Gap measures against this") +
+        field("reserve floor", "fp-reserve", v("money.reserve"), "never dip below", "Safe-to-spend protects this cushion") +
+        field("guaranteed income /mo", "fp-guar", v("money.guaranteedIncome"), "your dependable base", "music, retainers, base pay — not gig / variable work") +
+        field("gig rate $/hr", "fp-rate", v("money.rate"), "25", "turns any shortfall into honest hours") +
+        '<div class="fin-plan-row">' +
+          '<label class="fin-plan-f"><span class="fin-plan-l">rent</span><input class="fp-rentamt" type="number" inputmode="decimal" value="' + esc(rent.amount || "") + '" placeholder="amount"></label>' +
+          '<label class="fin-plan-f fin-plan-day"><span class="fin-plan-l">due day</span><input class="fp-rentday" type="number" inputmode="numeric" min="1" max="31" value="' + esc(rent.day || "") + '" placeholder="1"></label>' +
+        "</div>" +
+        '<label class="fin-plan-f"><span class="fin-plan-l">rent paid from</span><select class="fp-rentacct">' +
+          '<option value="">total cash (all accounts)</option>' +
+          accts.map((a) => '<option value="' + esc(a.name) + '"' + (a.name === curAcct ? " selected" : "") + ">" + esc(a.name) + "</option>").join("") +
+        "</select></label>" +
+        '<div class="fin-plan-h">must-pay bills are the ⭐ ones — star them in the Money Map, or via any spend’s editor on the calendar.</div>' +
+      "</div>";
+  }
   function _cancelNote(r) {
     const cut = _cancelCutoff(r.key);
     if (!cut || !r.last) return "done — watching for surprise charges";
@@ -6826,7 +6854,7 @@ function openFinances() {
       '<div class="daily-top"><button class="daily-icn" id="finClose" aria-label="close">✕</button>' +
       '<div class="td-htitle">🐷 Finances</div><span class="fin-timer" title="this visit logs as a session — every second banks EXP">⏱ 00:00</span></div>' +
       '<div class="td-scroll fin-scroll">' +
-        headlines() + queue() + subsSection() + aheadSection() +
+        headlines() + queue() + planSection() + subsSection() + aheadSection() +
         '<div class="fin-foot">time in here banks into your “Finances” session — schedule one on the calendar and the portal logs into it automatically.</div>' +
       "</div>";
     const sc = root.querySelector(".td-scroll"); if (sc && keep) sc.scrollTop = keep;
@@ -6867,6 +6895,26 @@ function openFinances() {
     };
     root.querySelectorAll(".fin-up").forEach((b) => b.addEventListener("click", () => { move(+b.dataset.i, -1); Store.emit(); }));
     root.querySelectorAll(".fin-dn").forEach((b) => b.addEventListener("click", () => { move(+b.dataset.i, +1); Store.emit(); }));
+    // the plan editors — same storage + ripple as Settings/Budget, one canonical home
+    const numSet = (sel, key) => { const el2 = root.querySelector(sel); if (el2) el2.addEventListener("change", () => {
+      const val = (el2.value || "").trim();
+      if (val === "") localStorage.removeItem(key);
+      else localStorage.setItem(key, String(parseFloat(val.replace(/[^0-9.]/g, "")) || 0));
+      Store.emit();
+    }); };
+    numSet(".fp-need", "money.need"); numSet(".fp-reserve", "money.reserve");
+    numSet(".fp-guar", "money.guaranteedIncome"); numSet(".fp-rate", "money.rate");
+    const saveRent = () => {
+      const amount = parseFloat((root.querySelector(".fp-rentamt").value || "").replace(/[^0-9.]/g, "")) || 0;
+      const day = Math.max(1, Math.min(31, parseInt(root.querySelector(".fp-rentday").value, 10) || 1));
+      localStorage.setItem("money.rent", JSON.stringify({ amount: amount, day: day }));
+      Store.emit();
+    };
+    const ra = root.querySelector(".fp-rentamt"), rd = root.querySelector(".fp-rentday");
+    if (ra) ra.addEventListener("change", saveRent);
+    if (rd) rd.addEventListener("change", saveRent);
+    const racct = root.querySelector(".fp-rentacct");
+    if (racct) racct.addEventListener("change", () => { localStorage.setItem("money.rentAccount", racct.value); Store.emit(); });
     drawIcons();
   }
   render();
