@@ -2529,7 +2529,8 @@ const RENDERERS = {
           '<div class="stat-tile-lbl">' + escapeHtml(s.label) + "</div></div>").join("");
       }).catch(() => { if (rendered) return; grid.innerHTML = '<div class="stats-empty">backend off — restart the server</div>'; });
     }
-    Store.subscribe(el, () => load());
+    let seenStamp;   // only a MOVED data stamp re-hits the server — a pin toggle or slider commit repaints for free (2026-07-29 cache review)
+    Store.subscribe(el, (d) => { const s2 = dataStamp(d); if (s2 === seenStamp) return; seenStamp = s2; load(); });
     load();
   },
   // Dev Tree — codebase build-status at a glance: roadmap progress + a scan of the
@@ -2633,7 +2634,8 @@ const RENDERERS = {
         drawIcons();
       }).catch(() => { if (rendered) return; hoursEl.textContent = "—"; earnedEl.textContent = "—"; sub.textContent = "backend off — restart the server"; list.innerHTML = ""; runEl.innerHTML = ""; });
     }
-    Store.subscribe(el, () => load());
+    let seenStamp;   // stamp-keyed: a purely-local emit never re-hits /api/work (2026-07-29 cache review)
+    Store.subscribe(el, (d) => { const s2 = dataStamp(d); if (s2 === seenStamp) return; seenStamp = s2; load(); });
     load();
   },
   subscriptions(el) {
@@ -2923,7 +2925,8 @@ const RENDERERS = {
         list.innerHTML = "";
       });
     }
-    Store.subscribe(el, loadMonths);  // re-pulls month rollups whenever data changes
+    let seenStamp;   // stamp-keyed: rollups re-pull only when the data actually moved
+    Store.subscribe(el, (d) => { const s2 = dataStamp(d); if (s2 === seenStamp) return; seenStamp = s2; loadMonths(); });
   },
   debt(el) {
     // Debt cost (Money Truth arc, Brick 3) — what carrying your cards actually costs, as a
@@ -3009,7 +3012,8 @@ const RENDERERS = {
       });
     }
     load();
-    Store.subscribe(el, load);   // re-pull whenever money data moves (sync, categorize, import)
+    let seenStamp;   // stamp-keyed: the triple-fetch fires only when the data actually moved
+    Store.subscribe(el, (d) => { const s2 = dataStamp(d); if (s2 === seenStamp) return; seenStamp = s2; load(); });
   },
 };
 
@@ -7277,10 +7281,15 @@ function openFinances() {
   try { root.focus(); } catch (e) {}
   // the deep-work room stays LIVE: a sync landing mid-session (a peer's tags, a bank pull)
   // re-pulls the feeds instead of leaving stale headlines under your hands — but NEVER while
-  // you're mid-edit: a repaint under a focused input eats the typing and closes open pickers
-  try { Store.subscribe(root, () => {
+  // you're mid-edit (a repaint under a focused input eats the typing), and only a MOVED data
+  // stamp re-hits the 9 feeds; a purely-local emit (a pin, a plan field) repaints for free.
+  let _finSeenStamp;
+  try { Store.subscribe(root, (d) => {
     const a = document.activeElement;
     if (a && root.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;
+    const s2 = dataStamp(d);
+    if (s2 === _finSeenStamp) { render(); return; }   // nothing server-side moved — cheap repaint from held data
+    _finSeenStamp = s2;
     loadAll();
   }); } catch (e) {}
 }
@@ -9438,9 +9447,12 @@ function ageStr(ms) {
   return d === 1 ? "yesterday" : d + "d ago";
 }
 function updateSyncHealth() {
-  // returns the fetch chain so the connection panel can await a freshness refresh, then repaint.
-  return fetch("data/balances.json?t=" + Date.now())
-    .then((r) => (r.ok ? r.json() : null))
+  // returns a promise so the connection panel can await a freshness refresh, then repaint.
+  // The Store already holds the snapshot — re-downloading the whole balances file every
+  // 60s to read ONE timestamp was pure waste (2026-07-29 cache review). Fetch only when
+  // the Store has nothing yet (boot) — its own refresh keeps `updated` current after that.
+  const cached = (typeof Store !== "undefined" && Store.data && Store.data.updated) ? Store.data : null;
+  return (cached ? Promise.resolve(cached) : fetch("data/balances.json?t=" + Date.now()).then((r) => (r.ok ? r.json() : null)))
     .then((d) => {
       if (!d || !d.updated) {
         _bankUpdated = null;
