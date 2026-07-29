@@ -334,6 +334,10 @@ function subStatus(key) {
 // from every must-pay total, plan, and health count. Every surface reads this one rule, so
 // marking a sub cancelled in the portal genuinely ripples everywhere the copy promises.
 function subAlive(key) { return !isSubPaused(key) && subStatus(key) !== "cancelled"; }
+// NOT A BILL — the detector finds every regular-cadence merchant, but a weekly grocery run
+// is a REGULAR, not a bill: it must never inflate the yearly-load total, the paycheck runway,
+// or the calendar's projected spends. A per-merchant, synced, reversible mark (subs.json).
+function subIsBill(key) { return !subEntry(key).notbill; }
 // the date a cancellation takes effect: the paid-through date for "until", else the day the
 // user marked it cancelled (statusAt — stamped by the editors). Charges after this date are
 // SURPRISE charges; quiet after a full cadence means "looks done". Subs cancelled before
@@ -6632,6 +6636,7 @@ function openSpendEditor(taggedId, onDone) {
             '<option value=""' + (!e.status ? " selected" : "") + ">active</option>" +
             '<option value="until"' + (e.status === "until" ? " selected" : "") + ">active until…</option>" +
             '<option value="cancelled"' + (e.status === "cancelled" ? " selected" : "") + ">cancelled</option>" +
+            '<option value="notbill">not a bill — just a regular</option>' +
           "</select>" +
           (e.status === "until" ? '<input type="date" class="mn-bal" id="spUntil" value="' + escapeHtml(e.until || "") + '" aria-label="paid through">' : "") +
           '<select class="fin-status" id="spCad" aria-label="how often" style="max-width:none;min-height:44px">' +
@@ -6643,7 +6648,12 @@ function openSpendEditor(taggedId, onDone) {
       "</div>";
     modal.querySelector(".cat-close").addEventListener("click", closeMe);
     const nmIn = modal.querySelector("#spName"); nmIn.addEventListener("change", () => setSubField(key, "name", nmIn.value.trim() || null));
-    modal.querySelector("#spStatus").addEventListener("change", (ev) => { setSubField(key, "status", ev.target.value || null); setSubField(key, "statusAt", ev.target.value ? todayKey() : null); if (ev.target.value !== "until") setSubField(key, "until", null); Store.emit(); render(); });
+    modal.querySelector("#spStatus").addEventListener("change", (ev) => {
+      if (ev.target.value === "notbill") {   // "this was never a bill" — clears its projections from the calendar
+        setSubField(key, "notbill", 1); setSubField(key, "status", null); setSubField(key, "statusAt", null); setSubField(key, "until", null);
+        Store.emit(); closeMe(); return;
+      }
+      setSubField(key, "status", ev.target.value || null); setSubField(key, "statusAt", ev.target.value ? todayKey() : null); if (ev.target.value !== "until") setSubField(key, "until", null); Store.emit(); render(); });
     const un = modal.querySelector("#spUntil"); if (un) un.addEventListener("change", () => { setSubField(key, "until", un.value || null); Store.emit(); render(); });
     modal.querySelector("#spCad").addEventListener("change", (ev) => { setSubCadence(key, ev.target.value); Store.emit(); render(); });
     modal.querySelector("#spMust").addEventListener("click", () => { setSubCore(key, !isSubCore(key)); Store.emit(); render(); });
@@ -6787,7 +6797,7 @@ function openFinances() {
       const ymd = ymdOf(d);
       if (ymd > nextDep.ymd) break;
       detected.forEach((r) => {
-        if (!subAlive(r.key) || !r.last) return;
+        if (!subAlive(r.key) || !subIsBill(r.key) || !r.last) return;   // a grocery regular is spending, not a scheduled charge
         const e = subEntry(r.key);
         if (subStatus(r.key) === "until" && e.until && ymd > e.until) return;
         if (calFinOccursOn(r.last, effCadence(r), ymd)) due += (r.amount || 0);
@@ -6795,7 +6805,7 @@ function openFinances() {
     }
     annuals.forEach((a) => {
       if (detKeys[a.key]) return;   // already projected in the loop above — never count a renewal twice
-      if (!subAlive(a.key)) return;
+      if (!subAlive(a.key) || !subIsBill(a.key)) return;
       const e = subEntry(a.key);
       const nextYmd = a.next ? ymdOf(new Date(a.next * 1000)) : null;
       if (subStatus(a.key) === "until" && e.until && nextYmd && nextYmd > e.until) return;   // ends before it lands
@@ -6813,7 +6823,7 @@ function openFinances() {
     const untagged = deposits.filter((d) => !d.tagged).length;
     const uncat = others.length;
     const staleMan = (bal.accounts || []).filter((a) => a.manual && a.as_of && (Date.now() - new Date(a.as_of + "T00:00:00").getTime()) / 86400000 > 45).length;
-    const soon = annuals.filter((a) => a.days <= 30 && subAlive(a.key));   // a cancelled sub's renewal is not "expected"
+    const soon = annuals.filter((a) => a.days <= 30 && subAlive(a.key) && subIsBill(a.key));   // cancelled or not-a-bill → not "expected"
     const rows = [];
     if (untagged) rows.push('<button class="fin-q" data-q="income"><span class="fin-q-n">' + untagged + "</span> deposit source" + (untagged === 1 ? "" : "s") + " to mark income / ignore</button>");
     if (uncat) rows.push('<button class="fin-q" data-q="cats"><span class="fin-q-n">' + uncat + "</span> merchant" + (uncat === 1 ? "" : "s") + " sitting in “other” — give them a home</button>");
@@ -6821,7 +6831,7 @@ function openFinances() {
     soon.forEach((a) => rows.push('<div class="fin-q fin-q-info">~' + esc(a.when) + " · " + esc(a.name) + " expected (~" + fmtUSD(a.amount) + ")</div>"));
     // price changes — "this went up" said plainly, once, in the queue (never an alert storm)
     detected.forEach((r) => {
-      if (r.flag !== "changed" || !subAlive(r.key)) return;
+      if (r.flag !== "changed" || !subAlive(r.key) || !subIsBill(r.key)) return;   // a grocery total varying isn't a price change
       const dir = (r.recent || 0) > (r.amount || 0) ? "up" : "down";
       rows.push('<div class="fin-q fin-q-info">💵 ' + esc(subName(r)) + " changed: was " + fmtUSD(r.amount) + ", now " + fmtUSD(r.recent) + (dir === "up" ? " — worth a glance" : " — it went down") + "</div>");
     });
@@ -6876,7 +6886,9 @@ function openFinances() {
   }
   function subsSection() {
     const withOrd = (r) => { const o = subEntry(r.key).ord; return o != null ? +o : 1e6; };
-    const ordered = detected.slice().sort((a, b) => withOrd(a) - withOrd(b) || (b.amount - a.amount));
+    const bills = detected.filter((r) => subIsBill(r.key));
+    const regulars = detected.filter((r) => !subIsBill(r.key));
+    const ordered = bills.slice().sort((a, b) => withOrd(a) - withOrd(b) || (b.amount - a.amount));
     const rows = ordered.map((r, i) => {
       const st = subStatus(r.key), nm = subName(r), e = subEntry(r.key);
       const ago = r.last ? Math.round(Date.now() / 1000 / 86400 - r.last / 86400) : null;
@@ -6892,6 +6904,7 @@ function openFinances() {
           '<option value=""' + (!e.status ? " selected" : "") + ">active</option>" +
           '<option value="until"' + (e.status === "until" ? " selected" : "") + ">active until…</option>" +
           '<option value="cancelled"' + (e.status === "cancelled" ? " selected" : "") + ">cancelled</option>" +
+          '<option value="notbill">not a bill — just a regular</option>' +
         "</select>" +
         (e.status === "until" ? '<input type="date" class="fin-until" data-key="' + esc(r.key) + '" value="' + esc(e.until || "") + '" aria-label="paid through">' : "") +
         (st === "until" && e.until ? '<span class="fin-sub-note">runs until ' + esc(e.until) + "</span>" : st === "cancelled" ? '<span class="fin-sub-note">' + _cancelNote(r) + "</span>" : "") +
@@ -6900,11 +6913,16 @@ function openFinances() {
     // the honest yearly load — the multiplication an EF-focused app should never outsource
     const yrTotal = ordered.filter((r) => subAlive(r.key)).reduce((s, r) => s + (r.amount || 0) * cadenceInfo(effCadence(r)).perYear, 0);
     const loadNote = yrTotal > 0 ? " — " + fmtUSD(yrTotal) + "/yr all told (~" + fmtUSD(yrTotal / 12) + "/mo run-rate)" : "";
-    return '<div class="fin-sec">recurring & subscriptions <span class="fin-sec-note">every detected repeat-charge, with its real bank evidence' + loadNote + "</span></div>" +
-      (rows ? '<div class="fin-subs">' + rows + "</div>" : '<div class="fin-clear">no recurring charges detected yet</div>');
+    // regulars (marked "not a bill") stay visible and reversible — hidden things breed distrust
+    const regRows = regulars.length
+      ? '<div class="fin-regulars"><span class="fin-reg-note">' + regulars.length + " regular" + (regulars.length === 1 ? "" : "s") + " (not bills): " +
+        regulars.map((r) => '<button class="fin-reg" data-key="' + esc(r.key) + '" title="a place you shop regularly — tap to move it back to bills">' + esc(subName(r)) + " ↩</button>").join(" ") + "</span></div>"
+      : "";
+    return '<div class="fin-sec">recurring bills & subscriptions <span class="fin-sec-note">every detected repeat-charge, with its real bank evidence' + loadNote + "</span></div>" +
+      (rows ? '<div class="fin-subs">' + rows + "</div>" : '<div class="fin-clear">no recurring charges detected yet</div>') + regRows;
   }
   function aheadSection() {
-    const live = annuals.filter((a) => subAlive(a.key));   // cancelled → its renewal is no longer expected
+    const live = annuals.filter((a) => subAlive(a.key) && subIsBill(a.key));   // cancelled or not-a-bill → no longer expected
     if (!live.length) return "";
     return '<div class="fin-sec">expected ahead</div><div class="fin-queue">' +
       live.slice(0, 6).map((a) => '<div class="fin-q fin-q-info">~' + esc(a.when) + " · " + esc(a.name) +
@@ -6928,17 +6946,28 @@ function openFinances() {
       else if (q === "income") { try { openIncomeTagger(loadAll); } catch (e) { try { openCategorizer(loadAll); } catch (e2) {} } }
     }));
     root.querySelectorAll(".fin-status").forEach((s) => s.addEventListener("change", () => {
+      if (s.value === "notbill") {   // a different axis than the lifecycle: "this was never a bill"
+        setSubField(s.dataset.key, "notbill", 1);
+        setSubField(s.dataset.key, "status", null);
+        setSubField(s.dataset.key, "statusAt", null);
+        setSubField(s.dataset.key, "until", null);
+        Store.emit(); render();
+        return;
+      }
       setSubField(s.dataset.key, "status", s.value || null);
       setSubField(s.dataset.key, "statusAt", s.value ? todayKey() : null);   // when the cancel took effect — the surprise-watcher's cutoff
       if (s.value !== "until") setSubField(s.dataset.key, "until", null);
       Store.emit();   // the budget/map/plan totals read this status now — ripple the board
       render();
     }));
+    root.querySelectorAll(".fin-reg").forEach((b) => b.addEventListener("click", () => {
+      setSubField(b.dataset.key, "notbill", null); Store.emit(); render();   // back to the bills list — fully reversible
+    }));
     root.querySelectorAll(".fin-until").forEach((inp) => inp.addEventListener("change", () => {
       setSubField(inp.dataset.key, "until", inp.value || null); Store.emit(); render();
     }));
     // reorder — fractional ord so moving ONE sub stamps ONE key (the deck's lesson)
-    const orderNow = () => detected.slice().sort((a, b) => {
+    const orderNow = () => detected.filter((r) => subIsBill(r.key)).sort((a, b) => {
       const oa = subEntry(a.key).ord, ob = subEntry(b.key).ord;
       return ((oa != null ? +oa : 1e6) - (ob != null ? +ob : 1e6)) || (b.amount - a.amount);
     });
@@ -12461,7 +12490,7 @@ function openCalendar() {
     const out = [];
     finSubs.forEach((r) => {
       const st = subStatus(r.key), e = subEntry(r.key);
-      if (st === "cancelled" || isSubPaused(r.key)) return;
+      if (st === "cancelled" || isSubPaused(r.key) || !subIsBill(r.key)) return;   // regulars aren't scheduled charges
       if (st === "until" && e.until && ymd > e.until) return;   // paid-through date passed — no more projections
       if (r.last && calFinOccursOn(r.last, effCadence(r), ymd)) {
         out.push({ kind: "sub", key: r.key, name: subName(r), amount: r.amount, cadence: effCadence(r), st: st, r: r });

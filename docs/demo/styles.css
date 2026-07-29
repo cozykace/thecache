@@ -516,6 +516,14 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .fin-q-warn:hover { border-color: color-mix(in srgb, var(--cal-spend) 55%, transparent); }
 .fin-runway { margin: 2px 0 6px; padding: 10px 14px; border: 1px solid var(--edge-soft); border-radius: 12px;
   font-size: 13px; line-height: 1.5; color: rgba(var(--ink-rgb), 0.8); }
+/* regulars marked "not a bill" — visible + one-tap reversible, never silently vanished */
+.fin-regulars { margin-top: 10px; }
+.fin-reg-note { font-size: 11.5px; color: rgba(var(--ink-rgb), 0.5); line-height: 2; }
+.fin-reg { display: inline-block; font: inherit; font-size: 11.5px; padding: 4px 10px; min-height: 30px;
+  border: 1px dashed var(--edge); border-radius: 999px; background: none; color: rgba(var(--ink-rgb), 0.65);
+  cursor: pointer; margin: 0 2px; }
+.fin-reg:hover { border-color: var(--accent); color: var(--accent); }
+@media (hover: none) and (pointer: coarse) { .fin-reg { min-height: 44px; padding: 8px 14px; } }
 .fin-flag { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 600; padding: 2px 7px;
   border-radius: 6px; background: color-mix(in srgb, var(--cal-spend) 14%, transparent); color: var(--cal-spend); }
 /* your plan — the definition fields */
