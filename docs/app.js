@@ -4928,7 +4928,23 @@ async function cloudPush(passphrase, opts) {
   // fetch the current record once — we need its keybox (to adopt the data key on a
   // new device) and, on the web, its blob (to preserve the financial data)
   let id = await cloudFindVaultId(s), rec = null;
-  if (id) { try { rec = await (await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { headers: { Authorization: s.token } })).json(); } catch (e) {} }
+  // Cheap probe first (2026-07-29 review: every push re-downloaded + re-decrypted its own
+  // vault). If the vault's fingerprint still equals the one we CONVERGED on, the blob holds
+  // nothing we haven't already merged — fetch only id/updated/keybox/excerpt and skip the
+  // heavy blob. Desktop only: the web branch builds its payload FROM the vault's blob.
+  if (id && !window.__CACHE_WEB__ && s.lastSeenVault && s.lastAuthored) {
+    try {
+      const pr = await (await fetch(cloudUrl() + "/api/collections/vaults/records/" + id + "?fields=" + encodeURIComponent("id,updated,keybox,blob:excerpt(64)"), { headers: { Authorization: s.token } })).json();
+      if (pr && pr.id) {
+        const pfp = pr.updated || pr.blob || "";
+        if (pfp && pfp === s.lastSeenVault) {
+          rec = pr; rec.__probeOnly = true;
+          rec.blob = null;   // the excerpt is NOT a blob — nulling it makes every `rec.blob` guard skip naturally
+        }
+      }
+    } catch (e) {}
+  }
+  if (id && !rec) { try { rec = await (await fetch(cloudUrl() + "/api/collections/vaults/records/" + id, { headers: { Authorization: s.token } })).json(); } catch (e) {} }
   // a record exists but we couldn't READ it → stop. Guessing here could write a
   // fresh escrow keybox over a zero-knowledge one — never act blind on the keybox.
   if (id && (!rec || !rec.id)) throw new Error("cloud hiccup — couldn't read your vault, try again");
@@ -5035,6 +5051,9 @@ async function cloudPush(passphrase, opts) {
     const data = await (await fetch("/api/export-data")).json();
     if (!data || !data.ok) throw new Error("couldn't read your data");
     files = data.files || {}; api = data.api || {}; exported = data.exported; filesMeta = data.filesMeta || {};
+    // probe-skip path: we didn't open the blob, but we converged on this exact fingerprint
+    // earlier and recorded the vault's witness then — that recorded value IS vaultAuthored
+    if (vaultAuthored === null && rec && rec.__probeOnly) vaultAuthored = cloudState().lastAuthored || null;
   }
   const count = Object.keys(files).length;
   // converge BOTH ways on every push: ADOPT the vault's shared "local" layer into
@@ -5090,7 +5109,13 @@ async function cloudPush(passphrase, opts) {
   //                                   edits). vaultAuthored is null on an unread/v1
   //                                   vault → we never claim synced against one.
   if (!mintedKey && !writeKeybox && id && hash === s.lastHash && vaultAuthored !== null && vaultAuthored === ourAuthored) {
-    cloudSaveState(Object.assign(cloudState(), { lastPush: new Date().toISOString() }));   // confirmed in sync — the chip stays truthful
+    cloudSaveState(Object.assign(cloudState(), {
+      lastPush: new Date().toISOString(),   // confirmed in sync — the chip stays truthful
+      lastAuthored: ourAuthored,
+      // a pre-fix legacy state may have an EMPTY lastSeenVault — heal it from the blob we
+      // just read so the next poll (and the next push's probe) can finally short-circuit
+      lastSeenVault: s.lastSeenVault || (rec && rec.blob ? String(rec.blob).slice(0, 64) : ""),
+    }));
     // the vault's blob already equals this (folded) payload → the imported money is provably
     // sealed → clear it from _pending so the import's "still saving…" watcher resolves
     if (_foldedMoney && window.__cacheMoneyConfirmSealed) { try { window.__cacheMoneyConfirmSealed(_foldedMoney); } catch (e) {} }
@@ -5116,7 +5141,12 @@ async function cloudPush(passphrase, opts) {
   if (!r.ok) throw new Error(cloudErr(d) || ("cloud backup failed (HTTP " + r.status + " — is the 'vaults' collection set up?)"));
   cloudSaveState(Object.assign(cloudState(), {
     recordId: d.id || id, lastPush: new Date().toISOString(), lastPushCount: count,
-    bytes: (body.blob || "").length, lastHash: hash, lastSeenVault: d.updated || "",
+    // lastSeenVault must be the SAME fingerprint the 75s poll computes (updated when the
+    // schema has it, else the blob's first 64 chars) — it was stored as the always-empty
+    // d.updated, so every push guaranteed a full self-download next poll (2026-07-29 review)
+    bytes: (body.blob || "").length, lastHash: hash,
+    lastSeenVault: d.updated || (body.blob || "").slice(0, 64),
+    lastAuthored: ourAuthored,   // the witness the vault now provably holds — the probe-skip's memory
     mode: body.keybox ? keyboxMode(body.keybox) : (curMode || s.mode || null),   // remember the seal mode from the box actually written — the downgrade guard reads it
     // schema lacks the keybox field → sync works on THIS device, but other devices
     // can't adopt the key until the field exists (self-clears once it does)
@@ -5337,7 +5367,7 @@ async function cloudMigrateV1IfNeeded(rec, obj, passphrase) {
     // CONFIRMED v2 on the server → adopt the key, remember zero-knowledge mode (arms the
     // downgrade guard), and keep the in-hand record current for the rest of the restore.
     cloudKeySet(kb);
-    cloudSaveState(Object.assign(cloudState(), { mode: keyboxMode(keybox), lastSeenVault: d.updated || "" }));
+    cloudSaveState(Object.assign(cloudState(), { mode: keyboxMode(keybox), lastSeenVault: d.updated || (blob || "").slice(0, 64) }));
     rec.blob = blob; rec.keybox = keybox; if (d.updated) rec.updated = d.updated;
   }
   // Hand over the recovery file. A download that doesn't land is reported LOUDLY by the
@@ -5821,21 +5851,23 @@ async function cloudAutoPull() {
           // lastSeenVault as-is so the next poll retries, and keep the chip honest.
           cloudChip("syncing");
         } else {
-          // store the SAME fingerprint the cheap poll compares against (not a different
-          // shape, or every poll would miss and re-pull the whole vault forever)
-          cloudSaveState(Object.assign(cloudState(), { lastSeenVault: fp }));
           // Honest chip + corrective push: if OUR authored layer is now AHEAD of the
           // vault (a concurrent push overwrote the vault with a version that lacked one
           // of our edits), arming a push re-seals it and we withhold the green until it
           // reconciles. This closes the finding's quiescent hole — where a keep-local
           // merge returned changed=false, so nothing re-uploaded yet the chip went green
           // over a vault that was missing our data.
-          let ahead = false;
+          let ahead = false, vaultAuthoredAtFp = null;
           try {
-            const vaultAuthored = authoredHash((obj && obj.local) || {}, (obj && obj.files) || {});
+            vaultAuthoredAtFp = authoredHash((obj && obj.local) || {}, (obj && obj.files) || {});
             const ourAuthored = authoredHash(snapshotLocal(), ourMaps);
-            ahead = vaultAuthored !== ourAuthored;
+            ahead = vaultAuthoredAtFp !== ourAuthored;
           } catch (e) {}
+          // store the SAME fingerprint the cheap poll compares against (not a different
+          // shape, or every poll would miss and re-pull the whole vault forever) — plus the
+          // vault's witness AT that fingerprint, which lets the next push's cheap probe skip
+          // re-downloading a vault we provably already merged
+          cloudSaveState(Object.assign(cloudState(), { lastSeenVault: fp, lastAuthored: vaultAuthoredAtFp }));
           if (ahead) { cloudChip("syncing"); autoPushSoon(); }
           else cloudChip("ok");
         }

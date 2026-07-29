@@ -1499,6 +1499,13 @@ def _restore_ledger_from_backup():
     return None
 
 
+# (path, mtime_ns, size)-keyed memo: api_snapshot alone walks ~12 analytics views that each
+# re-read the append-only ledger — one parse per file VERSION instead (2026-07-29 cache
+# review). Self-invalidating: any append/compact moves mtime/size. Callers may mutate the
+# returned dict (merge_ledger does), so hand out a SHALLOW COPY, never the cached object.
+_LEDGER_MEMO = {"sig": None, "led": None}
+
+
 def load_ledger():
     """Read the permanent ledger SAFELY into {key: txn}. A ledger that exists
     but won't parse must NEVER fall through to empty — that path would let the
@@ -1510,8 +1517,18 @@ def load_ledger():
     if not os.path.exists(LEDGER):
         return {}  # genuinely first run / nothing stored yet
     try:
+        st = os.stat(LEDGER)
+        sig = (LEDGER, st.st_mtime_ns, st.st_size)
+    except OSError:
+        sig = None
+    if sig is not None and _LEDGER_MEMO["sig"] == sig:
+        return dict(_LEDGER_MEMO["led"])
+    try:
         led, lines, bad = _parse_jsonl(LEDGER)
         if led or (lines == 0 and bad == 0):
+            if sig is not None and not bad:
+                _LEDGER_MEMO["sig"] = sig
+                _LEDGER_MEMO["led"] = dict(led)
             return led  # got the good lines (or the file is legitimately empty)
     except Exception:
         pass
@@ -2722,12 +2739,19 @@ def api_snapshot():
         ov = load_overrides()
     except Exception:
         ov = {}
+    # ONE ledger pass for every view that accepts it (the memo in load_ledger covers the
+    # rest) — this bundle used to re-read + re-parse the append-only ledger ~12 times per
+    # call, on every push and every changed poll (2026-07-29 cache review)
+    try:
+        led_txns = _ledger_txns()
+    except Exception:
+        led_txns = None
     grab("summary", lambda: period_summary())
     grab("categories", lambda: {"categories": category_summary()})
-    grab("recurring", lambda: {"recurring": detect_recurring()})
-    grab("annuals", lambda: {"annuals": annual_predictions()})   # phones read the sealed bundle — without this they'd show zero annual warnings
-    grab("runway", lambda: {"next_deposit": next_deposit()})     # the paycheck-runway anchor rides too
-    grab("transfers", lambda: {"transfers": recurring_transfers()})
+    grab("recurring", lambda: {"recurring": detect_recurring(led_txns)})
+    grab("annuals", lambda: {"annuals": annual_predictions(led_txns)})   # phones read the sealed bundle — without this they'd show zero annual warnings
+    grab("runway", lambda: {"next_deposit": next_deposit(led_txns)})     # the paycheck-runway anchor rides too
+    grab("transfers", lambda: {"transfers": recurring_transfers(led_txns)})
     grab("deposits", lambda: {"deposits": deposit_sources(txns)})
     grab("merchants", lambda: {"merchants": top_merchants(txns, ov)})
     grab("other-merchants", lambda: {"merchants": other_merchants(txns, ov)})
