@@ -2634,6 +2634,7 @@ def api_snapshot():
     grab("summary", lambda: period_summary())
     grab("categories", lambda: {"categories": category_summary()})
     grab("recurring", lambda: {"recurring": detect_recurring()})
+    grab("annuals", lambda: {"annuals": annual_predictions()})   # phones read the sealed bundle — without this they'd show zero annual warnings
     grab("transfers", lambda: {"transfers": recurring_transfers()})
     grab("deposits", lambda: {"deposits": deposit_sources(txns)})
     grab("merchants", lambda: {"merchants": top_merchants(txns, ov)})

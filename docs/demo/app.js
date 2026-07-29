@@ -329,6 +329,19 @@ function subStatus(key) {
   if (e.status === "until") return (e.until && e.until < todayKey()) ? "cancelled" : "until";
   return "active";
 }
+// ONE aliveness rule for the money math: paused (the Money Map pip) OR a cancelled status
+// (the portal/calendar lifecycle — including an "until" whose date has passed) drops a sub
+// from every must-pay total, plan, and health count. Every surface reads this one rule, so
+// marking a sub cancelled in the portal genuinely ripples everywhere the copy promises.
+function subAlive(key) { return !isSubPaused(key) && subStatus(key) !== "cancelled"; }
+// the date a cancellation takes effect: the paid-through date for "until", else the day the
+// user marked it cancelled (statusAt — stamped by the editors). Charges after this date are
+// SURPRISE charges; quiet after a full cadence means "looks done". Subs cancelled before
+// statusAt shipped have no cutoff — we stay honestly silent rather than guess.
+function _cancelCutoff(key) {
+  const e = subEntry(key);
+  return e.status === "until" ? (e.until || null) : (e.statusAt || null);
+}
 function subCadence(key) { return subEntry(key).cadence || "monthly"; }
 function setSubCadence(key, val) { setSubField(key, "cadence", val); }
 function cadenceInfo(id) { return CADENCES.find((c) => c.id === id) || CADENCES[2]; }
@@ -2045,7 +2058,7 @@ const RENDERERS = {
       const accts = (d && d.accounts) || [];
       const curAcct = localStorage.getItem("money.rentAccount") || "";
       // must-pays are DEFINED in the Money Map; build mode just shows them read-only
-      const mustpays = (Store.recurring || []).filter((r) => isSubCore(r.key) && !isSubPaused(r.key))
+      const mustpays = (Store.recurring || []).filter((r) => isSubCore(r.key) && subAlive(r.key))
         .sort((a, b) => b.amount - a.amount);
       const mpList = mustpays.length
         ? mustpays.map((r) => '<div class="bg-mp"><span class="bg-mp-name">' + escapeHtml(r.name) + "</span>" +
@@ -2640,7 +2653,7 @@ const RENDERERS = {
 
       // ── money out · recurring — ALL detected bills in one list, must-pays first.
       // You can mark ANY recurring charge must-pay; you don't have to call it a "subscription" first.
-      const active = detected.filter((r) => !isSubPaused(r.key));
+      const active = detected.filter((r) => subAlive(r.key));
       const mustpay = active.filter((r) => isSubCore(r.key)).reduce((s, r) => s + monthlyAmount(r), 0);
       const incCount = deposits.filter((r) => r.status === "income").length;
       sub.innerHTML = "<b>" + fmtUSD(mustpay) + "</b>/mo must-pay · <b>" + incCount + "</b> income source" + (incCount === 1 ? "" : "s");
@@ -3033,7 +3046,7 @@ function planSummary(d, monthOffset) {
       dueStr: rdue.toLocaleDateString("en-US", { month: "short", day: "numeric" }) });
   }
   (Store.recurring || []).forEach((r) => {
-    if (!isSubCore(r.key) || isSubPaused(r.key)) return;
+    if (!isSubCore(r.key) || !subAlive(r.key)) return;
     const lastD = r.last ? new Date(r.last * 1000) : null;
     const cad = subCadence(r.key);
     // only monthly bills get "paid this cycle"; non-monthly are funded as a steady set-aside
@@ -3890,7 +3903,7 @@ let _healthFull = false, _expAcc = 0;
 function cacheHealth() {
   const d = Store.data || {};
   const has = (k) => { const v = localStorage.getItem(k); return v != null && v !== ""; };
-  const cores = (Store.recurring || []).filter((r) => isSubCore(r.key) && !isSubPaused(r.key)).length;
+  const cores = (Store.recurring || []).filter((r) => isSubCore(r.key) && subAlive(r.key)).length;
   const items = [
     { label: "Bank connected", action: "Menu → Connect a bank", ok: !!(d.accounts && d.accounts.length) },
     { label: "Income tagged", action: "Money Map → tag deposits", ok: !!(d.income && d.income.untagged === 0 && d.income.sources && d.income.sources.length) },
@@ -6508,7 +6521,7 @@ function openConnect() {
 // nudges gently when the number's gone stale. Storage: data/manual_accounts.json, a
 // MERGE MAP (newest-per-key by account id; removal is a {removed:1} VALUE so it
 // propagates) — see store.py's merge-class note. Works on web too (webcache route).
-function openManualAccounts() {
+function openManualAccounts(onDone) {
   const ex = document.getElementById("catBackdrop"); if (ex) ex.remove();
   const back = document.createElement("div");
   back.className = "cat-backdrop"; back.id = "catBackdrop";
@@ -6546,7 +6559,7 @@ function openManualAccounts() {
       "</div>";
     modal.querySelector(".cat-close").addEventListener("click", closeCategorizer);
     const say = (t, cls) => { const R = modal.querySelector("#mnResult"); if (R) R.innerHTML = '<span class="' + (cls || "cn-ok") + '">' + t + "</span>"; };
-    const refresh = (d) => { try { Store.refresh(); } catch (e) {} render((d && d.accounts) || []); };
+    const refresh = (d) => { try { Store.refresh(); } catch (e) {} try { if (typeof onDone === "function") onDone(); } catch (e) {} render((d && d.accounts) || []); };
     modal.querySelector("#mnAdd").addEventListener("click", () => {
       const name = modal.querySelector("#mnNewName").value.trim();
       const balV = modal.querySelector("#mnNewBal").value.trim();
@@ -6617,10 +6630,10 @@ function openSpendEditor(taggedId, onDone) {
       "</div>";
     modal.querySelector(".cat-close").addEventListener("click", closeMe);
     const nmIn = modal.querySelector("#spName"); nmIn.addEventListener("change", () => setSubField(key, "name", nmIn.value.trim() || null));
-    modal.querySelector("#spStatus").addEventListener("change", (ev) => { setSubField(key, "status", ev.target.value || null); if (ev.target.value !== "until") setSubField(key, "until", null); render(); });
-    const un = modal.querySelector("#spUntil"); if (un) un.addEventListener("change", () => { setSubField(key, "until", un.value || null); render(); });
-    modal.querySelector("#spCad").addEventListener("change", (ev) => { setSubCadence(key, ev.target.value); render(); });
-    modal.querySelector("#spMust").addEventListener("click", () => { setSubCore(key, !isSubCore(key)); render(); });
+    modal.querySelector("#spStatus").addEventListener("change", (ev) => { setSubField(key, "status", ev.target.value || null); setSubField(key, "statusAt", ev.target.value ? todayKey() : null); if (ev.target.value !== "until") setSubField(key, "until", null); Store.emit(); render(); });
+    const un = modal.querySelector("#spUntil"); if (un) un.addEventListener("change", () => { setSubField(key, "until", un.value || null); Store.emit(); render(); });
+    modal.querySelector("#spCad").addEventListener("change", (ev) => { setSubCadence(key, ev.target.value); Store.emit(); render(); });
+    modal.querySelector("#spMust").addEventListener("click", () => { setSubCore(key, !isSubCore(key)); Store.emit(); render(); });
   }
   render();
 }
@@ -6636,11 +6649,19 @@ function openSpendEditor(taggedId, onDone) {
 function openFinances() {
   if (document.getElementById("finSpace")) return;
   const root = document.createElement("div"); root.id = "finSpace"; root.className = "daily-space fin-space";
+  root.setAttribute("role", "dialog"); root.setAttribute("aria-modal", "true"); root.setAttribute("aria-label", "Finances");
+  root.tabIndex = -1;   // focusable container — focus moves IN on open, back to the piggy on close
   document.body.appendChild(root);
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
   let bal = {}, months = [], detected = [], deposits = [], others = [], annuals = [];
   // ── the auto-session ──
-  let sessId = null, secs = 0, tick = null, banked = 0;
+  // Counts WALL time while the portal is actually VISIBLE (a hidden tab pauses — you're not
+  // "in" a room you can't see, and browsers throttle hidden timers anyway, which used to
+  // undercount). The session Thing is minted LAZILY at the first banked minute, so an
+  // accidental two-second piggy-tap never adds a session to the calendar. pagehide flushes
+  // the tail, so closing the tab keeps the EXP you earned.
+  let sessId = null, secs = 0, tick = null, bankedSecs = 0, bankedExp = 0;
+  let visAccum = 0, visAnchor = document.hidden ? null : Date.now();
   function findOrMakeSession() {
     try {
       const things = thingsVisible(loadThings());
@@ -6658,6 +6679,7 @@ function openFinances() {
     } catch (e) { return null; }
   }
   function bankMinute() {
+    if (!sessId) sessId = findOrMakeSession();   // lazily — a real minute of work earns the calendar entry
     if (!sessId) return;
     try {
       const day = todayKey(), cur = thingAmountOn(loadLog(), sessId + ":time", day);
@@ -6665,22 +6687,47 @@ function openFinances() {
       logThingEvent(sessId + ":time", "habit", { value: { done: 1, qty: q, unit: "min" }, ts: day, root: sessId });
     } catch (e) {}
   }
-  function startTimer() {
-    sessId = findOrMakeSession();
-    const chip = () => { const el = root.querySelector(".fin-timer"); if (el) el.textContent = "⏱ " + String(Math.floor(secs / 60)).padStart(2, "0") + ":" + String(secs % 60).padStart(2, "0"); };
-    tick = setInterval(() => {
-      secs++; chip();
-      if (secs % 60 === 0) { bankMinute(); try { addExp(60); } catch (e) {} banked = secs; }   // a minute of real money-work: 60 seconds, 60 EXP
-    }, 1000);
+  const liveSecs = () => Math.floor((visAccum + (visAnchor ? Date.now() - visAnchor : 0)) / 1000);
+  const onVis = () => {
+    if (document.hidden) { if (visAnchor) { visAccum += Date.now() - visAnchor; visAnchor = null; } }
+    else if (!visAnchor) visAnchor = Date.now();
+  };
+  function settle() {   // bring banked minutes + EXP up to the visible-time truth
+    secs = liveSecs();
+    while (bankedSecs + 60 <= secs) { bankedSecs += 60; bankMinute(); }
+    const owedExp = secs - bankedExp;
+    if (owedExp >= 60) { try { addExp(owedExp); } catch (e) {} bankedExp = secs; }   // EXP lands in ≥1-minute chunks
   }
+  function startTimer() {
+    const chip = () => { const el = root.querySelector(".fin-timer"); if (el) el.textContent = "⏱ " + String(Math.floor(secs / 60)).padStart(2, "0") + ":" + String(secs % 60).padStart(2, "0"); };
+    document.addEventListener("visibilitychange", onVis);
+    tick = setInterval(() => { settle(); chip(); }, 1000);
+  }
+  let _timerStopped = false;
   function stopTimer() {
+    if (_timerStopped) return; _timerStopped = true;   // pagehide AND close can both fire — settle exactly once
     if (tick) clearInterval(tick); tick = null;
-    const rem = secs - banked;
-    if (rem > 0) { try { addExp(rem); } catch (e) {} }   // the leftover seconds still count
+    document.removeEventListener("visibilitychange", onVis);
+    settle();
+    const rem = secs - bankedExp;
+    if (rem > 0) { try { addExp(rem); } catch (e) {} bankedExp = secs; }   // the leftover seconds still count
     if (secs >= 30) { try { logChar("log", "Worked on finances · " + Math.max(1, Math.round(secs / 60)) + " min"); } catch (e) {} }
   }
-  const close = () => { stopTimer(); document.removeEventListener("keydown", onKey); root.remove(); };
-  const onKey = (ev) => { if (ev.key === "Escape" && !document.querySelector(".cat-modal")) close(); };
+  const onHide = () => { try { stopTimer(); } catch (e) {} };   // tab closing — keep the tail
+  window.addEventListener("pagehide", onHide);
+  const _opener = document.activeElement;   // restore focus on close (dialog semantics)
+  const close = () => { stopTimer(); window.removeEventListener("pagehide", onHide); document.removeEventListener("keydown", onKey); root.remove(); try { if (_opener && _opener.focus) _opener.focus(); } catch (e) {} };
+  const onKey = (ev) => {
+    if (ev.key === "Escape" && !document.querySelector(".cat-modal")) { close(); return; }
+    // keep Tab inside the room — the board underneath is hidden but still in the tab order
+    if (ev.key === "Tab" && root.isConnected && !document.querySelector(".cat-modal")) {
+      const f = root.querySelectorAll("button, input, select, textarea, [tabindex]:not([tabindex='-1'])");
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    }
+  };
   document.addEventListener("keydown", onKey);
   // ── data ──
   function loadAll() {
@@ -6716,14 +6763,32 @@ function openFinances() {
     const untagged = deposits.filter((d) => !d.tagged).length;
     const uncat = others.length;
     const staleMan = (bal.accounts || []).filter((a) => a.manual && a.as_of && (Date.now() - new Date(a.as_of + "T00:00:00").getTime()) / 86400000 > 45).length;
-    const soon = annuals.filter((a) => a.days <= 30);
+    const soon = annuals.filter((a) => a.days <= 30 && subAlive(a.key));   // a cancelled sub's renewal is not "expected"
     const rows = [];
     if (untagged) rows.push('<button class="fin-q" data-q="income"><span class="fin-q-n">' + untagged + "</span> deposit source" + (untagged === 1 ? "" : "s") + " to mark income / ignore</button>");
     if (uncat) rows.push('<button class="fin-q" data-q="cats"><span class="fin-q-n">' + uncat + "</span> merchant" + (uncat === 1 ? "" : "s") + " sitting in “other” — give them a home</button>");
     if (staleMan) rows.push('<button class="fin-q" data-q="manual"><span class="fin-q-n">' + staleMan + "</span> manual account" + (staleMan === 1 ? "" : "s") + " with an aging balance — still right?</button>");
     soon.forEach((a) => rows.push('<div class="fin-q fin-q-info">~' + esc(a.when) + " · " + esc(a.name) + " expected (~" + fmtUSD(a.amount) + ")</div>"));
+    // the surprise-charge WATCHER — the promise the cancelled state makes, kept: a charge
+    // that lands after the cancel date (or past the paid-through date) surfaces here.
+    detected.forEach((r) => {
+      if (subStatus(r.key) !== "cancelled" || !r.last) return;
+      const cut = _cancelCutoff(r.key);
+      if (cut && ymdOf(new Date(r.last * 1000)) > cut) {
+        rows.push('<div class="fin-q fin-q-warn">💳 ' + esc(subName(r)) + " charged ~" + fmtUSD(r.recent || r.amount) + " after you marked it cancelled — worth a look</div>");
+      }
+    });
     return '<div class="fin-sec">needs a minute</div>' +
       (rows.length ? '<div class="fin-queue">' + rows.join("") + "</div>" : '<div class="fin-clear">nothing waiting — the books are tidy ✨</div>');
+  }
+  function _cancelNote(r) {
+    const cut = _cancelCutoff(r.key);
+    if (!cut || !r.last) return "done — watching for surprise charges";
+    const lastYmd = ymdOf(new Date(r.last * 1000));
+    if (lastYmd > cut) return "charged AFTER cancelling — see needs-a-minute";
+    const cadDays = Math.round(365 / cadenceInfo(subCadence(r.key)).perYear);
+    const since = Math.floor((Date.now() - new Date(cut + "T00:00:00").getTime()) / 86400000);
+    return since >= cadDays ? "no charges since — looks done ✓" : "done — watching for surprise charges";
   }
   function subsSection() {
     const withOrd = (r) => { const o = subEntry(r.key).ord; return o != null ? +o : 1e6; };
@@ -6742,16 +6807,17 @@ function openFinances() {
           '<option value="cancelled"' + (e.status === "cancelled" ? " selected" : "") + ">cancelled</option>" +
         "</select>" +
         (e.status === "until" ? '<input type="date" class="fin-until" data-key="' + esc(r.key) + '" value="' + esc(e.until || "") + '" aria-label="paid through">' : "") +
-        (st === "until" && e.until ? '<span class="fin-sub-note">runs until ' + esc(e.until) + "</span>" : st === "cancelled" ? '<span class="fin-sub-note">done — watching for surprise charges</span>' : "") +
+        (st === "until" && e.until ? '<span class="fin-sub-note">runs until ' + esc(e.until) + "</span>" : st === "cancelled" ? '<span class="fin-sub-note">' + _cancelNote(r) + "</span>" : "") +
         "</span></div>";
     }).join("");
     return '<div class="fin-sec">recurring & subscriptions <span class="fin-sec-note">every detected repeat-charge, with its real bank evidence</span></div>' +
       (rows ? '<div class="fin-subs">' + rows + "</div>" : '<div class="fin-clear">no recurring charges detected yet</div>');
   }
   function aheadSection() {
-    if (!annuals.length) return "";
+    const live = annuals.filter((a) => subAlive(a.key));   // cancelled → its renewal is no longer expected
+    if (!live.length) return "";
     return '<div class="fin-sec">expected ahead</div><div class="fin-queue">' +
-      annuals.slice(0, 6).map((a) => '<div class="fin-q fin-q-info">~' + esc(a.when) + " · " + esc(a.name) +
+      live.slice(0, 6).map((a) => '<div class="fin-q fin-q-info">~' + esc(a.when) + " · " + esc(a.name) +
         (a.confidence === "maybe" ? " <i>might renew</i>" : "") + " · ~" + fmtUSD(a.amount) + "</div>").join("") + "</div>";
   }
   function render() {
@@ -6768,16 +6834,18 @@ function openFinances() {
     root.querySelectorAll(".fin-q[data-q]").forEach((b) => b.addEventListener("click", () => {
       const q = b.dataset.q;
       if (q === "cats") { try { openCategorizer(loadAll); } catch (e) {} }
-      else if (q === "manual") { try { openManualAccounts(); } catch (e) {} }
+      else if (q === "manual") { try { openManualAccounts(loadAll); } catch (e) {} }   // updating the balance clears its own nag
       else if (q === "income") { try { openIncomeTagger(loadAll); } catch (e) { try { openCategorizer(loadAll); } catch (e2) {} } }
     }));
     root.querySelectorAll(".fin-status").forEach((s) => s.addEventListener("change", () => {
       setSubField(s.dataset.key, "status", s.value || null);
+      setSubField(s.dataset.key, "statusAt", s.value ? todayKey() : null);   // when the cancel took effect — the surprise-watcher's cutoff
       if (s.value !== "until") setSubField(s.dataset.key, "until", null);
+      Store.emit();   // the budget/map/plan totals read this status now — ripple the board
       render();
     }));
     root.querySelectorAll(".fin-until").forEach((inp) => inp.addEventListener("change", () => {
-      setSubField(inp.dataset.key, "until", inp.value || null); render();
+      setSubField(inp.dataset.key, "until", inp.value || null); Store.emit(); render();
     }));
     // reorder — fractional ord so moving ONE sub stamps ONE key (the deck's lesson)
     const orderNow = () => detected.slice().sort((a, b) => {
@@ -6797,13 +6865,17 @@ function openFinances() {
       setSubField(list2[i].key, "ord", mid);   // fractional — moving ONE sub stamps ONE key (plus the one-time seed)
       render();
     };
-    root.querySelectorAll(".fin-up").forEach((b) => b.addEventListener("click", () => move(+b.dataset.i, -1)));
-    root.querySelectorAll(".fin-dn").forEach((b) => b.addEventListener("click", () => move(+b.dataset.i, +1)));
+    root.querySelectorAll(".fin-up").forEach((b) => b.addEventListener("click", () => { move(+b.dataset.i, -1); Store.emit(); }));
+    root.querySelectorAll(".fin-dn").forEach((b) => b.addEventListener("click", () => { move(+b.dataset.i, +1); Store.emit(); }));
     drawIcons();
   }
   render();
   loadAll();
   startTimer();
+  try { root.focus(); } catch (e) {}
+  // the deep-work room stays LIVE: a sync landing mid-session (a peer's tags, a bank pull)
+  // re-pulls the feeds instead of leaving stale headlines under your hands
+  try { Store.subscribe(root, loadAll); } catch (e) {}
 }
 (function () { const b = document.getElementById("finBtn"); if (b) b.addEventListener("click", openFinances); })();
 // ── Accessibility ─────────────────────────────────────────────────────────
