@@ -1,6 +1,16 @@
 {
   "incidents": [
     {
+      "date": "2026-07-29",
+      "title": "The board rendered blank (no widgets, no stats)",
+      "status": "fixed",
+      "updates": [
+        { "when": "2026-07-29", "text": "Reported: the app loaded to an empty board — the bottom buttons appeared, but no widgets, stats bar, or dock pills. Desktop and web both affected for roughly half an hour." },
+        { "when": "2026-07-29", "text": "Cause found: a performance change earlier today added what looked like a safe guard, but it ran during app start-up in a way JavaScript forbids — the app's start-up script stopped dead partway through, before the board could build." },
+        { "when": "2026-07-29", "text": "Fixed and verified live: the guard now uses a form that can't fail during start-up, a loud comment marks the trap so it can't be re-introduced, and the same pattern was checked everywhere else in the app (all other uses were already safe). If your screen is still blank, force-close and reopen — the fixed version loads automatically." }
+      ]
+    },
+    {
       "date": "2026-07-14",
       "title": "Web app stuck on “Unlock my cache”",
       "status": "fixed",
