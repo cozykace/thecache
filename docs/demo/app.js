@@ -9451,7 +9451,11 @@ function updateSyncHealth() {
   // The Store already holds the snapshot — re-downloading the whole balances file every
   // 60s to read ONE timestamp was pure waste (2026-07-29 cache review). Fetch only when
   // the Store has nothing yet (boot) — its own refresh keeps `updated` current after that.
-  const cached = (typeof Store !== "undefined" && Store.data && Store.data.updated) ? Store.data : null;
+  // ⚠️ try/catch, NOT `typeof Store`: this runs at module level BEFORE the const Store
+  // initializes, and `typeof` on a const in its temporal dead zone THROWS — that exact
+  // line took the whole board down on 2026-07-29 (blank-app incident).
+  let cached = null;
+  try { if (Store && Store.data && Store.data.updated) cached = Store.data; } catch (e) {}
   return (cached ? Promise.resolve(cached) : fetch("data/balances.json?t=" + Date.now()).then((r) => (r.ok ? r.json() : null)))
     .then((d) => {
       if (!d || !d.updated) {
