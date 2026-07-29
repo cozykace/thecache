@@ -145,7 +145,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/annuals":
             return self._json(200, {"annuals": store.annual_predictions()})
         if path == "/api/runway":
-            return self._json(200, {"next_deposit": store.next_deposit()})
+            return self._json(200, store.runway_payload())
         if path == "/api/transfers":
             return self._json(200, {"transfers": store.recurring_transfers()})
         if path == "/api/match-count":

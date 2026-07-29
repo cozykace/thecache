@@ -377,22 +377,23 @@
     return rows.slice(0, limit);
   }
 
-  // next_deposit (mirror store.next_deposit) — the paycheck-runway anchor: each income
-  // source's rhythm read forward, nearest upcoming deposit wins. Same rules, same output.
-  function nextDeposit(txns, incomeOverrides, overrides, remap, now) {
+  // income_rhythms (mirror store.income_rhythms) — EVERY income source with a visible
+  // rhythm, read forward, nearest upcoming first. `last` + `gap_days` let a client project
+  // the whole beat (the calendar's week view paints every payday, not just the nearest).
+  function incomeRhythms(txns, incomeOverrides, overrides, remap, now) {
     now = now || Math.floor(Date.now() / 1000);
     var day = 86400;
     var by = Object.create(null), order = [];
     (txns || []).forEach(function (t) {
       var amt = parseFloat(t.amount || 0) || 0, posted = t.posted || 0;
-      if (amt <= 0 || !posted) return;
+      if (amt <= 0 || !posted || !isFinite(amt)) return;   // mirror store.py's math.isfinite guard — a non-finite amount (JSON's 1e400 -> Infinity) must not ride into the median, or web and desktop fork
       var dec = incomeDecision(t.description || "", incomeOverrides, overrides, remap);
       if (!dec[1]) return;
       var key = dec[0];
       if (!by[key]) { by[key] = []; order.push(key); }
       by[key].push([posted, amt]);
     });
-    var best = null;
+    var out = [];
     order.forEach(function (key) {
       var rows = by[key]; rows.sort(function (a, b) { return a[0] - b[0]; });
       var posts = rows.map(function (r) { return r[0]; });
@@ -402,17 +403,34 @@
       gaps.sort(function (a, b) { return a - b; });
       var med = gaps[Math.floor(gaps.length / 2)];
       if (med > 45 * day) return;
-      if (now - posts[posts.length - 1] > Math.max(2 * med, 21 * day)) return;   // silent two cycles — the rhythm is dead
-      var nxt = posts[posts.length - 1] + med;
+      var last = posts[posts.length - 1];
+      if (now - last > Math.max(2 * med, 21 * day)) return;   // silent two cycles — the rhythm is dead
+      var nxt = last + med;
       while (nxt < now) nxt += med;
       var amts = rows.map(function (r) { return r[1]; }).sort(function (a, b) { return a - b; });
       var d = new Date(nxt * 1000);
-      var cand = { key: key, source: prettifyMerchant(key, _titleCase(key)), next: nxt,
+      // key order mirrors store.income_rhythms — nextDeposit drops last/gap_days and its
+      // object must stay identical to the shape shipped before this refactor.
+      out.push({ key: key, source: prettifyMerchant(key, _titleCase(key)),
+        last: last, gap_days: Math.max(1, pyRound(med / day)), next: nxt,
         ymd: d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"),
-        days: pyRound((nxt - now) / day), amount: round2(amts[Math.floor(rows.length / 2)]) };
-      if (best === null || cand.next < best.next) best = cand;
+        days: pyRound((nxt - now) / day), amount: round2(amts[Math.floor(rows.length / 2)]) });
     });
+    // nearest next first; key breaks a tie so both runtimes order the same
+    out.sort(function (a, b) { return a.next - b.next || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0); });
+    return out;
+  }
+
+  // next_deposit (mirror store.next_deposit) — the paycheck-runway anchor: the head of
+  // incomeRhythms, with the projection-only fields dropped. Same rules, same output.
+  function nextDepositOf(rhythms) {
+    if (!rhythms || !rhythms.length) return null;
+    var best = {};
+    Object.keys(rhythms[0]).forEach(function (k) { if (k !== "last" && k !== "gap_days") best[k] = rhythms[0][k]; });
     return best;
+  }
+  function nextDeposit(txns, incomeOverrides, overrides, remap, now) {
+    return nextDepositOf(incomeRhythms(txns, incomeOverrides, overrides, remap, now));
   }
 
   // annual_predictions (mirror store.annual_predictions) — yearly charges forecast forward
@@ -1128,6 +1146,7 @@
     categoriesFromTxns: categoriesFromTxns,
     topMerchants: topMerchants, otherMerchants: otherMerchants, depositSources: depositSources,
     annualPredictions: annualPredictions, nextDeposit: nextDeposit,
+    incomeRhythms: incomeRhythms, nextDepositOf: nextDepositOf,
     ledgerKey: ledgerKey, isDeleted: isDeleted, mergeLedger: mergeLedger,
     parseJsonl: parseJsonl, serializeJsonl: serializeJsonl,
     buildSnapshot: buildSnapshot,

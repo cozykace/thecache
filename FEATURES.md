@@ -4,7 +4,7 @@ A living, product-facing list of what THE CACHE does — kept current as we ship
 
 **The promise:** have a good time facing the skeletons in your closet. THE CACHE is a **free**, calm, playful, provably-private **life OS** — one secure home for the parts of your life you want to track, built from real research to work for brains that struggle with executive function (ADHD, autism, brain injury — and honestly, anyone overwhelmed). Your executive energy varies day to day; that's not a flaw. Cache exists to show you your own pattern and help you plan around it, instead of fighting it. Money is the first area of life it masters — because money has the highest stakes — and the same home is growing to hold your health, tasks, meals, and more.
 
-_Last updated: 2026-07-25_
+_Last updated: 2026-07-29_
 
 ## Log your life in one tap
 - **🃏 The deck** — the one button to remember. Always in the same spot on every device, it opens your day one card at a time: big friendly buttons, one question per screen, confetti and EXP when you finish. One minute keeps your whole cache fed — and a one-time coaching card teaches the habit the first day.
@@ -24,6 +24,7 @@ _Last updated: 2026-07-25_
 - **📅 A calendar built in** — a full-screen calendar, one tap from anywhere, that already knows your life: your tasks land on their due dates, your routines show on the days they run, and your events sit right alongside them. Nothing to copy over from another app — if it has a date in Cache, it's on the calendar. Switch between month, week, and a single-day agenda.
 - **Real events, made simple** — add an event to any day in seconds: name it, timed or all-day, a start and an optional end for things that span days, and where in your life it belongs. Make it repeat — every day, certain weekdays, monthly, or yearly — with an optional stop date. It spreads itself across the calendar for you.
 - **Do it from the calendar** — tap a day to see everything on it, check a task off without leaving, or tap anything to edit it. Your default view, whether the week starts Sunday or Monday, and how busy the month grid looks are all yours to set — and they follow you to every device.
+- **Your money week, at a glance** — tap the **$** on the calendar's week view and every day's header shows what's really committed that day: your fixed **bills** in red and your expected **paydays** in green, totalled by the date. Both come from the rhythms your cache already learned — a bill from its last charge and how often it repeats, a paycheck from its last deposit and its cadence — so it's your real money read forward, never a guess. The rows below still list every charge by name; the header is just the quick number. Works the same on every device.
 - **Calm on a phone** — on a small screen the month softens to quiet dots so nothing overflows; tap a day to open its full list. Big tap targets, no clutter.
 
 ## Build your life as a base

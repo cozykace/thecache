@@ -1,5 +1,11 @@
 [
   {
+    "id": "2026-07-29-money-on-the-calendar-week",
+    "date": "2026-07-29",
+    "title": "Your bills and your paydays, totalled by the day on the calendar",
+    "body": "The calendar's money layer got a real upgrade — and a simpler button. The old 💸 icon is now a plain $ that lights up when it's on. Flip it in the week view and each day's header totals what's actually committed that day: your fixed bills in red (−$47) and your expected paydays in green (+$900), side by side under the date. Both are read straight from the rhythms your cache already learned — every bill from its last charge and cadence, every paycheck from its last deposit and how often it lands — projected forward the same honest way, never a number we made up. The day's rows still list every charge by name, so the header total is just the quick glance. It reads identically on your phone, your desktop, and the web, so every device shows you the same week."
+  },
+  {
     "id": "2026-07-29-account-roles",
     "date": "2026-07-29",
     "title": "Tell the app what each account is — and untouchable money stays untouched",

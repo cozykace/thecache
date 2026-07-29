@@ -101,4 +101,25 @@ ok("join: a paused habit sched is silent", !calThingsOnDay([{ id: "h4", type: "h
 ok("join: a tombstoned habit is excluded", !calThingsOnDay([{ id: "h5", type: "habit", title: "X", sched: { freq: "daily" }, deleted: 1 }], "2026-07-15").habits.length);
 ok("join: habits bucket always present (renderers iterate it)", Array.isArray(calThingsOnDay([], "2026-07-15").habits));
 
+// ── the $ layer's INCOME projection (calIncomeOccursOn) — a payday rhythm stepped forward
+//    from its LAST real deposit by its median gap in DAYS. Gap-based on purpose: a biweekly
+//    paycheck doesn't land on a calendar-month rule. The week view's green +$ badge is a sum
+//    of these, so an off-by-one here paints money on the wrong day.
+const LAST = Math.floor(Date.parse("2026-07-01T12:00:00") / 1000);   // local noon — TZ/DST-safe anchor
+ok("income: biweekly lands one gap out", calIncomeOccursOn(LAST, 14, "2026-07-15"));
+ok("income: biweekly lands two gaps out", calIncomeOccursOn(LAST, 14, "2026-07-29"));
+ok("income: biweekly is silent mid-cycle", !calIncomeOccursOn(LAST, 14, "2026-07-08"));
+ok("income: never on the last real deposit's own day", !calIncomeOccursOn(LAST, 14, "2026-07-01"));
+ok("income: never before it (history is already banked)", !calIncomeOccursOn(LAST, 14, "2026-06-17"));
+ok("income: a 30-day rhythm steps 30 days, not a calendar month", calIncomeOccursOn(LAST, 30, "2026-07-31") && !calIncomeOccursOn(LAST, 30, "2026-08-01"));
+ok("income: a weekly rhythm crosses a DST boundary cleanly", calIncomeOccursOn(Math.floor(Date.parse("2026-10-25T12:00:00") / 1000), 7, "2026-11-08"));
+ok("income: inside the 370-day horizon", calIncomeOccursOn(LAST, 14, "2027-06-30"));      // 364d = 26 gaps
+ok("income: past the horizon promises nothing", !calIncomeOccursOn(LAST, 14, "2027-07-14"));  // 378d — a real multiple, still too far
+// an older sealed vault bundle has no gap_days — the layer stays quiet instead of guessing
+ok("income: a missing gap projects nothing", !calIncomeOccursOn(LAST, undefined, "2026-07-15"));
+ok("income: a zero gap projects nothing (never divides by 0)", !calIncomeOccursOn(LAST, 0, "2026-07-15"));
+ok("income: junk gap projects nothing", !calIncomeOccursOn(LAST, "abc", "2026-07-15"));
+ok("income: a missing last projects nothing", !calIncomeOccursOn(0, 14, "2026-07-15"));
+ok("income: a junk ymd projects nothing", !calIncomeOccursOn(LAST, 14, "nope"));
+
 console.log(`\n${p} passed, ${f} failed`); process.exit(f ? 1 : 0);
