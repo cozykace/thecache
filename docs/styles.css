@@ -468,6 +468,31 @@ body.panning.grabbing, body.panning.grabbing * { cursor: grabbing !important; }
 .is-months .bd-head { padding: 0 2px; }
 /* ── 🐷 Finances portal ─────────────────────────────────────────────────── */
 .fin-scroll { padding: 14px clamp(14px, 4vw, 28px) 40px; }
+/* ── the portal WINDOW: sidebar + one section (Asana-style), not a giant scroll ── */
+.fin-shell { flex: 1; min-height: 0; display: flex; align-items: stretch; }
+.fin-nav { flex: 0 0 216px; display: flex; flex-direction: column; gap: 4px; padding: 16px 12px;
+  border-right: 1px solid var(--edge-soft); overflow-y: auto; }
+.fin-nav-i { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px;
+  border: 1px solid transparent; border-radius: 11px; background: none; text-align: left;
+  font-family: inherit; font-size: 13.5px; color: rgba(var(--ink-rgb), 0.75); cursor: pointer; }
+.fin-nav-i:hover { background: rgba(var(--ink-rgb), 0.05); }
+.fin-nav-i.on { background: var(--widget-bg, var(--paper)); border-color: var(--edge-soft);
+  color: var(--ink); font-weight: 600; }
+.fin-nav-em { font-size: 16px; flex: 0 0 auto; }
+.fin-nav-l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-nav-n { flex: 0 0 auto; min-width: 20px; height: 20px; border-radius: 999px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+  background: color-mix(in srgb, var(--cal-spend) 18%, transparent); color: var(--cal-spend); padding: 0 6px; }
+.fin-main { flex: 1; min-width: 0; overflow-y: auto; padding: 18px clamp(16px, 3vw, 32px) 44px; }
+.fin-main .fin-sec:first-child { margin-top: 0; }
+@media (max-width: 760px) {   /* phone / narrow: the sidebar becomes a scrollable tab row */
+  .fin-shell { flex-direction: column; }
+  .fin-nav { flex: 0 0 auto; flex-direction: row; border-right: none; border-bottom: 1px solid var(--edge-soft);
+    padding: 8px 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .fin-nav::-webkit-scrollbar { display: none; }
+  .fin-nav-i { flex: 0 0 auto; }
+  .fin-nav-l { max-width: 120px; }
+}
 .fin-timer { font-family: var(--font-mono); font-size: 13px; color: rgba(var(--ink-rgb), 0.6);
   padding: 6px 10px; border: 1px solid var(--edge-soft); border-radius: 999px; }
 .fin-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 6px 0 18px; }

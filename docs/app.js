@@ -6846,7 +6846,7 @@ function openFinances() {
       const ymd = ymdOf(d);
       if (ymd > nextDep.ymd) break;
       detected.forEach((r) => {
-        if (!subAlive(r.key) || !subIsBill(r.key) || !r.last) return;   // a grocery regular is spending, not a scheduled charge
+        if (!subAlive(r.key) || !subIsBill(r.key) || r.category === "transfer" || !r.last) return;   // regulars are spending, transfers are movement — neither is a scheduled charge
         const e = subEntry(r.key);
         if (subStatus(r.key) === "until" && e.until && ymd > e.until) return;
         if (calFinOccursOn(r.last, effCadence(r), ymd)) due += (r.amount || 0);
@@ -6881,7 +6881,7 @@ function openFinances() {
     soon.forEach((a) => rows.push('<div class="fin-q fin-q-info">~' + esc(a.when) + " · " + esc(a.name) + " expected (~" + fmtUSD(a.amount) + ")</div>"));
     // price changes — "this went up" said plainly, once, in the queue (never an alert storm)
     detected.forEach((r) => {
-      if (r.flag !== "changed" || !subAlive(r.key) || !subIsBill(r.key)) return;   // a grocery total varying isn't a price change
+      if (r.flag !== "changed" || !subAlive(r.key) || !subIsBill(r.key) || r.category === "transfer") return;   // varying groceries/transfers aren't price changes
       const dir = (r.recent || 0) > (r.amount || 0) ? "up" : "down";
       rows.push('<div class="fin-q fin-q-info">💵 ' + esc(subName(r)) + " changed: was " + fmtUSD(r.amount) + ", now " + fmtUSD(r.recent) + (dir === "up" ? " — worth a glance" : " — it went down") + "</div>");
     });
@@ -6936,8 +6936,11 @@ function openFinances() {
   }
   function subsSection() {
     const withOrd = (r) => { const o = subEntry(r.key).ord; return o != null ? +o : 1e6; };
-    const bills = detected.filter((r) => subIsBill(r.key));
-    const regulars = detected.filter((r) => !subIsBill(r.key));
+    // transfers with a rhythm (a monthly savings move, a card payment) are money MOVEMENT,
+    // never bills — they live in the Money Map, not here
+    const nonTransfer = detected.filter((r) => r.category !== "transfer");
+    const bills = nonTransfer.filter((r) => subIsBill(r.key));
+    const regulars = nonTransfer.filter((r) => !subIsBill(r.key));
     const ordered = bills.slice().sort((a, b) => withOrd(a) - withOrd(b) || (b.amount - a.amount));
     const rows = ordered.map((r, i) => {
       const st = subStatus(r.key), nm = subName(r), e = subEntry(r.key);
@@ -6978,16 +6981,48 @@ function openFinances() {
       live.slice(0, 6).map((a) => '<div class="fin-q fin-q-info">~' + esc(a.when) + " · " + esc(a.name) +
         (a.confidence === "maybe" ? " <i>might renew</i>" : "") + " · ~" + fmtUSD(a.amount) + "</div>").join("") + "</div>";
   }
+  // ── the WINDOW: a workspace, not a scroll — left sidebar of sections (desktop), a
+  //    horizontal tab row (phone), ONE section in view. EF-first: each room is small.
+  let section = "overview";   // session-only; every open starts at Overview (predictable)
+  const SECTIONS = [
+    ["overview", "🏠", "Overview"],
+    ["queue", "⚡", "Needs a minute"],
+    ["bills", "🧾", "Bills & subs"],
+    ["plan", "🧭", "Your plan"],
+    ["ahead", "📅", "Expected ahead"],
+  ];
+  function queueCount() {
+    const untagged = deposits.filter((d) => !d.tagged).length;
+    const uncat = others.length;
+    const staleMan = (bal.accounts || []).filter((a) => a.manual && a.as_of && (Date.now() - new Date(a.as_of + "T00:00:00").getTime()) / 86400000 > 45).length;
+    return (untagged ? 1 : 0) + (uncat ? 1 : 0) + (staleMan ? 1 : 0);
+  }
+  function sectionBody() {
+    if (section === "queue") return queue();
+    if (section === "bills") return subsSection();
+    if (section === "plan") return planSection();
+    if (section === "ahead") return aheadSection() || '<div class="fin-clear">nothing yearly on the horizon</div>';
+    return headlines() +
+      '<div class="fin-foot" style="margin-top:18px">time in here banks into your “Finances” session — schedule one on the calendar and the portal logs into it automatically.</div>';
+  }
   function render() {
-    const keep = root.querySelector(".td-scroll") ? root.querySelector(".td-scroll").scrollTop : 0;
+    const keep = root.querySelector(".fin-main") ? root.querySelector(".fin-main").scrollTop : 0;
+    const qn = queueCount();
     root.innerHTML =
       '<div class="daily-top"><button class="daily-icn" id="finClose" aria-label="close">✕</button>' +
       '<div class="td-htitle">🐷 Finances</div><span class="fin-timer" title="this visit logs as a session — every second banks EXP">⏱ 00:00</span></div>' +
-      '<div class="td-scroll fin-scroll">' +
-        headlines() + queue() + planSection() + subsSection() + aheadSection() +
-        '<div class="fin-foot">time in here banks into your “Finances” session — schedule one on the calendar and the portal logs into it automatically.</div>' +
+      '<div class="fin-shell">' +
+        '<nav class="fin-nav" aria-label="finances sections">' +
+          SECTIONS.map((s2) =>
+            '<button class="fin-nav-i' + (section === s2[0] ? " on" : "") + '" data-sec="' + s2[0] + '" aria-current="' + (section === s2[0] ? "true" : "false") + '">' +
+              '<span class="fin-nav-em">' + s2[1] + '</span><span class="fin-nav-l">' + s2[2] + "</span>" +
+              (s2[0] === "queue" && qn ? '<span class="fin-nav-n">' + qn + "</span>" : "") +
+            "</button>").join("") +
+        "</nav>" +
+        '<div class="fin-main">' + sectionBody() + "</div>" +
       "</div>";
-    const sc = root.querySelector(".td-scroll"); if (sc && keep) sc.scrollTop = keep;
+    root.querySelectorAll(".fin-nav-i").forEach((b) => b.addEventListener("click", () => { section = b.dataset.sec; render(); }));
+    const sc = root.querySelector(".fin-main"); if (sc && keep) sc.scrollTop = keep;
     root.querySelector("#finClose").addEventListener("click", close);
     root.querySelectorAll(".fin-q[data-q]").forEach((b) => b.addEventListener("click", () => {
       const q = b.dataset.q;
@@ -12540,7 +12575,7 @@ function openCalendar() {
     const out = [];
     finSubs.forEach((r) => {
       const st = subStatus(r.key), e = subEntry(r.key);
-      if (st === "cancelled" || isSubPaused(r.key) || !subIsBill(r.key)) return;   // regulars aren't scheduled charges
+      if (st === "cancelled" || isSubPaused(r.key) || !subIsBill(r.key) || r.category === "transfer") return;   // regulars + transfers aren't scheduled charges
       if (st === "until" && e.until && ymd > e.until) return;   // paid-through date passed — no more projections
       if (r.last && calFinOccursOn(r.last, effCadence(r), ymd)) {
         out.push({ kind: "sub", key: r.key, name: subName(r), amount: r.amount, cadence: effCadence(r), st: st, r: r });
