@@ -472,6 +472,33 @@ function acctType(name) {
   if (/credit|card|visa|master|amex|venture|quicksilver|rei|loan/.test(n)) return "credit";
   return "other";
 }
+// ── Account ROLES — what each account IS, told by the user, not guessed from its name ──
+// data/account_roles.json {accountId: "liquid"|"short"|"long"|"untouchable"} — a merge map
+// (newest-per-key, synced) so both devices agree. Role wins; absent → the name guess.
+// "untouchable" and "long" are real money that is NOT money-to-spend: acctSetAside() feeds
+// Safe-to-spend, the portal headline, and the runway verdict.
+let _acctRoles = {};
+function fetchAcctRoles() {
+  return fetch("data/account_roles.json?t=" + Date.now())
+    .then((r) => (r.ok ? r.json() : {}))
+    .then((m) => { _acctRoles = (m && typeof m === "object" && !Array.isArray(m)) ? m : {}; return _acctRoles; })
+    .catch(() => _acctRoles);
+}
+const ACCT_ROLES = [["", "auto"], ["liquid", "liquid cash"], ["short", "short-term savings"], ["long", "long-term savings"], ["untouchable", "untouchable"]];
+function acctRole(a) {
+  if (!a) return "liquid";
+  const set = _acctRoles[a.id];
+  if (set) return set;
+  const b = +(a.balance || 0);
+  if ((a.manual && b < 0) || acctType(a.name) === "credit") return "credit";
+  return acctType(a.name) === "savings" ? "short" : "liquid";
+}
+function acctSetAside(accts) {
+  return (accts || []).reduce((s, a) => {
+    const b = +(a.balance || 0), r = acctRole(a);
+    return s + ((b > 0 && (r === "untouchable" || r === "long")) ? b : 0);
+  }, 0);
+}
 
 const RENDERERS = {
   balance(el) {
@@ -521,9 +548,9 @@ const RENDERERS = {
       let chk = 0, sav = 0, cash = 0, credit = 0;
       accts.forEach((a) => {
         const b = a.balance || 0;
-        // a manual account with a negative balance IS card debt, whatever it's named —
-        // that's the whole reason it was typed in (the card the aggregator can't see)
-        const t = (a.manual && b < 0) ? "credit" : acctType(a.name);
+        // the user's ROLE wins over the name guess (a manual negative account is card debt either way)
+        const role = acctRole(a);
+        const t = role === "credit" ? "credit" : role === "liquid" ? "checking" : "savings";
         if (t === "checking") chk += b;
         else if (t === "savings") sav += b;
         if (t === "credit") credit += b;          // negative = debt owed
@@ -552,13 +579,29 @@ const RENDERERS = {
             badge = '<span class="acct-manual' + (days != null && days > 45 ? " stale" : "") + '">manual · as of ' +
               escapeHtml(a.as_of || "?") + (days != null && days > 45 ? " · worth a refresh (Sources)" : "") + "</span>";
           }
+          // the ROLE chip — tell the app what this account IS (untouchable money leaves
+          // Safe-to-spend). Credit accounts don't get one; roles are for the positive side.
+          const roleSel = acctRole(a) === "credit" && !_acctRoles[a.id] ? "" :
+            '<select class="acct-role" data-id="' + escapeHtml(a.id || "") + '" aria-label="account role">' +
+              ACCT_ROLES.map((ro) => '<option value="' + ro[0] + '"' + ((_acctRoles[a.id] || "") === ro[0] ? " selected" : "") + ">" + ro[1] + "</option>").join("") +
+            "</select>";
           return '<div class="acct' + (a.manual ? " is-manual" : "") + '" style="--i:' + i + '">' +
             '<span class="acct-dot" style="background:' + ACCT_COLORS[i % ACCT_COLORS.length] + '"></span>' +
             '<span class="acct-name">' + escapeHtml(a.name || "Account") + badge + "</span>" +
+            roleSel +
             '<span class="acct-bal">' + fmtUSD(a.balance || 0) + '</span>' +
           "</div>";
         })
         .join("");
+      list.querySelectorAll(".acct-role").forEach((s) => s.addEventListener("change", () => {
+        const id = s.dataset.id, role = s.value;
+        if (role) _acctRoles[id] = role; else delete _acctRoles[id];   // optimistic — the POST persists it
+        fetch("/api/account-role", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: id, role: role }) })
+          .then((r) => r.json()).then((d) => { if (d && d.ok === false) flash(d.error || "couldn't save"); })
+          .catch(() => flash("couldn't reach your cache"));
+        try { autoPushSoon(); } catch (e) {}
+        Store.emit();   // Safe-to-spend + the portal re-derive spendable instantly
+      }));
     });
   },
   accountflow(el) {
@@ -1797,14 +1840,18 @@ const RENDERERS = {
 
     function draw() {
       const W = 300, H = 110, padL = 6, padR = 6, padT = 10, padB = 12;
-      const cash = data.cash != null ? data.cash : (data.total || 0);
+      // spendable cash: what you've marked untouchable / long-term (account roles) is real
+      // money but NOT money to spend from — Safe-to-spend must never offer it up
+      const setAside = acctSetAside(data.accounts);
+      const cash = (data.cash != null ? data.cash : (data.total || 0)) - setAside;
       const res = reserve();
       const burn = data.burn_per_day || 0;
       const safe = cash - res;
 
       big.textContent = fmtUSD(safe);
       big.style.color = safe <= 0 ? "#c9542e" : "var(--ink)";
-      sub.textContent = burn > 0 ? fmtUSD(burn) + " / day avg spend" : "avg spend: not enough history yet";
+      sub.textContent = (burn > 0 ? fmtUSD(burn) + " / day avg spend" : "avg spend: not enough history yet") +
+        (setAside > 0 ? " · " + fmtUSD(setAside) + " set aside untouched" : "");
 
       const top = Math.max(cash, res + 1);
       const span = Math.max(1, top - res);
@@ -6763,6 +6810,7 @@ function openFinances() {
       fetch("/api/other-merchants?t=" + t).then((r) => r.json()).catch(() => ({})),
       fetch("/api/annuals?t=" + t).then((r) => r.json()).catch(() => ({})),
       fetch("/api/runway?t=" + t).then((r) => r.json()).catch(() => ({})),
+      fetchAcctRoles(),
     ]).then(([b, mo, rec, dep, om, ann, rw]) => {
       bal = b || {}; months = (mo && mo.months) || [];
       detected = (rec && rec.recurring) || []; deposits = (dep && dep.deposits) || [];
@@ -6777,8 +6825,9 @@ function openFinances() {
     const debt = -((bal.accounts || []).reduce((s, a) => s + Math.min(0, +a.balance || 0), 0));
     const curYm = new Date().toISOString().slice(0, 7);
     const cur = months.find((m) => m.ym === curYm) || {};
+    const setAside = acctSetAside(bal.accounts);
     return '<div class="fin-stats">' +
-      statCard("total cash", fmtUSD(bal.cash || 0)) +
+      statCard("total cash", fmtUSD(bal.cash || 0), setAside > 0 ? fmtUSD(setAside) + " set aside · " + fmtUSD((bal.cash || 0) - setAside) + " spendable" : "") +
       statCard("burn / day", fmtUSD(bal.burn_per_day || 0), "transfers excluded") +
       statCard("this month", fmtUSD(cur.income || 0) + " in · " + fmtUSD(cur.spending || 0) + " out") +
       (debt > 0 ? statCard("card debt", fmtUSD(debt), cur.interest ? "cost " + fmtUSD(cur.interest) + " so far" : "") : statCard("card debt", fmtUSD(0), "nothing feeding interest")) +
@@ -6811,7 +6860,8 @@ function openFinances() {
       if (subStatus(a.key) === "until" && e.until && nextYmd && nextYmd > e.until) return;   // ends before it lands
       if (a.next && a.next * 1000 <= new Date(nextDep.ymd + "T23:59:59").getTime()) due += (a.amount || 0);
     });
-    const cash = +bal.cash || 0, reserve = parseFloat(localStorage.getItem("money.reserve")) || 0;
+    const cash = (+bal.cash || 0) - acctSetAside(bal.accounts);   // untouchable/long-term money can't cover bills — never let the verdict lean on it
+    const reserve = parseFloat(localStorage.getItem("money.reserve")) || 0;
     const when = "~" + new Date(nextDep.ymd + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
     let verdict;
     if (cash - due >= reserve) verdict = "cash covers it with your floor intact.";
@@ -15174,6 +15224,9 @@ fetch("/api/ping").then((r) => r.json()).then((d) => { KING = !!(d && d.founder)
 // ── Boot ───────────────────────────────────────────────────
 Object.keys(layout).forEach((id) => makeAny(id, layout[id]));
 renderLibrary();
+// account roles ride a data file — load once at boot, and repaint the money widgets if any
+// are set (Safe-to-spend + the balance split derive spendable from them)
+fetchAcctRoles().then((m) => { if (m && Object.keys(m).length) { try { Store.emit(); } catch (e) {} } });
 renderIcons();
 setSidebar(localStorage.getItem(SIDEBAR_KEY) === "1");
 applyZoom();

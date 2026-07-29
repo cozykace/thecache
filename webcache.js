@@ -745,7 +745,10 @@
     } catch (e) { return []; }
   }
   function _applyMapEdit(file, key, value) {
-    key = (key || "").trim().toLowerCase();
+    key = (key || "").trim();
+    // merchant-key files use lowercased substring keys; ID-keyed files (account roles,
+    // manual accounts) must keep their exact case or web and desktop key different rows
+    if (file !== "account_roles.json" && file !== "manual_accounts.json") key = key.toLowerCase();
     if (!key) return false;
     var m = {}; try { m = JSON.parse(FILES[file] || "{}") || {}; } catch (e) {}
     if (value === null) delete m[key]; else m[key] = value;
@@ -923,6 +926,16 @@
         } catch (e) {
           return J({ ok: false, error: "couldn't save that tag — " + ((e && e.message) || "unknown error") });
         }
+      }
+      // account roles — classify what an account IS; a per-key synced map edit like the rest
+      if (M === "POST" && key === "account-role") {
+        var rdata = {}; try { rdata = JSON.parse(body || "{}") || {}; } catch (e) {}
+        var rid = (rdata.id || "").trim();
+        if (!rid) return J({ ok: false, error: "bad request" });
+        var ROLE_SET = { liquid: 1, short: 1, long: 1, untouchable: 1 };
+        _applyMapEdit("account_roles.json", rid, ROLE_SET[rdata.role] ? rdata.role : null);
+        var rmap = {}; try { rmap = JSON.parse(FILES["account_roles.json"] || "{}") || {}; } catch (e) {}
+        return J({ ok: true, roles: rmap });
       }
       // manual accounts (Money Truth Brick 4) — typed balances WRITE here too: the map file
       // updates + queues as a pending edit (newest-per-key on the account id), and the served

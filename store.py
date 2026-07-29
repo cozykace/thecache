@@ -42,9 +42,10 @@ DELETED = os.path.join(DATA, "deleted.json")    # YOUR delete decisions: {txn_ke
 # the user-authored flat maps that merge key-wise across devices (everything else in
 # data/ is computed by the sync engine and travels whole-file)
 MANUAL = os.path.join(DATA, "manual_accounts.json")   # accounts a sync can't see — typed balances (Money Truth Brick 4)
+ROLES = os.path.join(DATA, "account_roles.json")      # what each account IS — liquid/short/long/untouchable (user-set, per account id)
 MERGE_MAPS = {"categories.json": CATEGORIES, "income.json": INCOME, "subs.json": SUBS,
               "income_links.json": INCOME_LINKS, "deleted.json": DELETED,
-              "manual_accounts.json": MANUAL}
+              "manual_accounts.json": MANUAL, "account_roles.json": ROLES}
 # MERGE-CLASS DECISION (written down per CLAUDE.md): manual_accounts.json is a MERGE MAP —
 # user-authored cross-device state, newest-per-key by account id via the vault's filesMeta
 # sidecar, exactly like categories/income. Removal is a VALUE ({"removed": 1}), never a
@@ -62,7 +63,8 @@ BACKUPS = os.path.join(HERE, "backups")     # local snapshots (gitignored, stays
 _BACKUP_FILES = ("balances.json", "transactions.json", "ledger.jsonl", "ledger.json",
                  "history.json", "synclog.json", "categories.json", "income.json",
                  "catmeta.json", "subs.json", "income_links.json",
-                 "monthly.json", "coverage.json", "bugs.json", "manual_accounts.json")
+                 "monthly.json", "coverage.json", "bugs.json", "manual_accounts.json",
+                 "account_roles.json")
 
 # Built-in keyword rules (first match wins). User overrides in categories.json
 # are checked first, so anything you teach it takes priority.
@@ -379,7 +381,33 @@ def load_overrides():
     return ov if isinstance(ov, dict) else {}
 
 
+ACCOUNT_ROLES = ("liquid", "short", "long", "untouchable")   # spendable · short-term savings · long-term · never-touch
+
+
+def load_account_roles():
+    """{account_id: role} — the user's own classification of each account. A MERGE MAP
+    (newest-per-key via filesMeta, like manual_accounts): user-authored cross-device state.
+    Clearing a role writes nothing (the key is removed) — the app falls back to name-guessing."""
+    m = _read(ROLES, {})
+    return m if isinstance(m, dict) else {}
+
+
 @_locked
+def save_account_role(acct_id, role):
+    m = load_account_roles()
+    key = (acct_id or "").strip()
+    if not key:
+        return m
+    before = dict(m)
+    if role in ACCOUNT_ROLES:
+        m[key] = role
+    else:
+        m.pop(key, None)   # "auto" → back to the name-based guess
+    _write(ROLES, m)
+    _stamp_map("account_roles.json", before, m)
+    return m
+
+
 def load_manual_accounts():
     """{id: {name, balance, apr, as_of, removed}} — accounts the aggregator can't see."""
     m = _read(MANUAL, {})
@@ -392,6 +420,7 @@ def live_manual_accounts():
             if isinstance(v, dict) and not v.get("removed")}
 
 
+@_locked
 def save_manual_account(acct_id, fields):
     """Create/update/remove one manual account. fields: {name, balance, apr, remove}.
     Stamps the per-key mtime so two devices editing different accounts both survive."""
@@ -450,6 +479,7 @@ def recompute_manual():
     return {"accounts": accounts, "total": total, "cash": cash}
 
 
+@_locked
 def save_override(substring, category):
     ov = load_overrides()
     key = (substring or "").strip().lower()

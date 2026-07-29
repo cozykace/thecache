@@ -410,6 +410,14 @@ class Handler(SimpleHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError):
                 return self._json(400, {"error": "bad request"})
             return self._json(200, store.bucket_remove(data.get("id", "")))
+        if self.path == "/api/account-role":
+            # classify what an account IS (liquid / short / long / untouchable) — feeds spendable math
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "bad request"})
+            return self._json(200, {"ok": True, "roles": store.save_account_role(data.get("id", ""), data.get("role", ""))})
         if self.path == "/api/manual-account":
             # create / update / remove an account the aggregator can't see (Money Truth Brick 4)
             try:
