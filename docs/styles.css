@@ -3589,6 +3589,8 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 /* endless-scroll (∞) mode: stacked period sections, each with a sticky label */
 .cal-inf-btn { font-size: 20px; line-height: 1; }
 .cal-inf-btn.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); border-radius: 10px; }
+.cal-fin-btn { font-size: 15px; filter: grayscale(1); opacity: 0.6; }              /* 💸 off: quiet */
+.cal-fin-btn.on { filter: none; opacity: 1; background: color-mix(in srgb, var(--cal-spend) 16%, transparent); border-radius: 10px; }
 .cal-body-inf .cal-month { min-height: 0; }
 .cal-body-inf .cal-day, .cal-body-inf .cal-week { padding-top: 0; }
 .cal-inf-sec + .cal-inf-sec { border-top: 1px solid var(--edge-soft); }
@@ -3608,6 +3610,7 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 .cal-chip { display: flex; align-items: center; gap: 3px; min-width: 0; font-size: 11px; line-height: 1.35; padding: 1px 5px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 15%, transparent); white-space: nowrap; overflow: hidden; }
 .cal-chip.event { background: color-mix(in srgb, var(--cal-event) 16%, transparent); }
 .cal-chip.session { background: color-mix(in srgb, var(--cal-session) 22%, transparent); font-weight: 600; }
+.cal-chip.spend { background: color-mix(in srgb, var(--cal-spend) 16%, transparent); }
 .cal-chip.task { background: color-mix(in srgb, var(--cal-task) 15%, transparent); }
 .cal-chip.routine { background: color-mix(in srgb, var(--cal-routine) 14%, transparent); }
 .cal-chip.habit { background: color-mix(in srgb, var(--cal-habit) 15%, transparent); }
@@ -3637,18 +3640,20 @@ button.cf-cat:hover { color: var(--accent); text-decoration: underline; }
 .cal-arow-sub { font-size: 11.5px; color: rgba(var(--ink-rgb), 0.55); }
 .cal-arow-go { flex: 0 0 auto; color: var(--accent); font-size: 18px; }
 /* Calendar item TYPES — one colour + a text label per kind (fixed hues so they read on every theme) */
-:root { --cal-event: #4a86c9; --cal-session: #d18b2c; --cal-task: #4fa05e; --cal-routine: #8a6fc9; --cal-habit: #3fa79b; }
+:root { --cal-event: #4a86c9; --cal-session: #d18b2c; --cal-task: #4fa05e; --cal-routine: #8a6fc9; --cal-habit: #3fa79b; --cal-spend: #c0566b; }
 .cal-type { flex: 0 0 auto; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; padding: 2px 7px; border-radius: 5px; }
 .cal-type[data-type="event"]   { background: color-mix(in srgb, var(--cal-event) 16%, transparent);   color: var(--cal-event); }
 .cal-type[data-type="session"] { background: color-mix(in srgb, var(--cal-session) 18%, transparent); color: var(--cal-session); }
 .cal-type[data-type="task"]    { background: color-mix(in srgb, var(--cal-task) 16%, transparent);    color: var(--cal-task); }
 .cal-type[data-type="routine"] { background: color-mix(in srgb, var(--cal-routine) 16%, transparent); color: var(--cal-routine); }
 .cal-type[data-type="habit"]   { background: color-mix(in srgb, var(--cal-habit) 16%, transparent);   color: var(--cal-habit); }
+.cal-type[data-type="spend"]   { background: color-mix(in srgb, var(--cal-spend) 16%, transparent);   color: var(--cal-spend); }
 .cal-arow[data-type="event"]   { box-shadow: inset 3px 0 0 var(--cal-event); }
 .cal-arow[data-type="session"] { box-shadow: inset 3px 0 0 var(--cal-session); }
 .cal-arow[data-type="task"]    { box-shadow: inset 3px 0 0 var(--cal-task); }
 .cal-arow[data-type="routine"] { box-shadow: inset 3px 0 0 var(--cal-routine); }
 .cal-arow[data-type="habit"]   { box-shadow: inset 3px 0 0 var(--cal-habit); }
+.cal-arow[data-type="spend"]   { box-shadow: inset 3px 0 0 var(--cal-spend); }
 .cal-empty { padding: 40px 16px; text-align: center; }
 /* check a task off in place (day + week agendas) — a 40px tap target around a 22px circle */
 .cal-check { position: relative; width: 40px; height: 40px; min-width: 40px; border: none; background: none; cursor: pointer; flex: 0 0 auto; padding: 0; }

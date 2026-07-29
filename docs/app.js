@@ -6572,6 +6572,58 @@ function openManualAccounts() {
   render([]);
   fetch("data/balances.json?t=" + Date.now()).then((r) => (r.ok ? r.json() : {})).then((d) => render(d.accounts || [])).catch(() => {});
 }
+// ── 💸 Spend editor — tap a projected bill on the calendar, update it right there ──
+// taggedId: "s:<subkey>" (an editable recurring charge) or "a:<key>" (an annual
+// prediction — display-only: it's read from history, not a tracked sub… yet).
+// Every edit writes the same synced subs map the portal + Money Map read.
+function openSpendEditor(taggedId, onDone) {
+  const kind = taggedId.slice(0, 2) === "a:" ? "annual" : "sub";
+  const key = taggedId.replace(/^[sa]:/, "");
+  const ex = document.getElementById("catBackdrop"); if (ex) ex.remove();
+  const back = document.createElement("div");
+  back.className = "cat-backdrop"; back.id = "catBackdrop";
+  const closeMe = () => { back.remove(); modal.remove(); try { if (typeof onDone === "function") onDone(); } catch (e) {} };
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) closeMe(); });
+  const modal = document.createElement("div");
+  modal.className = "cat-modal spend-modal";
+  document.body.appendChild(back); document.body.appendChild(modal);
+  function render() {
+    const e = subEntry(key), st = subStatus(key);
+    const nm = e.name || key.replace(/\b\w/g, (c) => c.toUpperCase());
+    if (kind === "annual") {
+      modal.innerHTML =
+        '<div class="cat-head"><span>💸 ' + escapeHtml(nm) + '</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+        '<div class="connect-body"><div class="cn-intro">An expected <b>yearly</b> charge, read from your own history — not a tracked subscription yet. If it lands, it\'ll appear in your transactions like any charge; track it from the Money Map to manage it here.</div></div>';
+      modal.querySelector(".cat-close").addEventListener("click", closeMe);
+      return;
+    }
+    modal.innerHTML =
+      '<div class="cat-head"><span>💸 Recurring charge</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+      '<div class="connect-body">' +
+        '<div class="mn-add">' +
+          '<input class="mn-name" id="spName" value="' + escapeHtml(nm) + '" maxlength="60" aria-label="name">' +
+          '<select class="fin-status" id="spStatus" aria-label="status" style="max-width:none;min-height:44px">' +
+            '<option value=""' + (!e.status ? " selected" : "") + ">active</option>" +
+            '<option value="until"' + (e.status === "until" ? " selected" : "") + ">active until…</option>" +
+            '<option value="cancelled"' + (e.status === "cancelled" ? " selected" : "") + ">cancelled</option>" +
+          "</select>" +
+          (e.status === "until" ? '<input type="date" class="mn-bal" id="spUntil" value="' + escapeHtml(e.until || "") + '" aria-label="paid through">' : "") +
+          '<select class="fin-status" id="spCad" aria-label="how often" style="max-width:none;min-height:44px">' +
+            CADENCES.map((c) => '<option value="' + c.id + '"' + (c.id === subCadence(key) ? " selected" : "") + ">" + c.label + "</option>").join("") +
+          "</select>" +
+          '<button class="cn-connect" id="spMust">' + (isSubCore(key) ? "✓ must-pay bill" : "mark as a must-pay bill") + "</button>" +
+        "</div>" +
+        '<div class="cn-intro" style="margin-top:10px">' + (st === "cancelled" ? "Cancelled — the calendar stops projecting it, and it stays watched for surprise charges." : st === "until" ? "Runs until its date, then the projections stop on their own." : "Changes here ripple to the Finances portal, the Money Map, and every device.") + "</div>" +
+      "</div>";
+    modal.querySelector(".cat-close").addEventListener("click", closeMe);
+    const nmIn = modal.querySelector("#spName"); nmIn.addEventListener("change", () => setSubField(key, "name", nmIn.value.trim() || null));
+    modal.querySelector("#spStatus").addEventListener("change", (ev) => { setSubField(key, "status", ev.target.value || null); if (ev.target.value !== "until") setSubField(key, "until", null); render(); });
+    const un = modal.querySelector("#spUntil"); if (un) un.addEventListener("change", () => { setSubField(key, "until", un.value || null); render(); });
+    modal.querySelector("#spCad").addEventListener("change", (ev) => { setSubCadence(key, ev.target.value); render(); });
+    modal.querySelector("#spMust").addEventListener("click", () => { setSubCore(key, !isSubCore(key)); render(); });
+  }
+  render();
+}
 // ── 🐷 THE FINANCES PORTAL — one room to really work on your money ───────────
 // A full-screen surface (the calendar/messages pattern), opened by the fourth anchor
 // button. Not a widget and not a 13th area: the deep-work room where the month gets
@@ -10752,6 +10804,27 @@ function routineDueOn(sched, ymd) {
 //    bounded + capped so a runaway range can't hang a render. All pure: same JS-only ethos as
 //    routineDueOn, so it can't fork across runtimes.
 function ymdOf(date) { return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0"); }
+// Does a recurring CHARGE (anchored on its last real bank charge + its cadence) land on this
+// day? Pure projection math for the calendar's 💸 financial layer — strictly-future occurrences
+// only (the anchor day itself was a real transaction, not a prediction), day-of-month clamped
+// to short months (a 31st-anchored bill shows Feb 28), and projection stops a year past the
+// last real charge — the calendar never invents a bill the ledger stopped seeing.
+function calFinOccursOn(lastTs, cadence, ymd) {
+  const L = new Date(lastTs * 1000);
+  const Lmid = new Date(L.getFullYear(), L.getMonth(), L.getDate());
+  const D = _ymd2date(ymd);
+  if (!D || D <= Lmid) return false;
+  const days = Math.round((D - Lmid) / 86400000);
+  if (days > 370) return false;
+  if (cadence === "weekly") return days % 7 === 0;
+  if (cadence === "biweekly") return days % 14 === 0;
+  const mdiff = (D.getFullYear() - L.getFullYear()) * 12 + (D.getMonth() - L.getMonth());
+  if (mdiff <= 0) return false;
+  const step = cadence === "quarterly" ? 3 : cadence === "yearly" ? 12 : 1;
+  if (mdiff % step !== 0) return false;
+  const monthEnd = new Date(D.getFullYear(), D.getMonth() + 1, 0).getDate();
+  return D.getDate() === Math.min(L.getDate(), monthEnd);
+}
 // every "YYYY-MM-DD" from startYmd..endYmd inclusive (local days). `new Date(y,m,d+1)` rolls
 // month/year over automatically, so short months / year boundaries just work. Capped (default
 // 400 ≈ a year + a month grid's overflow) so a bad range can't loop away.
@@ -12174,11 +12247,48 @@ function openCalendar() {
   let weekStart = prefs.weekStart === 1 ? 1 : 0;                                  // 0 = Sunday (default), 1 = Monday
   let view = (prefs.view === "day" || prefs.view === "week") ? prefs.view : "month";
   let density = prefs.density === "chips" ? "chips" : "dots";                     // month grid: routines as dots (calm) or names
+  let finView = prefs.fin === 1;          // 💸 financial layer — projected bill/sub due-dates painted into the calendar (synced pref)
   let settingsOpen = false;
   let infinite = false;                   // endless-scroll mode (∞ toggle) — OFF by default, transient per open
   let infAnchors = [];                    // period-anchor ymds currently stacked, in order (infinite mode)
   let cursor = todayKey();                // the focused day (its month/week, in those views)
-  const savePrefs = () => { try { localStorage.setItem("money.calview", JSON.stringify({ view: view, weekStart: weekStart, density: density })); } catch (e) {} };
+  const savePrefs = () => { try { localStorage.setItem("money.calview", JSON.stringify({ view: view, weekStart: weekStart, density: density, fin: finView ? 1 : 0 })); } catch (e) {} };
+  // ── the financial layer's data: detected recurring charges + annual predictions, fetched
+  //    once per open (and on toggle-on). Projection is pure math from each sub's LAST real
+  //    charge + its cadence — the calendar never invents a bill the ledger hasn't seen.
+  let finSubs = [], finAnnuals = [], finLoaded = false;
+  function loadFin() {
+    const t = Date.now();
+    Promise.all([
+      fetch("/api/recurring?t=" + t).then((r) => r.json()).catch(() => ({})),
+      fetch("/api/annuals?t=" + t).then((r) => r.json()).catch(() => ({})),
+    ]).then(([rec, ann]) => {
+      finSubs = (rec && rec.recurring) || [];
+      finAnnuals = (ann && ann.annuals) || [];
+      finLoaded = true;
+      if (root.isConnected) render();
+    });
+  }
+  function finSpendsOnDay(ymd) {
+    if (!finView) return [];
+    const out = [];
+    finSubs.forEach((r) => {
+      const st = subStatus(r.key), e = subEntry(r.key);
+      if (st === "cancelled" || isSubPaused(r.key)) return;
+      if (st === "until" && e.until && ymd > e.until) return;   // paid-through date passed — no more projections
+      if (r.last && calFinOccursOn(r.last, subCadence(r.key), ymd)) {
+        out.push({ kind: "sub", key: r.key, name: subName(r), amount: r.amount, cadence: subCadence(r.key), st: st, r: r });
+      }
+    });
+    const subKeys = {}; finSubs.forEach((r) => { subKeys[r.key] = 1; });
+    finAnnuals.forEach((a) => {
+      if (subKeys[a.key]) return;   // already projected via its sub entry
+      if (a.next && ymdOf(new Date(a.next * 1000)) === ymd) {
+        out.push({ kind: "annual", key: a.key, name: a.name, amount: a.amount, confidence: a.confidence });
+      }
+    });
+    return out;
+  }
   const esc = (s) => escapeHtml(s == null ? "" : String(s));
   const onKey = (e) => { if (e.key === "Escape" && !document.getElementById("taskDetail")) close(); };   // a detail sheet open on top handles its own Escape first
   const onCache = () => { if (root.isConnected) render(); else cleanup(); };   // a peer's sync landed → repaint
@@ -12189,18 +12299,19 @@ function openCalendar() {
   document.addEventListener("cache:logged", onCache);
   const monthTitle = (ymd) => { const d = _ymd2date(ymd); return d ? d.toLocaleDateString("en-US", { month: "long", year: "numeric" }) : ""; };
   const dayTitle = (ymd) => { const d = _ymd2date(ymd); return d ? d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : ""; };
-  const chipsOf = (j) => {              // discrete, high-signal items → text chips (events first, then dated tasks)
+  const chipsOf = (j, ymd) => {          // discrete, high-signal items → text chips (events first, then dated tasks)
     const out = [];
     j.events.forEach((e) => out.push({ cls: "event", em: e.emoji || "📌", tx: (!e.allDay && e.startTime ? e.startTime + " " : "") + (e.title || "Event") }));
     (j.sessions || []).forEach((se) => out.push({ cls: "session", em: se.emoji || "🎯", tx: (!se.allDay && se.startTime ? se.startTime + " " : "") + (se.title || "Session") }));
     j.tasks.forEach((t) => out.push({ cls: "task" + (t.done ? " done" : ""), em: t.emoji || "✅", tx: t.title || "Task" }));
+    if (finView && ymd) finSpendsOnDay(ymd).forEach((s) => out.push({ cls: "spend", em: "💸", tx: "~" + fmtUSD(s.amount || 0) + " " + (s.name || "") }));
     return out;
   };
   function renderMonth() {
     const cells = calMonthGrid(cursor, weekStart), things = thingsVisible(loadThings()), today = todayKey();
     const dow = calWeekdayLabels(weekStart).map((d) => "<span>" + d + "</span>").join("");
     const cellHtml = cells.map((c) => {
-      const j = calThingsOnDay(things, c.ymd), et = chipsOf(j);   // events + dated tasks → chips
+      const j = calThingsOnDay(things, c.ymd), et = chipsOf(j, c.ymd);   // events + dated tasks (+ 💸 spends) → chips
       const rec = j.routines.concat(j.habits);   // the recurring layer — routines + scheduled habits, one visual family
       const chips = density === "chips" ? et.concat(rec.map((r) => ({ cls: r.type === "habit" ? "habit" : "routine", em: r.emoji || (r.type === "habit" ? "↻" : "🔁"), tx: r.name || r.title || "Routine" }))) : et;
       const shown = chips.slice(0, 3), extra = chips.length - shown.length;
@@ -12218,7 +12329,7 @@ function openCalendar() {
   function itemRow(act, id, em, tx, sub, done, checkable, ymd) {
     // the item's TYPE drives its colour + label. act routes the tap; "detail" covers both tasks
     // and habits, told apart by the habit's ↻ glyph.
-    var type = act === "event" ? "event" : act === "session" ? "session" : act === "rdetail" ? "routine" : (em === "↻" ? "habit" : "task");
+    var type = act === "event" ? "event" : act === "session" ? "session" : act === "spend" ? "spend" : act === "rdetail" ? "routine" : (em === "↻" ? "habit" : "task");
     return '<div class="cal-arow' + (done ? " done" : "") + '" data-act="' + act + '" data-type="' + type + '" data-id="' + esc(id) + '"' + (ymd ? ' data-ymd="' + esc(ymd) + '"' : "") + ' role="button" tabindex="0">' +
       (checkable
         ? '<button class="cal-check' + (done ? " on" : "") + '" data-check="' + esc(id) + '"' + (ymd ? ' data-ymd="' + esc(ymd) + '"' : "") + ' aria-label="' + (done ? "mark not done" : "mark done") + '"></button>'
@@ -12231,6 +12342,7 @@ function openCalendar() {
     const log = loadLog(), things = thingsVisible(loadThings()), j = calThingsOnDay(things, cursor), rows = [];
     j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime + (e.endTime ? "–" + e.endTime : "") : e.allDay ? "all day" : ""), false, false)));
     (j.sessions || []).forEach((se) => rows.push(itemRow("session", se.id, se.emoji || "🎯", se.title || "Session", (+se.goalMins ? sessionTimeOn(log, se.id, cursor) + "/" + se.goalMins + " min" : "session"), false, false, cursor)));
+    if (finView) finSpendsOnDay(cursor).forEach((s) => rows.push(itemRow("spend", (s.kind === "annual" ? "a:" : "s:") + s.key, "💸", (s.name || "") + " ~" + fmtUSD(s.amount || 0), s.kind === "annual" ? (s.confidence === "maybe" ? "might renew" : "yearly") : cadenceInfo(s.cadence).label + (s.st === "until" ? " · paid through " + (subEntry(s.key).until || "") : ""), false, false, cursor)));
     j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "due", !!t.done, true)));
     j.habits.forEach((h) => rows.push(itemRow("detail", h.id, "↻", h.title || "Habit", "habit", thingDoneOn(log, h.id, cursor), (h.track || "check") === "check", cursor)));   // scheduled habits — log-derived per day; yes/no checks off in place
     j.routines.forEach((r) => {
@@ -12246,6 +12358,7 @@ function openCalendar() {
       const j = calThingsOnDay(things, ymd), d = _ymd2date(ymd), rows = [];
       j.events.forEach((e) => rows.push(itemRow("event", e.id, e.emoji || "📌", e.title || "Event", (!e.allDay && e.startTime ? e.startTime : e.allDay ? "all day" : ""), false, false)));
       (j.sessions || []).forEach((se) => rows.push(itemRow("session", se.id, se.emoji || "🎯", se.title || "Session", (+se.goalMins ? sessionTimeOn(log, se.id, ymd) + "/" + se.goalMins + " min" : ""), false, false, ymd)));
+      if (finView) finSpendsOnDay(ymd).forEach((s) => rows.push(itemRow("spend", (s.kind === "annual" ? "a:" : "s:") + s.key, "💸", (s.name || "") + " ~" + fmtUSD(s.amount || 0), s.kind === "annual" ? "yearly" : cadenceInfo(s.cadence).abbr, false, false, ymd)));
       j.tasks.forEach((t) => rows.push(itemRow("detail", t.id, t.emoji || "✅", t.title || "Task", t.dueTime ? "due " + t.dueTime : "", !!t.done, true)));
       j.habits.forEach((h) => rows.push(itemRow("detail", h.id, "↻", h.title || "Habit", "", thingDoneOn(log, h.id, ymd), (h.track || "check") === "check", ymd)));
       j.routines.forEach((r) => { const members = things.filter((x) => x && x.routine === r.id), doneCt = members.filter((m) => thingDoneOn(log, m.id, ymd)).length; rows.push(itemRow("rdetail", r.id, r.emoji || "🔁", r.name || "Routine", members.length ? doneCt + "/" + members.length : "", members.length > 0 && doneCt === members.length, false)); });
@@ -12271,7 +12384,7 @@ function openCalendar() {
       '<div class="daily-top">' +
         '<button class="daily-icn" id="calClose" aria-label="close">✕</button>' +
         '<div class="cal-titlewrap"><button class="cal-nav" id="calPrev" aria-label="previous">‹</button><div class="cal-title">' + esc(calTitle()) + '</div><button class="cal-nav" id="calNext" aria-label="next">›</button></div>' +
-        '<div class="cal-headright"><button class="cal-today" id="calToday">Today</button><button class="daily-icn cal-inf-btn' + (infinite ? " on" : "") + '" id="calInf" aria-pressed="' + (infinite ? "true" : "false") + '" aria-label="endless scroll" title="endless scroll — flow through the calendar">∞</button><button class="daily-icn cal-gear' + (settingsOpen ? " on" : "") + '" id="calGear" aria-label="calendar settings" title="week start &amp; density">⚙</button></div>' +
+        '<div class="cal-headright"><button class="cal-today" id="calToday">Today</button><button class="daily-icn cal-fin-btn' + (finView ? " on" : "") + '" id="calFin" aria-pressed="' + (finView ? "true" : "false") + '" aria-label="financial layer" title="financial layer — your bills &amp; subscriptions painted onto the days">💸</button><button class="daily-icn cal-inf-btn' + (infinite ? " on" : "") + '" id="calInf" aria-pressed="' + (infinite ? "true" : "false") + '" aria-label="endless scroll" title="endless scroll — flow through the calendar">∞</button><button class="daily-icn cal-gear' + (settingsOpen ? " on" : "") + '" id="calGear" aria-label="calendar settings" title="week start &amp; density">⚙</button></div>' +
       "</div>" +
       '<div class="cal-viewbar"><div class="td-seg cal-seg" id="calSeg">' +
         '<button data-view="month"' + (view === "month" ? ' class="on"' : "") + ">Month</button>" +
@@ -12303,11 +12416,12 @@ function openCalendar() {
     root.querySelectorAll(".cal-wday-head").forEach((h) => h.addEventListener("click", () => { cursor = h.dataset.ymd; view = "day"; render(); }));   // tap a week-day header → its agenda
     root.querySelectorAll(".cal-check").forEach((c) => c.addEventListener("click", (e) => { e.stopPropagation(); try { calToggleTask(c.dataset.check, c.dataset.ymd); } catch (er) {} }));   // check a task/habit off in place (habits per-day); onCache repaints
     root.querySelectorAll(".cal-arow").forEach((r) => {
-      const openRow = () => { const id = r.dataset.id, act = r.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); else if (act === "session") openSession(id, r.dataset.ymd || cursor); } catch (e) {} };
+      const openRow = () => { const id = r.dataset.id, act = r.dataset.act; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); else if (act === "session") openSession(id, r.dataset.ymd || cursor); else if (act === "spend") openSpendEditor(id, render); } catch (e) {} };
       r.addEventListener("click", openRow);
       r.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openRow(); } });
     });
     const inf = root.querySelector("#calInf"); if (inf) inf.addEventListener("click", () => { infinite = !infinite; render(); });   // endless-scroll toggle
+    const finB = root.querySelector("#calFin"); if (finB) finB.addEventListener("click", () => { finView = !finView; savePrefs(); if (finView && !finLoaded) loadFin(); render(); });   // 💸 financial layer
     root.querySelectorAll(".cal-addevent").forEach((ae) => ae.addEventListener("click", () => { try { calAddEvent(ae.dataset.ymd || cursor); } catch (e) {} }));   // new event on that day
     root.querySelectorAll(".cal-addsession").forEach((ae) => ae.addEventListener("click", () => { try { calAddSession(ae.dataset.ymd || cursor); } catch (e) {} }));   // new session on that day
   }
@@ -12342,7 +12456,7 @@ function openCalendar() {
     const chk = e.target.closest(".cal-check"); if (chk) { e.stopPropagation(); try { calToggleTask(chk.dataset.check, chk.dataset.ymd); } catch (er) {} return; }
     const add = e.target.closest(".cal-addevent"); if (add) { try { calAddEvent(add.dataset.ymd || cursor); } catch (er) {} return; }
     const adds = e.target.closest(".cal-addsession"); if (adds) { try { calAddSession(adds.dataset.ymd || cursor); } catch (er) {} return; }
-    const arow = e.target.closest(".cal-arow"); if (arow) { const id = arow.dataset.id, act = arow.dataset.act, sec = arow.closest(".cal-inf-sec"), aymd = arow.dataset.ymd || (sec && sec.dataset.anchor) || cursor; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); else if (act === "session") openSession(id, aymd); } catch (er) {} }
+    const arow = e.target.closest(".cal-arow"); if (arow) { const id = arow.dataset.id, act = arow.dataset.act, sec = arow.closest(".cal-inf-sec"), aymd = arow.dataset.ymd || (sec && sec.dataset.anchor) || cursor; try { if (act === "detail") openTaskDetail(id); else if (act === "rdetail") openRoutineDetail(id); else if (act === "event") openEventDetail(id); else if (act === "session") openSession(id, aymd); else if (act === "spend") openSpendEditor(id, render); } catch (er) {} }
   }
   function buildInfinite() {
     const body = root.querySelector("#calBody"); if (!body) return;
@@ -12375,6 +12489,7 @@ function openCalendar() {
     });
   }
   render();
+  if (finView) loadFin();   // the 💸 layer was on last time (synced pref) — paint it on open
 }
 // ── EVENTS (type:"event") — a first-class Thing on money.things, so it inherits the ENTIRE
 //    proven per-item merge / tombstone / sync stack for free (no backend, no webcache, no
