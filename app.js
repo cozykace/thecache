@@ -10839,6 +10839,25 @@ function vizMount(root) {
     } };
   });
 }
+// Arriving at the center in the red is common — a single manual debt account can put the
+// whole cache below zero. We NEVER hide or soften the number itself (honesty is the
+// promise). But we don't leave someone alone with a raw minus sign in the dark either: a
+// small bunch of consolation flowers and one kind, solution-facing line. The point of this
+// place is the climb back, not the scoreboard.
+const LG_CONSOLATION_QUIPS = [
+  "A minus sign is just an arrow pointing at the next move — aim there, not at the number.",
+  "Red today, and you showed up to look anyway. That’s where every fix starts.",
+  "This is the starting line, not the final score. One small move at a time from here.",
+  "Below zero on paper, not on you. Eyes on the next dollar in, not the ones already gone.",
+  "The number’s honest, and so is the climb back. We solve from here.",
+];
+function lgConsolation() {
+  const q = LG_CONSOLATION_QUIPS[Math.floor(Math.random() * LG_CONSOLATION_QUIPS.length)];
+  return '<div class="lg-consol">' +
+           '<div class="lg-consol-flowers" aria-hidden="true">🌷 💐 🌼</div>' +
+           '<div class="lg-consol-quip">' + escapeHtml(q) + '</div>' +
+         '</div>';
+}
 function openLedger() {
   if (document.getElementById("ledgerSpace")) return;
   const root = document.createElement("div"); root.id = "ledgerSpace"; root.className = "lg-space";
@@ -10846,12 +10865,12 @@ function openLedger() {
     '<canvas class="lg-canvas"></canvas>' +
     '<div class="lg-board lg-scene">' +
       '<div class="lg-eyebrow">' + escapeHtml(getCacheName()) + '</div>' +
-      '<div class="lg-cta">VISIT YOUR CACHE</div>' +
-      '<div class="lg-board-sub">Book a trip and travel out to see your cache in person.</div>' +
-      '<button class="lg-book">🛫 Book the trip</button>' +
+      '<div class="lg-cta">YOUR LIFE\'S GALAXY</div>' +
+      '<div class="lg-board-sub">Fly to the center to see your whole life laid out as one field of stars.</div>' +
+      '<button class="lg-book">🚀 Fly to the center</button>' +
       '<button class="lg-cancel">not now</button>' +
     "</div>" +
-    '<div class="lg-intro lg-scene lg-hidden"><div class="lg-eyebrow">EN ROUTE</div><div class="lg-cta">TRAVELING TO YOUR CACHE</div></div>' +
+    '<div class="lg-intro lg-scene lg-hidden"><div class="lg-eyebrow">EN ROUTE</div><div class="lg-cta">FLYING TO THE CENTER</div></div>' +
     '<div class="lg-ledger lg-scene lg-hidden">' +
       '<div class="lg-hero">' +                              // centered hero grows to fill the space ABOVE the dash…
         '<div class="lg-eyebrow lg-gold">⟢ The Ledger ⟣</div>' +
@@ -10940,7 +10959,12 @@ function openLedger() {
       if (!calm && !(song && song.muted)) playApplause();         // the crowd cheers as you land
 
       const head = root.querySelector("#lgHeadline"), svg = root.querySelector("#lgConst");
-      fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => { head.innerHTML = "<b>" + fmtUSD(d.total != null ? d.total : (d.cash || 0)) + "</b><span>your cache, right now</span>"; }).catch(() => {});
+      fetch("data/balances.json?t=" + Date.now()).then((r) => r.json()).then((d) => {
+        const v = d.total != null ? d.total : (d.cash || 0);
+        let h = "<b>" + fmtUSD(v) + "</b><span>your cache, right now</span>";
+        if (v < 0) h += lgConsolation();                         // in the red on arrival → flowers + a solution-focused word, never a hidden number
+        head.innerHTML = h;
+      }).catch(() => {});
       // The trip lands in the Visualizer. D3 loads NOW — on arrival, never at boot — and
       // if it can't, we fall straight back to the month constellation this scene has
       // always drawn. Either way you land on something real.

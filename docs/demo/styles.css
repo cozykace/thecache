@@ -2959,6 +2959,13 @@ html[data-contrast="high"] .lg-space { --lg-dim: rgba(238, 240, 255, 0.82); --lg
 .lg-headline { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 6px 0; }
 .lg-headline b { font-size: 34px; color: var(--accent); text-shadow: 0 0 20px color-mix(in srgb, var(--accent) 55%, transparent); font-variant-numeric: tabular-nums; }
 .lg-headline span { font-size: 11px; letter-spacing: 0.05em; color: rgba(255, 255, 255, 0.5); }
+/* Consolation for a negative cache on arrival — flowers + a solution-facing line. The
+   number above stays exactly as honest as ever; this just keeps someone company in the red. */
+.lg-consol { display: flex; flex-direction: column; align-items: center; gap: 7px; margin-top: 14px; max-width: 380px; }
+.lg-consol-flowers { font-size: 26px; letter-spacing: 0.16em; filter: drop-shadow(0 0 14px rgba(255, 176, 206, 0.4)); animation: lgBloom 0.9s ease-out both; }
+.lg-consol-quip { font-size: 13px; line-height: 1.55; color: rgba(255, 255, 255, 0.66); font-style: italic; text-wrap: balance; }
+@keyframes lgBloom { from { opacity: 0; transform: translateY(7px) scale(0.82); } to { opacity: 1; transform: none; } }
+[data-reduce-motion="reduce"] .lg-consol-flowers { animation: none; }
 /* The Ledger stacks a centered hero over an IN-FLOW dashboard so the Return button and the
    data-source count can't overlap at any window size. (The dash used to be absolutely pinned
    to the bottom while the button sat in the centered column — on a short window the two
@@ -3033,10 +3040,21 @@ html[data-reduce-motion="1"] .lg-scene-btn { transition: none; }
 .lg-bub-val { font-size: 21px; font-weight: 800; color: var(--c); text-shadow: 0 0 12px color-mix(in srgb, var(--c) 60%, transparent); font-variant-numeric: tabular-nums; line-height: 1.1; }
 .lg-bub-lbl { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255, 255, 255, 0.6); }
 .lg-board-sub { font-size: 13px; color: rgba(255, 255, 255, 0.55); max-width: 340px; line-height: 1.5; }
-.lg-book { margin-top: 14px; font-family: inherit; font-size: 16px; font-weight: 700; letter-spacing: 0.06em; color: #06040f;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, #fff), var(--accent)); border: none; border-radius: 999px; padding: 13px 30px;
-  box-shadow: 0 0 28px color-mix(in srgb, var(--accent) 50%, transparent); transition: transform 0.15s ease, box-shadow 0.2s ease; }
-.lg-book:hover { transform: translateY(-1px) scale(1.03); box-shadow: 0 0 40px color-mix(in srgb, var(--accent) 75%, transparent); }
+/* The Ledger is ALWAYS a near-black cosmic space, so the primary CTA can't take its
+   brightness from --accent (dim in the Water theme → a dark pill on black that vanishes).
+   The fill is self-luminous (near-white → light-accent, always bright enough for the dark
+   text), lifted off the black with a white ring + a strong accent glow, and it breathes so
+   the eye finds it. */
+.lg-book { margin-top: 18px; font-family: inherit; font-size: 17px; font-weight: 800; letter-spacing: 0.06em; color: #06040f;
+  background: linear-gradient(180deg, #f4f8ff, color-mix(in srgb, var(--accent) 52%, #d3e2ff)); border: 1px solid rgba(255, 255, 255, 0.85); border-radius: 999px; padding: 15px 34px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 0 48px 6px color-mix(in srgb, var(--accent) 70%, #8fa6ff), 0 8px 30px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.2s ease; animation: lgBookPulse 2.8s ease-in-out infinite; }
+.lg-book:hover { transform: translateY(-1px) scale(1.04); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 64px 10px color-mix(in srgb, var(--accent) 85%, #8fa6ff), 0 8px 30px rgba(0, 0, 0, 0.5); }
+@keyframes lgBookPulse {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 0 42px 4px color-mix(in srgb, var(--accent) 62%, #8fa6ff), 0 8px 30px rgba(0, 0, 0, 0.5); }
+  50%      { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 64px 11px color-mix(in srgb, var(--accent) 82%, #8fa6ff), 0 8px 30px rgba(0, 0, 0, 0.5); }
+}
+[data-reduce-motion="reduce"] .lg-book { animation: none; }
 .lg-cancel { font-family: inherit; font-size: 12px; color: rgba(255, 255, 255, 0.45); background: none; border: none; padding: 6px; }
 .lg-cancel:hover { color: rgba(255, 255, 255, 0.8); }
 .lg-mute { position: absolute; top: 18px; right: 18px; z-index: 5; width: 40px; height: 40px; font-size: 17px; line-height: 1;
