@@ -2930,8 +2930,19 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .bs-v { font-size: 19px; font-weight: 600; font-family: ui-monospace, monospace; color: var(--ink); margin-top: 1px; }
 .bs-note { font-size: 10px; color: rgba(var(--ink-rgb), 0.4); margin-top: 1px; }
 .bs-coh { font-size: 11.5px; color: rgba(var(--ink-rgb), 0.55); border-top: 1px solid var(--edge-soft); padding-top: 10px; margin-top: 12px; line-height: 1.5; }
+/* The ledger surface owns its own ink scale. It always sits on deep space, so its text
+   can't inherit --ink (that's the board's, and it flips with the theme) — but every mark
+   in the Visualizer reads THESE, so there is still exactly one place to retune contrast
+   and nothing hardcodes a color in JS. --accent still comes from the live theme. */
 .lg-space { position: fixed; inset: 0; z-index: 100000; background: #06040f; overflow: hidden;
+  --lg-ink: #eef0ff; --lg-dim: rgba(238, 240, 255, 0.58); --lg-faint: rgba(238, 240, 255, 0.2); --lg-grid: rgba(238, 240, 255, 0.1);
+  /* The surface background is a FIXED near-black regardless of theme, so its accent must be
+     fixed-legible too — NOT the theme's --accent, which in the default Water (mono) theme is a
+     deep ocean blue (~1.4:1 on #06040f: invisible). Cosmic gold reads ~14:1 here and matches the
+     ledger's identity. Every Visualizer mark reads --lg-accent (via vizInk), never --accent. */
+  --lg-accent: #ffd409;
   font-family: ui-monospace, Menlo, monospace; animation: lg-in 0.3s ease; }
+html[data-contrast="high"] .lg-space { --lg-dim: rgba(238, 240, 255, 0.82); --lg-faint: rgba(238, 240, 255, 0.34); --lg-grid: rgba(238, 240, 255, 0.2); }
 .lg-space, .lg-space * { cursor: auto !important; }
 .lg-space .lg-back, .lg-space .lg-book, .lg-space .lg-cancel, .lg-space .lg-mute, .lg-space .lg-bubble { cursor: pointer !important; }
 .lg-space .lg-ledger { cursor: grab !important; }
@@ -2956,6 +2967,42 @@ a.bk-txt:hover, a.bk-txt:focus-visible { text-decoration: underline; }
 .lg-hero { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 12px; }
 .lg-const { width: 92%; max-width: 1000px; height: auto; min-height: 0; max-height: 42vh; margin: 4px 0; }
+/* ── The Visualizer (D3 scenes) ──────────────────────────────────────────────
+   Exactly one of #lgViz / #lgConst is ever shown: .lg-off takes the other out of
+   layout entirely, so a failed D3 load can't leave a ghost box behind. */
+.lg-off { display: none !important; }
+.lg-viz { flex: 1 1 auto; min-height: 0; width: 96%; max-width: 1040px; display: flex; flex-direction: column;
+  align-items: stretch; gap: 8px; margin: 2px 0; }
+.lg-scenes { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.lg-scene-btn { font-family: inherit; font-size: 12px; letter-spacing: 0.04em; color: var(--lg-dim);
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 999px;
+  /* ≥44px tall on touch without a giant pill on desktop: the padding IS the hit area */
+  min-height: 44px; padding: 0 16px; display: inline-flex; align-items: center; gap: 6px;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease; }
+.lg-scene-btn:hover { color: var(--lg-ink); background: rgba(255, 255, 255, 0.1); }
+.lg-scene-btn.on { color: #06040f; background: var(--lg-accent); border-color: var(--lg-accent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--lg-accent) 45%, transparent); }
+.lg-stage { flex: 1 1 auto; min-height: 120px; max-height: 54vh; width: 100%;
+  container-type: size; touch-action: manipulation; }
+.lg-stage svg { display: block; width: 100%; height: 100%; overflow: visible; }
+/* The caption is the scene in words — it is filled in BEFORE anyone touches anything,
+   so nothing essential is ever hover-only, and it doubles as the aria-live readout. */
+.lg-cap { flex: 0 0 auto; min-height: 30px; font-size: 12px; line-height: 1.35; color: var(--lg-dim);
+  text-align: center; padding: 0 8px; }
+/* the transient hover/tap readout — sits under the stable summary, never in the live region */
+.lg-scrub { flex: 0 0 auto; min-height: 16px; font-size: 12px; line-height: 1.3; color: var(--lg-accent);
+  text-align: center; padding: 0 8px; opacity: 0.92; }
+@media (max-width: 560px) {
+  .lg-viz { width: 100%; }
+  .lg-scenes { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; scrollbar-width: none;
+    padding: 0 4px 2px; -webkit-overflow-scrolling: touch; }
+  .lg-scenes::-webkit-scrollbar { display: none; }
+  .lg-scene-btn { flex: 0 0 auto; }
+  .lg-stage { max-height: 48vh; }
+}
+/* Reduced motion: the scenes settle statically in JS (reduceMotion() pre-ticks the force
+   layout), and nothing here may fade or slide it in afterwards. */
+html[data-reduce-motion="1"] .lg-scene-btn { transition: none; }
 .lg-back { margin-top: 8px; font-family: inherit; font-size: 13px; color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent); border-radius: 999px; padding: 9px 18px; }
 .lg-back:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
