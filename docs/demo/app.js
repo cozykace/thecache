@@ -4695,7 +4695,7 @@ async function cloudFindVaultId(s) {
 //              a fresher edit and the web app can't blind-adopt on every unlock.
 const CLOUD_INTERNAL_KEYS = ["money.cloud", "money.cloudKey", "money.cloudPaused", "money.deviceId", "money.__lmeta", "money.deckRev"];   // deckRev is RETIRED (per-item `updated` replaced it) — excluded from the vault AND the witness, or two converged devices would hash differently forever
 // device-ergonomic geometry — pinned to the device that set it, never synced
-const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.simplefin", "money.sessionRun", "money.justReset", "money.waterfx"];   // + justReset (a ONE-SHOT password-reset confetti flag, consumed on the next login — as a generic key it rode the vault and threw a "you reset your password!" party on devices that never reset anything) + waterfx (the living-water background opt-out — a per-device rendering choice, like dockMobile: a low-power phone can turn it off without darkening the desktop)   // + sessionRun (which session the timer is focused on — a per-device runtime pointer, like timerRun; never rides the vault, so a running session-timer can't jump devices)   // + deckDay (calendar) + dms (messages cache) + simplefin (the browser bank credential — a bearer secret; DEVICE-LOCAL so it never rides the vault, same as the desktop's chmod-600 .simplefin file; see WIKI 2026-07-24-bank-credential-device-only)
+const DEVICE_LOCAL_KEYS = ["money.dockMobile", "money.zoom", "money.gutter", "money.sidebar", "money.sidebarWidth", "money.statsScroll", "money.icons.collapsed", "money.balExpanded", "money.settings", "money.connect", "money.wiki", "money.timerRun", "money.deckDay", "money.dms", "money.simplefin", "money.sessionRun", "money.justReset", "money.waterfx", "money.brandkit", "money.brandkitApply"];   // + justReset (ONE-SHOT reset-confetti flag) + waterfx (living-water opt-out) + sessionRun (per-device timer pointer) + deckDay (calendar) + dms (messages cache) + simplefin (browser bank bearer secret — device-local, never the vault) + brandkit (device MIRROR of the COMPANY cache's kit, re-pulled on open like dms — never the founder's OWN vault data) + brandkitApply ("apply live to my app" toggle, per device)
 const SPECIAL_MERGE_KEYS = ["money.log", "money.logPending", "money.deck", "money.things", "money.forms", "money.formData", "money.charLog", "money.profile", "money.badges", "money.customStats", "money.charSince", "money.notifs", "money.bugCredits"];   // + forms/formData (reuse the things per-item merge) + notifs (per-id newest-wins read state) + bugCredits (union by report id, like badges)
 // the user-authored data/ files that merge key-wise across devices (via the backend's
 // /api/merge-maps + the vault's filesMeta sidecar) — everything else in the files
@@ -8457,6 +8457,7 @@ const LIBRARY = [
   { type: "note", title: "Post-it note", w: 280, h: 200, cat: "everyday" },
   // ── Your Cache ──
   { type: "devtree", title: "Dev Tree", w: 340, h: 380, cat: "cache" },
+  { type: "brandkit", title: "Brand Kit", w: 340, h: 500, cat: "cache", founderOnly: true },
 ];
 const libByType = Object.fromEntries(LIBRARY.map((l) => [l.type, l]));
 
@@ -8753,6 +8754,7 @@ const WIDGET_INFO = {
   tasks: "<p><b>The things you need to do and remember.</b> Add a task, check it off (it's logged), or delete it — with a one-tap undo, no shame. Break any task into <b>subtasks</b>, as deep as you need (＋ on a row), and collapse a big one to tidy it away. <b>Tap a task's title</b> to see its activity trail — everything you checked off across it and its subtasks.</p><p>Turn a task into a <b>habit</b> (⋯ → Make a habit) and it becomes something you track: because habits repeat, they reset each day, and you can track a plain yes/no or a number (minutes, reps…). Every task, subtask, and habit syncs on its own, so edits on your phone and laptop both survive.</p>",
   projects: "<p><b>Group related tasks into a project</b> and watch the whole thing move. Name a project, open it, and add the tasks it takes — check them off and the project's progress bar fills. A project's tasks live here, not in your loose Tasks list, so a big effort stays together instead of scattering.</p><p>Everything syncs on its own, task by task, so edits on your phone and laptop both survive. This is v1 — due dates, habits, and areas per project are coming.</p>",
   timer: "<p><b>Work a block, rest a block</b> — with a longer rest every few blocks. The visible countdown does the time-keeping so your head doesn't have to.</p><p>All four numbers are yours — tap <i>presets</i>. The defaults are just a starting point, not a prescription. Pausing, skipping, or ending early is always one tap and never punished. Finishing a work block earns +2 EXP.</p>",
+  brandkit: "<p><b>Founder-only.</b> The shared brand kit for the whole app — theme tokens, palette, type, logos and notes. It lives in the company cache's own encrypted vault; every founder holds a key-wrap, so any founder can edit and the change reflects for everyone. No financial data.</p><p><b>Apply to my app</b> is a per-DEVICE live preview (it recolours this browser only); a global rollout is an explicit <i>Copy CSS</i> → styles.css → deploy step. The <b>Activity</b> log attributes every change to the founder who made it.</p>",
 };
 
 function makeWidget(id, entry) {
@@ -9139,8 +9141,9 @@ function renderLibrary() {
   };
   // Starred widgets lift OUT of their category into one pinned group at the top (the long-standing
   // auto-pin behaviour), so a favourite is never listed twice. Off → everything sits in its category.
-  const pinned = autoPinOn() ? LIBRARY.filter(isFav) : [];
-  const rest = LIBRARY.filter((d) => !pinned.includes(d));
+  const VIS = LIBRARY.filter((d) => !d.founderOnly || isFounder());   // founder-only widgets never render in a non-founder's library (visibility gate — real access is crypto). renderLibrary-LOCAL only; libByType keeps the full LIBRARY so addSingleton/makeWidget still resolve brandkit.
+  const pinned = autoPinOn() ? VIS.filter(isFav) : [];
+  const rest = VIS.filter((d) => !pinned.includes(d));
   section("★ Favorites", pinned);
   LIB_CATS.forEach((c) => section(c.label, rest.filter((d) => (d.cat || "everyday") === c.key)));
   // safety net: a widget whose cat doesn't match any category still shows up rather than vanishing
@@ -15479,6 +15482,491 @@ function buildKingBar() {
   Store.subscribe(pill, () => renderKingExp());  // EXP ticks up live with every click
 }
 
+// ── The Cache Brand Kit (FOUNDER-ONLY) ───────────────────────────────────────────
+//   A shared, Canva-style brand kit for the whole app: colour tokens, an extra palette,
+//   type choices, logo files, and notes — editable by ANY founder, live-reflected, with an
+//   ATTRIBUTED activity log. STORAGE MODEL (resolved — see the memory brandkit-widget-
+//   pending-merge + Brain Bucket/brandkit-SETUP.md): the single source of truth is a
+//   dedicated "company cache" ACCOUNT's vault (owner = the @cachehq account). Its blob is
+//   cloudSeal({brandkit:STATE}, K_company); its keybox carries one t:"ecdh" wrap per founder
+//   (K_company sealed to that founder's published pubkey), so any founder opens it with their
+//   OWN identity key and the SERVER never can (zero-knowledge preserved). Cross-account
+//   read/write is server-gated by a `vaults.editors` relation. Until Cozy provisions it,
+//   every path is try/caught → a calm "local only" state; the DEVICE mirror (money.brandkit)
+//   + "apply to my app" + export all work standalone.
+//
+//   Concurrency: STATE merges PER-ITEM (brandkitMerge — the deck/things winner rule +
+//   TOMBSTONES for palette/type/logos, LWW for notes/tokens, append-only UNION for the
+//   attributed log), so two founders editing at once MERGE, never clobber. Every write is
+//   merge-before-seal. Attribution snapshots the writer's display name + uid on each entry
+//   (v1 limit: client-authored — a per-entry signature is the v2 upgrade).
+const BRANDKIT_KEY = "money.brandkit";            // DEVICE_LOCAL mirror of the company kit
+const BRANDKIT_APPLY_KEY = "money.brandkitApply"; // DEVICE_LOCAL "apply live to my app" toggle
+const BRANDKIT_HANDLE = "cachehq";                // the company cache's well-known @handle → COMPANY_UID
+const BK_LOG_CAP = 400, BK_ITEM_CAP = 80, BK_TOMB_CAP = 80, BK_LOGO_MAX = 200000; // base64-char ceiling per logo
+// The six theme tokens "apply to my app" drives (font is separate). Their fallbacks are the
+// Mono default — a colour input needs SOME hex to open on before the founder has set one.
+const BK_TOKEN_FALLBACK = { ink: "#1c1c1a", paper: "#f3f2ef", panel: "#e4ddca", accent: "#c9542e" };
+// hex "#rrggbb" (or "#rgb") → "r, g, b" for --ink-rgb; null if unparseable. Pure + tested.
+function hexToRgb(hex) {
+  if (typeof hex !== "string") return null;
+  let h = hex.trim().replace(/^#/, "");
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+  const n = parseInt(h, 16);
+  return ((n >> 16) & 255) + ", " + ((n >> 8) & 255) + ", " + (n & 255);
+}
+// canonical CONTENT form of a brand-kit item — excludes the stamps, sorts keys, normalizes
+// booleans, emits a STRING (compared, never hashed). Mirrors thingCanon so the tie-break is
+// deterministic.
+function brandkitCanon(it) {
+  const skip = { updated: 1, ord: 1, ordAt: 1 };
+  const walk = (v) => {
+    if (v === true) return 1; if (v === false) return 0;
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") { const o = {}; Object.keys(v).sort().forEach((k) => { if (!skip[k]) o[k] = walk(v[k]); }); return o; }
+    return v;
+  };
+  try { return JSON.stringify(walk(it || {})); } catch (e) { return ""; }
+}
+// Merge two per-item arrays (palette / type / logos). Winner per id: newer `updated` → exact
+// tie: TOMBSTONE wins → still tied: canonical-content string compare. Position (ord/ordAt) on
+// its own clock. LIVE items and TOMBSTONES capped SEPARATELY (a single slice would drop real
+// items, or drop tombstones so deletes resurrect).
+function brandkitMergeItems(a, b) {
+  const out = {};
+  const take = (arr) => (Array.isArray(arr) ? arr : []).forEach((raw) => {
+    if (!raw || !raw.id) return;
+    const it = Object.assign({}, raw), cur = out[it.id];
+    if (!cur) { out[it.id] = it; return; }
+    const cu = +cur.updated || 0, iu = +it.updated || 0;
+    let win = cur;
+    if (iu > cu) win = it;
+    else if (iu === cu) {
+      const cd = !!cur.deleted, id_ = !!it.deleted;
+      if (id_ !== cd) win = id_ ? it : cur;                       // tombstone wins an exact tie
+      else if (brandkitCanon(it) > brandkitCanon(cur)) win = it;  // deterministic tie-break
+    }
+    const lose = win === cur ? it : cur, merged = Object.assign({}, win);
+    const lo = +lose.ordAt || 0, wo = +win.ordAt || 0;
+    if (lo > wo || (lo === wo && (+lose.ord || 0) < (+win.ord || 0))) { merged.ord = lose.ord; merged.ordAt = lose.ordAt; }
+    out[it.id] = merged;
+  });
+  take(a); take(b);
+  const items = Object.keys(out).map((k) => out[k]);
+  items.sort((x, y) => { const dx = +x.ord || 0, dy = +y.ord || 0; return dx !== dy ? dx - dy : (x.id < y.id ? -1 : x.id > y.id ? 1 : 0); });
+  const live = items.filter((i) => !i.deleted).slice(0, BK_ITEM_CAP);
+  const tomb = items.filter((i) => i.deleted).sort((p, q) => (+q.updated || 0) - (+p.updated || 0)).slice(0, BK_TOMB_CAP);
+  return live.concat(tomb);
+}
+// The attributed activity log — APPEND-ONLY UNION by entry id (an absence would let a peer
+// resurrect a trimmed entry). Newest-capped; sorted by `at`. Attribution rides each entry.
+function brandkitMergeLog(a, b) {
+  const out = {}, order = [];
+  const take = (arr) => (Array.isArray(arr) ? arr : []).forEach((e) => { if (e && e.id && !(e.id in out)) { out[e.id] = e; order.push(e.id); } });
+  take(a); take(b);
+  return order.map((id) => out[id]).sort((x, y) => (+x.at || 0) - (+y.at || 0)).slice(-BK_LOG_CAP);
+}
+// Merge two whole STATE objects. palette/type/logos per-item; notes/tokens LWW by their own
+// *At stamp (a fresh device's empty default can never beat a real edit); log = union.
+function brandkitMerge(a, b) {
+  a = a || {}; b = b || {};
+  const pick = (ka, ta) => (((+b[ta] || 0) > (+a[ta] || 0)) ? b[ka] : a[ka]);
+  return {
+    palette: brandkitMergeItems(a.palette, b.palette),
+    type: brandkitMergeItems(a.type, b.type),
+    logos: brandkitMergeItems(a.logos, b.logos),
+    notes: pick("notes", "notesAt") || "",
+    notesAt: Math.max(+a.notesAt || 0, +b.notesAt || 0),
+    tokens: pick("tokens", "tokensAt") || {},
+    tokensAt: Math.max(+a.tokensAt || 0, +b.tokensAt || 0),
+    log: brandkitMergeLog(a.log, b.log),
+  };
+}
+function brandkitEmpty() { return { palette: [], type: [], logos: [], notes: "", notesAt: 0, tokens: {}, tokensAt: 0, log: [] }; }
+// A canonical (recursively key-sorted) string of a whole STATE — so "did this change?"
+// comparisons are ORDER-INSENSITIVE. Two founders who serialize equal tokens in a different
+// key order must NOT read as "ahead" of each other, or every poll would re-push a no-op
+// (the corrective-push livelock the sync engine's _canonVal exists to prevent).
+function brandkitStateStr(st) {
+  const walk = (v) => { if (Array.isArray(v)) return v.map(walk); if (v && typeof v === "object") { const o = {}; Object.keys(v).sort().forEach((k) => { o[k] = walk(v[k]); }); return o; } return v; };
+  try { return JSON.stringify(walk(st || {})); } catch (e) { return ""; }
+}
+// ── ECDH keybox wrap — the founder-sharing primitive ─────────────────────────────
+// Wrap the company data-key K to a founder's STATIC ECDH pubkey with an EPHEMERAL sender key
+// (ECIES-style): the wrap carries the ephemeral pub, so the founder unwraps with ONLY their
+// static private key — no sender coordination, and the wrap reveals nothing without it. Same
+// P-256 + AES-GCM as the DMs, so it rides the identity key founders already publish.
+async function _keyboxEcdhWrap(kb64, recipientPubB64, uid) {
+  const eph = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
+  const theirPub = await crypto.subtle.importKey("raw", _unb64(recipientPubB64), { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const kek = await crypto.subtle.deriveKey({ name: "ECDH", public: theirPub }, eph.privateKey, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, kek, _unb64(kb64));
+  const epk = _b64(await crypto.subtle.exportKey("raw", eph.publicKey));
+  return { t: "ecdh", uid: uid || "", epk, iv: _b64(iv), ct: _b64(ct) };
+}
+async function _keyboxEcdhUnwrap(wrap, privJwk) {
+  const myPriv = await crypto.subtle.importKey("jwk", privJwk, { name: "ECDH", namedCurve: "P-256" }, false, ["deriveKey"]);
+  const epk = await crypto.subtle.importKey("raw", _unb64(wrap.epk), { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const kek = await crypto.subtle.deriveKey({ name: "ECDH", public: epk }, myPriv, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(wrap.iv) }, kek, _unb64(wrap.ct));
+  return _b64(raw);
+}
+// Try every t:"ecdh" wrap in a keybox with this device's identity private key; first that
+// opens wins. Throws if none match (this account isn't a founder yet). Reuses keyboxWraps so
+// a v1 box (no wraps[]) reads as [] — no ecdh wrap — and this returns "not a founder".
+async function keyboxOpenEcdh(boxStr, privJwk) {
+  const wraps = keyboxWraps(boxStr).filter((w) => w.t === "ecdh");
+  for (let i = 0; i < wraps.length; i++) { try { return await _keyboxEcdhUnwrap(wraps[i], privJwk); } catch (e) {} }
+  throw new Error("no ecdh wrap for this account");
+}
+// ── device mirror + live theming (both DEVICE_LOCAL, never ride the founder's own vault) ──
+function brandkitGet() { try { const o = JSON.parse(localStorage.getItem(BRANDKIT_KEY) || "null"); return o && typeof o === "object" ? Object.assign(brandkitEmpty(), o) : brandkitEmpty(); } catch (e) { return brandkitEmpty(); } }
+function brandkitSet(st) { try { localStorage.setItem(BRANDKIT_KEY, JSON.stringify(st)); } catch (e) {} try { document.dispatchEvent(new CustomEvent("cache:brandkit")); } catch (e) {} }
+function brandkitApplyOn() { try { return localStorage.getItem(BRANDKIT_APPLY_KEY) === "1"; } catch (e) { return false; } }
+function brandkitSetApply(on) { try { localStorage.setItem(BRANDKIT_APPLY_KEY, on ? "1" : "0"); } catch (e) {} if (on) brandkitApplyLive(brandkitGet()); else brandkitRevertLive(); }
+// Apply the kit's tokens as a runtime CSS-var override on <html> — the SAME vars the themes
+// use, so it recolours the whole app live. Colours removeProperty cleanly (themes set them via
+// selectors); --font-ui is set INLINE by applyFont, so revert re-runs applyFont to restore it.
+function brandkitApplyLive(state) {
+  if (!brandkitApplyOn()) return;
+  const de = document.documentElement.style, t = (state && state.tokens) || {};
+  const rgb = hexToRgb(t.ink);
+  if (rgb) { de.setProperty("--ink-rgb", rgb); de.setProperty("--edge", "rgba(" + rgb + ", 0.30)"); de.setProperty("--edge-soft", "rgba(" + rgb + ", 0.14)"); }
+  if (t.paper) de.setProperty("--paper", t.paper);
+  if (t.panel) de.setProperty("--panel", t.panel);
+  if (t.accent) de.setProperty("--accent", t.accent);
+  if (t.font) de.setProperty("--font-ui", t.font);
+}
+function brandkitRevertLive() {
+  ["--ink-rgb", "--paper", "--panel", "--accent", "--edge", "--edge-soft"].forEach((v) => document.documentElement.style.removeProperty(v));
+  try { if (typeof applyFont === "function") applyFont(localStorage.getItem("money.font") || "system"); } catch (e) {}
+}
+// The exportable CSS — the manual GLOBAL-rollout path (paste into styles.css :root, deploy).
+function brandkitTokensCss(tokens) {
+  tokens = tokens || {};
+  const lines = [":root {"], rgb = hexToRgb(tokens.ink);
+  if (rgb) { lines.push("  --ink-rgb: " + rgb + ";"); lines.push("  --edge: rgba(" + rgb + ", 0.30);"); lines.push("  --edge-soft: rgba(" + rgb + ", 0.14);"); }
+  if (tokens.paper) lines.push("  --paper: " + tokens.paper + ";");
+  if (tokens.panel) lines.push("  --panel: " + tokens.panel + ";");
+  if (tokens.accent) lines.push("  --accent: " + tokens.accent + ";");
+  if (tokens.font) lines.push("  --font-ui: " + tokens.font + ";");
+  lines.push("}");
+  return lines.join("\n");
+}
+function brandkitLogId() { return (typeof thingId === "function" ? thingId() : "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)); }
+function brandkitMyName() { try { return (profileName() || "").trim() || (socialState().username ? "@" + socialState().username : "") || "a founder"; } catch (e) { return "a founder"; } }
+// The ONE edit entry point: mutate the local mirror, stamp an attributed log entry, paint,
+// apply live, and debounce a merge-before-seal push (a no-op until sharing is provisioned).
+function brandkitEdit(fn, action) {
+  const st = brandkitGet();
+  try { fn(st); } catch (e) { return; }
+  if (action) st.log = brandkitMergeLog(st.log, [{ id: brandkitLogId(), at: Date.now(), by: (cloudState().userId || ""), byName: brandkitMyName(), action: String(action) }]);
+  brandkitSet(st);
+  brandkitApplyLive(st);
+  brandkitPushSoon();
+}
+// ── company-vault plumbing (all gated; any failure → calm "local only") ───────────
+let _bkCompanyUid = null, _bkPushT = null, _bkPulling = false;
+async function brandkitCompanyUid() {
+  if (_bkCompanyUid) return _bkCompanyUid;
+  const d = await socialApi("/api/collections/profiles/records?perPage=1&filter=" + encodeURIComponent('username="' + BRANDKIT_HANDLE + '"'));
+  const row = (d.items || [])[0];
+  if (row && row.owner) _bkCompanyUid = row.owner;
+  return _bkCompanyUid;
+}
+async function brandkitFetchRecord() {
+  const uid = await brandkitCompanyUid();
+  if (!uid) return null;   // the company cache isn't provisioned (no @cachehq profile)
+  const d = await socialApi("/api/collections/vaults/records" + VAULT_Q + encodeURIComponent("owner='" + uid + "'"));
+  return (d.items || [])[0] || null;
+}
+// Open K_company for THIS account. TWO paths: if I AM the company account (setup / seeding),
+// my OWN vault data-key IS K_company (money.cloudKey) — this is the bootstrap that lets the
+// first ecdh wraps get added before any founder holds one. Otherwise unwrap via my identity
+// key's ecdh wrap. Returns null (a calm state, not an error) when neither opens — i.e. this
+// account isn't a founder yet.
+async function brandkitOpenKey(rec) {
+  if (!rec || !rec.keybox) return null;
+  try {
+    const uid = cloudState().userId, comp = await brandkitCompanyUid();
+    if (uid && comp && uid === comp) { const k = cloudKeyGet(); if (k) return k; }   // I own the company vault → its key is mine
+  } catch (e) {}
+  const kp = msgKeyGet(); if (!kp || !kp.priv) return null;
+  try { return await keyboxOpenEcdh(rec.keybox, kp.priv); } catch (e) { return null; }
+}
+// Decrypt/seal a company blob with an EXPLICIT K — NEVER money.cloudKey (that's this
+// account's PERSONAL vault key). Same v2 envelope as cloudSeal/cloudOpen.
+async function brandkitDecrypt(blob, kb64) {
+  const env = JSON.parse(blob);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(env.iv) }, await _importK(kb64), _unb64(env.ct));
+  const obj = JSON.parse(new TextDecoder().decode(pt));
+  return (obj && obj.brandkit && typeof obj.brandkit === "object") ? obj.brandkit : brandkitEmpty();
+}
+// The last known "shared" state: {ok, count} for the status line. Set by pull/push.
+let _bkShared = { ok: false };
+async function brandkitPull() {
+  if (!isFounder() || _bkPulling) return null;
+  _bkPulling = true;
+  try {
+    let rec; try { rec = await brandkitFetchRecord(); } catch (e) { _bkShared = { ok: false }; return null; }
+    if (!rec || !rec.blob) { _bkShared = { ok: false }; return null; }
+    const K = await brandkitOpenKey(rec);
+    if (!K) { _bkShared = { ok: false, notFounder: true }; return null; }
+    let remote; try { remote = await brandkitDecrypt(rec.blob, K); } catch (e) { _bkShared = { ok: false }; return null; }
+    const before = JSON.stringify(brandkitGet());
+    const merged = brandkitMerge(brandkitGet(), remote);
+    const count = keyboxWraps(rec.keybox).filter((w) => w.t === "ecdh").length;
+    _bkShared = { ok: true, count };
+    if (JSON.stringify(merged) !== before) { brandkitSet(merged); brandkitApplyLive(merged); }
+    // if our merged copy holds edits the server LACKS (a concurrent-edit loser, or edits made
+    // while offline), write them back — otherwise a pull that only ever RECEIVES would strand
+    // this founder's change local-only until they happened to edit again. Canonical compare so
+    // a mere key-order difference never arms a no-op push (push short-circuits the same way).
+    if (brandkitStateStr(merged) !== brandkitStateStr(remote)) brandkitPushSoon();
+    return merged;
+  } finally { _bkPulling = false; }
+}
+async function brandkitPush() {
+  if (!isFounder()) return;
+  let rec; try { rec = await brandkitFetchRecord(); } catch (e) { return; }
+  if (!rec) return;                                  // not provisioned → stays local
+  const K = await brandkitOpenKey(rec);
+  if (!K) return;                                    // not a founder on this account → stays local
+  let remote = brandkitEmpty();
+  if (rec.blob) { try { remote = await brandkitDecrypt(rec.blob, K); } catch (e) { return; } }
+  const merged = brandkitMerge(remote, brandkitGet());   // merge-before-seal (local wins only when newer)
+  brandkitSet(merged);                                    // adopt the converged truth locally too
+  if (brandkitStateStr(merged) === brandkitStateStr(remote)) { _bkShared = { ok: true, count: keyboxWraps(rec.keybox).filter((w) => w.t === "ecdh").length }; return; }   // nothing new (order-insensitive) → no PATCH
+  const blob = await brandkitEncrypt(merged, K);
+  await socialApi("/api/collections/vaults/records/" + rec.id, { method: "PATCH", body: JSON.stringify({ blob }) });
+  _bkShared = { ok: true, count: keyboxWraps(rec.keybox).filter((w) => w.t === "ecdh").length };
+}
+async function brandkitEncrypt(state, kb64) { return cloudSeal({ brandkit: state }, kb64); }
+function brandkitPushSoon() { clearTimeout(_bkPushT); _bkPushT = setTimeout(() => { brandkitPush().catch(() => {}); }, 1200); }
+// Add a founder: put their uid on the company vault's `editors` relation AND add a t:"ecdh"
+// wrap of K to their published pubkey. Any existing founder can do this (the editors rule
+// lets them PATCH the company record). Re-adding replaces that founder's wrap (a clean re-key).
+async function brandkitAddFounder(uid, pubkey) {
+  if (!uid || !pubkey) throw new Error("that account hasn't set up messaging yet (no public key)");
+  let rec; try { rec = await brandkitFetchRecord(); } catch (e) { throw new Error("couldn't reach the company cache"); }
+  if (!rec) throw new Error("the company cache isn't set up yet — see the setup doc");
+  const K = await brandkitOpenKey(rec);
+  if (!K) throw new Error("you don't hold the brand-kit key on this account yet");
+  const wrap = await _keyboxEcdhWrap(K, pubkey, uid);
+  const wraps = keyboxWraps(rec.keybox).filter((w) => !(w.t === "ecdh" && w.uid === uid)).concat([wrap]);
+  const editors = Array.from(new Set([].concat(rec.editors || [], [uid])));
+  await socialApi("/api/collections/vaults/records/" + rec.id, { method: "PATCH", body: JSON.stringify({ keybox: JSON.stringify({ v: 2, wraps }), editors }) });
+  brandkitEdit((st) => st, "added a founder to the brand kit");
+}
+// The founder roster = the accounts with an ecdh wrap, named via their profiles.
+async function brandkitRoster() {
+  let rec; try { rec = await brandkitFetchRecord(); } catch (e) { return []; }
+  if (!rec || !rec.keybox) return [];
+  const uids = keyboxWraps(rec.keybox).filter((w) => w.t === "ecdh" && w.uid).map((w) => w.uid);
+  let profs = {}; try { profs = await socialProfiles(uids); } catch (e) {}
+  return uids.map((u) => ({ uid: u, handle: (profs[u] || {}).username || "", name: (profs[u] || {}).name || "" }));
+}
+// ── the resizable, attributed activity dialog ────────────────────────────────────
+function closeBrandActivity() { ["bkActBackdrop", "bkActModal"].forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); }); }
+function openBrandActivity() {
+  closeBrandActivity();
+  const back = document.createElement("div"); back.className = "cat-backdrop"; back.id = "bkActBackdrop";
+  back.addEventListener("pointerdown", (e) => { if (e.target === back) closeBrandActivity(); });
+  const modal = document.createElement("div"); modal.className = "cat-modal resizable bkit-act-modal"; modal.id = "bkActModal";
+  modal.innerHTML =
+    '<div class="cat-head"><span>🎨 Brand kit activity</span><button class="cat-close" aria-label="Close">✕</button></div>' +
+    '<div class="cat-list bkit-act-list"></div>';
+  document.body.appendChild(back); document.body.appendChild(modal);   // the .cat-modal observer adds dialog semantics + Escape
+  makeModalResizable(modal, "money.brandActModal");
+  modal.querySelector(".cat-close").addEventListener("click", closeBrandActivity);
+  brandkitPaintActivity();
+}
+function brandkitPaintActivity() {
+  const list = document.querySelector("#bkActModal .bkit-act-list"); if (!list) return;
+  const log = brandkitGet().log.slice().reverse();   // newest first
+  list.innerHTML = log.length
+    ? log.map((e) => '<div class="bkit-ev"><span class="bkit-ev-d"><b>' + escapeHtml(e.byName || "a founder") + "</b> " + escapeHtml(e.action || "") + "</span>" +
+        '<span class="bkit-ev-t">' + (typeof agoStr === "function" ? agoStr(+e.at || 0) : "") + "</span></div>").join("")
+    : '<div class="char-empty">No changes yet. Every edit any founder makes lands here, attributed.</div>';
+}
+// ── the widget itself (founder-gated in renderLibrary; ALSO defensively no-ops here) ──
+RENDERERS.brandkit = function (el, entry) {
+  el.classList.add("is-brandkit");
+  if (!isFounder()) {
+    el.innerHTML = '<div class="bkit-locked"><i data-lucide="lock"></i><p>The Brand Kit is a founder-only surface.</p></div>';
+    try { localStorage.removeItem(BRANDKIT_KEY); } catch (e) {}   // don't leave the mirror on a shared, non-founder browser
+    brandkitRevertLive(); drawIcons();
+    return;
+  }
+  el.innerHTML =
+    '<div class="bkit-wrap">' +
+      '<div class="bkit-status" data-bk="status">local only</div>' +
+      '<div class="bkit-sec">Theme tokens</div>' +
+      '<div class="bkit-tokens" data-bk="tokens"></div>' +
+      '<label class="bkit-apply"><input type="checkbox" data-bk="apply"><span>Apply to my app</span></label>' +
+      '<div class="bkit-sec">Palette<button class="bkit-add" data-bk="add-pal" title="Add colour" aria-label="Add colour">+</button></div>' +
+      '<div class="bkit-list" data-bk="palette"></div>' +
+      '<div class="bkit-sec">Type<button class="bkit-add" data-bk="add-type" title="Add typeface" aria-label="Add typeface">+</button></div>' +
+      '<div class="bkit-list" data-bk="type"></div>' +
+      '<div class="bkit-sec">Logos<label class="bkit-add bkit-upload" title="Upload a logo" aria-label="Upload a logo">+<input type="file" accept="image/*" data-bk="logo-file" hidden></label></div>' +
+      '<div class="bkit-logos" data-bk="logos"></div>' +
+      '<div class="bkit-sec">Notes</div>' +
+      '<textarea class="bkit-notes" data-bk="notes" placeholder="Brand voice, do &amp; don\'t, usage rules…"></textarea>' +
+      '<div class="bkit-sec">Founders<button class="bkit-add" data-bk="add-founder" title="Add a founder" aria-label="Add a founder">+</button></div>' +
+      '<div class="bkit-roster" data-bk="roster"></div>' +
+      '<div class="bkit-foot">' +
+        '<button class="bkit-btn" data-bk="activity"><i data-lucide="history"></i>Activity</button>' +
+        '<button class="bkit-btn" data-bk="copycss"><i data-lucide="clipboard-copy"></i>Copy CSS</button>' +
+        '<button class="bkit-btn" data-bk="tokensjson"><i data-lucide="download"></i>tokens.json</button>' +
+      '</div>' +
+    '</div>';
+  const q = (s) => el.querySelector('[data-bk="' + s + '"]');
+  const esc = (typeof escapeHtml === "function") ? escapeHtml : (s) => String(s == null ? "" : s);
+  const isHex = (s) => /^#[0-9a-f]{6}$/i.test(s || "");
+  function paintStatus() {
+    const sEl = q("status"); if (!sEl) return;
+    if (_bkShared.ok) sEl.textContent = "shared · " + (_bkShared.count || 0) + (_bkShared.count === 1 ? " founder" : " founders");
+    else if (_bkShared.notFounder) sEl.textContent = "not shared with this account yet";
+    else sEl.textContent = "local only — sharing not set up";
+    sEl.classList.toggle("on", !!_bkShared.ok);
+  }
+  function paintTokens(st) {
+    const wrap = q("tokens"); if (!wrap) return;
+    const t = st.tokens || {};
+    const row = (key, label) => '<label class="bkit-token"><span>' + label + '</span>' +
+      '<input type="color" data-bk-token="' + key + '" value="' + (isHex(t[key]) ? t[key] : BK_TOKEN_FALLBACK[key]) + '"></label>';
+    const fontOpts = (typeof FONTS !== "undefined" ? FONTS : []).map((f) =>
+      '<option value="' + esc(f.stack) + '"' + ((t.font || "") === f.stack ? " selected" : "") + ">" + esc(f.label) + "</option>").join("");
+    wrap.innerHTML = row("ink", "Ink") + row("paper", "Paper") + row("panel", "Panel") + row("accent", "Accent") +
+      '<label class="bkit-token bkit-token-font"><span>Font</span><select data-bk-token="font"><option value="">— keep —</option>' + fontOpts + "</select></label>";
+  }
+  function paintList(section, mapper) {
+    const wrap = q(section); if (!wrap) return;
+    const live = (brandkitGet()[section] || []).filter((i) => i && !i.deleted);
+    wrap.innerHTML = live.length ? live.map((it) =>
+      '<div class="bkit-row" data-row="' + esc(it.id) + '">' + mapper(it) +
+        '<button class="bkit-del" data-bk="del" data-section="' + section + '" data-id="' + esc(it.id) + '" title="Remove" aria-label="Remove">✕</button></div>').join("")
+      : '<div class="bkit-empty">none yet</div>';
+  }
+  function paintLogos(st) {
+    const wrap = q("logos"); if (!wrap) return;
+    const live = (st.logos || []).filter((i) => i && !i.deleted);
+    wrap.innerHTML = live.length ? live.map((it) =>
+      '<div class="bkit-logo" data-row="' + esc(it.id) + '">' +
+        '<img alt="' + esc(it.name || "logo") + '" src="' + esc(it.data || "") + '">' +
+        '<span class="bkit-logo-name">' + esc(it.name || "") + "</span>" +
+        '<button class="bkit-del" data-bk="del" data-section="logos" data-id="' + esc(it.id) + '" title="Remove" aria-label="Remove">✕</button></div>').join("")
+      : '<div class="bkit-empty">no logos yet — tap ＋ to add one</div>';
+  }
+  function paintRoster() {
+    const wrap = q("roster"); if (!wrap) return;
+    brandkitRoster().then((list) => {
+      if (!document.body.contains(wrap)) return;
+      wrap.innerHTML = list.length
+        ? list.map((m) => '<div class="bkit-founder">' + esc(m.name || (m.handle ? "@" + m.handle : m.uid)) + (m.handle ? ' <span class="bkit-founder-h">@' + esc(m.handle) + "</span>" : "") + "</div>").join("")
+        : '<div class="bkit-empty">' + (_bkShared.ok ? "just you so far" : "sharing not set up yet — this kit is local to this device") + "</div>";
+    }).catch(() => {});
+  }
+  function paint() {
+    const st = brandkitGet();
+    paintStatus();
+    const ap = q("apply"); if (ap) ap.checked = brandkitApplyOn();
+    paintTokens(st);
+    paintList("palette", (it) =>
+      '<input class="bkit-color" type="color" value="' + (isHex(it.hex) ? it.hex : "#000000") + '" data-id="' + esc(it.id) + '" data-field="hex">' +
+      '<input class="bkit-txt" value="' + esc(it.name || "") + '" placeholder="name" data-id="' + esc(it.id) + '" data-field="name">');
+    paintList("type", (it) =>
+      '<input class="bkit-txt" value="' + esc(it.label || "") + '" placeholder="label (e.g. Headings)" data-id="' + esc(it.id) + '" data-field="label">' +
+      '<input class="bkit-txt bkit-txt-wide" value="' + esc(it.stack || "") + '" placeholder="font stack / name" data-id="' + esc(it.id) + '" data-field="stack">');
+    paintLogos(st);
+    const nt = q("notes"); if (nt && document.activeElement !== nt) nt.value = st.notes || "";
+    paintRoster();
+    drawIcons();
+  }
+  // ── mutation helpers ──
+  function editItem(section, id, mut) { brandkitEdit((st) => { const it = (st[section] || []).find((x) => x && x.id === id); if (it) { mut(it); it.updated = Date.now(); } }); }
+  function addItem(section, base, action) { brandkitEdit((st) => { (st[section] || (st[section] = [])).push(Object.assign({ id: brandkitLogId(), updated: Date.now(), ord: Date.now(), ordAt: Date.now() }, base)); }, action); }
+  function delItem(section, id, action) { brandkitEdit((st) => { const it = (st[section] || []).find((x) => x && x.id === id); if (it) { it.deleted = 1; it.updated = Date.now(); } }, action); }
+  // ── events (delegated) ──
+  el.addEventListener("input", (e) => {
+    const t = e.target, list = t.closest(".bkit-list");
+    if (list && t.matches("[data-field]")) editItem(list.dataset.bk, t.dataset.id, (it) => { it[t.dataset.field] = t.value; });
+    else if (t.matches(".bkit-notes")) { clearTimeout(el._bkNotesT); const v = t.value; el._bkNotesT = setTimeout(() => brandkitEdit((st) => { st.notes = v; st.notesAt = Date.now(); }), 500); }
+    else if (t.matches("[data-bk-token]")) applyTokenLive(t.dataset.bkToken, t.value);
+  });
+  el.addEventListener("change", (e) => {
+    const t = e.target, list = t.closest(".bkit-list");
+    if (t.matches("[data-bk-token]")) brandkitEdit((st) => { st.tokens = Object.assign({}, st.tokens, { [t.dataset.bkToken]: t.value }); st.tokensAt = Date.now(); }, "updated the " + t.dataset.bkToken + " token");
+    else if (list && t.matches("[data-field]")) brandkitEdit((st) => {}, "edited a " + list.dataset.bk + " item");
+    else if (t.matches('[data-bk="apply"]')) { brandkitSetApply(t.checked); brandkitEdit((st) => {}, t.checked ? "turned Apply-to-my-app on (this device)" : "turned Apply-to-my-app off (this device)"); }
+    else if (t.matches('[data-bk="logo-file"]')) { const f = t.files && t.files[0]; if (f) readLogo(f); t.value = ""; }
+  });
+  el.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-bk]"); if (!b) return;
+    const k = b.dataset.bk;
+    if (k === "add-pal") addItem("palette", { name: "", hex: "#888888" }, "added a palette colour");
+    else if (k === "add-type") addItem("type", { label: "", stack: "" }, "added a typeface");
+    else if (k === "del") { delItem(b.dataset.section, b.dataset.id, "removed a " + b.dataset.section + " item"); }
+    else if (k === "activity") openBrandActivity();
+    else if (k === "copycss") { const css = brandkitTokensCss(brandkitGet().tokens); try { navigator.clipboard.writeText(css); flash("CSS vars copied — paste into styles.css :root, then deploy for a global rollout."); } catch (err) { flash("Couldn't copy — here it is:\n" + css); } }
+    else if (k === "tokensjson") downloadTokens();
+    else if (k === "add-founder") openAddFounder();
+  });
+  function applyTokenLive(key, val) {
+    if (!brandkitApplyOn()) return;                 // live preview only while Apply is on
+    const de = document.documentElement.style;
+    if (key === "ink") { const rgb = hexToRgb(val); if (rgb) { de.setProperty("--ink-rgb", rgb); de.setProperty("--edge", "rgba(" + rgb + ", 0.30)"); de.setProperty("--edge-soft", "rgba(" + rgb + ", 0.14)"); } }
+    else if (key === "paper") de.setProperty("--paper", val);
+    else if (key === "panel") de.setProperty("--panel", val);
+    else if (key === "accent") de.setProperty("--accent", val);
+    else if (key === "font" && val) de.setProperty("--font-ui", val);
+  }
+  function readLogo(f) {
+    const r = new FileReader();
+    r.onload = () => { const data = String(r.result || ""); if (data.length > BK_LOGO_MAX) { flash("That image is a bit big — keep logos under ~150 KB so they ride the kit smoothly."); return; } addItem("logos", { name: (f.name || "logo").replace(/\.[^.]+$/, "").slice(0, 40), data }, "added a logo"); };
+    r.readAsDataURL(f);
+  }
+  function downloadTokens() {
+    try {
+      const blob = new Blob([JSON.stringify(brandkitGet().tokens || {}, null, 2)], { type: "application/json" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "tokens.json"; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    } catch (e) { flash("Couldn't build tokens.json here."); }
+  }
+  function openAddFounder() {
+    const wrap = q("roster"); if (!wrap) return;
+    wrap.innerHTML = '<div class="bkit-addf"><input class="bkit-txt" placeholder="@handle" data-bk="founder-handle"><button class="bkit-btn" data-bk="founder-go">Add</button><button class="bkit-btn ghost" data-bk="founder-cancel">Cancel</button><div class="bkit-addf-msg"></div></div>';
+    const inp = wrap.querySelector('[data-bk="founder-handle"]'); if (inp) inp.focus();
+    const msg = wrap.querySelector(".bkit-addf-msg");
+    wrap.querySelector('[data-bk="founder-cancel"]').addEventListener("click", paintRoster);
+    wrap.querySelector('[data-bk="founder-go"]').addEventListener("click", async () => {
+      const raw = (inp && inp.value) || ""; if (!raw.trim()) return;
+      if (msg) msg.textContent = "looking up…";
+      try {
+        const hits = await socialSearch(raw);
+        if (!hits.length) { if (msg) msg.textContent = "no one found by that handle."; return; }
+        const p = hits[0];
+        await brandkitAddFounder(p.owner, p.pubkey);
+        flash("Added @" + (p.username || "founder") + " to the brand kit.");
+        paintRoster();
+      } catch (err) { if (msg) msg.textContent = (err && err.message) || "couldn't add that founder."; }
+    });
+  }
+  // external updates (a pull merged in a peer's edit) repaint — but never yank a field
+  // you're mid-edit; while focused inside the widget, only the status line refreshes.
+  function onExt() { if (el.contains(document.activeElement)) { paintStatus(); brandkitPaintActivity(); } else { paint(); brandkitPaintActivity(); } }
+  document.addEventListener("cache:brandkit", onExt);
+  // 15s while-open poll (near-live), self-cleaning when the widget leaves the DOM
+  const poll = setInterval(() => {
+    if (!document.body.contains(el)) { clearInterval(poll); document.removeEventListener("cache:brandkit", onExt); return; }
+    if (!document.hidden) brandkitPull().then((m) => { if (m) paintStatus(); }).catch(() => {});
+  }, 15000);
+  paint();
+  brandkitPull().then(() => paint()).catch(() => {});
+};
+
 // ── Founder lock ────────────────────────────────────────────
 // Every founder-only surface (King Cozy bar, King menu item, console) is gated
 // HERE on a machine-local secret — the backend reports founder:true only if a
@@ -15512,6 +16000,7 @@ updateXp();
 renderTrust();
 applyTier();
 renderBrand();
+try { if (isFounder() && brandkitApplyOn()) brandkitApplyLive(brandkitGet()); } catch (e) {}   // a founder's live brand persists across reloads without opening the widget
 renderHealth();
 syncBadges();  // seed/award badges from state available at boot (level, named, budget, streak)
 Store.subscribe(document.getElementById("healthBadge"), () => renderHealth());  // health updates as data connects
@@ -15558,6 +16047,8 @@ document.addEventListener("cache:logged", autoPushSoon);   // a finished check-i
 socialUpdateBadge();       // show any unread count from the last session's cache immediately
 if (socialReady()) socialPoll().catch(() => {});   // pull new messages + friend requests on load
 setInterval(() => { if (!document.hidden && socialReady()) socialPoll().catch(() => {}); }, 75000);   // near-live message check (the open surface polls faster)
+if (isFounder()) brandkitPull().catch(() => {});   // adopt other founders' brand-kit edits on load (gated → no-op until the company cache is set up)
+setInterval(() => { if (!document.hidden && isFounder()) brandkitPull().catch(() => {}); }, 75000);   // near-live brand-kit sync (an open widget polls faster, every 15s)
 bugPoll().catch(() => {});   // did something you reported get fixed while you were away?
 setInterval(() => { if (!document.hidden) bugPoll().catch(() => {}); }, 75000);   // rides the same cadence; bugPoll self-throttles to ~4 min
 loadSubs().then(() => Store.refresh());  // load your decisions first, then pull data → widgets render correct on first paint
